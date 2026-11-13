@@ -1,0 +1,417 @@
+import { stringify } from './mixed';
+
+// Re-exported to keep `substitute` reachable from its documented `helpers/string` path. The
+// implementation lives in a leaf module so that `helpers/console` can use it, and this module can
+// import `helpers/console`, without a cycle.
+export { substitute } from './templateString';
+
+/**
+ * Convert string to upper case first letter.
+ *
+ * @param {string} string String to convert.
+ * @returns {string}
+ */
+export function toUpperCaseFirst(string: string): string {
+  return string[0].toUpperCase() + string.substr(1);
+}
+
+/**
+ * Compare strings case insensitively.
+ *
+ * @param {...string} strings Strings to compare.
+ * @returns {boolean}
+ */
+export function equalsIgnoreCase(...strings: string[]): boolean {
+  const unique = [];
+  let length = strings.length;
+
+  while (length) {
+    length -= 1;
+    const string = stringify(strings[length]).toLowerCase();
+
+    if (unique.indexOf(string) === -1) {
+      unique.push(string);
+    }
+  }
+
+  return unique.length === 1;
+}
+
+/**
+ * Generates a random hex string. Used as namespace for Handsontable instance events.
+ *
+ * @returns {string} Returns 16-long character random string (eq. `'92b1bfc74ec4'`).
+ */
+export function randomString(): string {
+  const buf = new Uint16Array(4);
+
+  globalThis.crypto.getRandomValues(buf);
+
+  return Array.from(buf, v => v.toString(16).padStart(4, '0')).join('');
+}
+
+/**
+ * Checks if a string is a valid JSON object.
+ *
+ * @param {string} string The string to check.
+ * @returns {boolean}
+ */
+export function isJSON(string: string) {
+  if (typeof string !== 'string') {
+    return false;
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(string);
+
+    return typeof parsed === 'object' && parsed !== null;
+
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Checks if value is valid percent.
+ *
+ * @param {string} value The value to check.
+ * @returns {boolean}
+ */
+export function isPercentValue(value: string): boolean {
+  return /^(?:\d\d?%|100%)$/.test(value);
+}
+
+/**
+ * The named character references a message string may carry, plus numeric ones handled below.
+ */
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: '\'',
+  nbsp: '\xA0',
+  // Punctuation and symbols that turn up in authored UI copy. Without these, a title written as
+  // `Loading&hellip;` displayed the reference itself once these surfaces stopped being parsed.
+  ndash: '\u2013',
+  mdash: '\u2014',
+  hellip: '\u2026',
+  lsquo: '\u2018',
+  rsquo: '\u2019',
+  ldquo: '\u201C',
+  rdquo: '\u201D',
+  laquo: '\xAB',
+  raquo: '\xBB',
+  bull: '\u2022',
+  middot: '\xB7',
+  dagger: '\u2020',
+  copy: '\xA9',
+  reg: '\xAE',
+  trade: '\u2122',
+  deg: '\xB0',
+  plusmn: '\xB1',
+  times: '\xD7',
+  divide: '\xF7',
+  euro: '\u20AC',
+  pound: '\xA3',
+  yen: '\xA5',
+  cent: '\xA2',
+  sect: '\xA7',
+  para: '\xB6',
+  shy: '\xAD',
+  ensp: '\u2002',
+  emsp: '\u2003',
+  thinsp: '\u2009',
+};
+
+/**
+ * Decodes HTML character references in a string.
+ *
+ * UI copy that carries tags used to be stripped with `stripTags()` and then assigned to
+ * `innerHTML`, so the HTML parser decoded any character references on the way in: a title written
+ * as `&lt;` displayed as `<`. Those surfaces now build DOM and write through `textContent`, which
+ * decodes nothing, so this reproduces that step and keeps what those messages render unchanged.
+ *
+ * Covers the named references that appear in authored copy plus decimal and hexadecimal numeric
+ * ones. The full HTML entity table is roughly two thousand names, and reproducing it would mean
+ * shipping the table; a reference outside this set is left as written. Numeric references have no
+ * such limit, so `&#8212;` resolves whether or not `&mdash;` is listed.
+ *
+ * Two limits of that table are worth knowing, because the parser this imitates has neither:
+ *
+ * - The lookup is **case-sensitive**. HTML5 also defines a handful of names in upper case, so
+ *   `&AMP;`, `&COPY;` and `&REG;` are valid references the parser decoded and this leaves as
+ *   written. Use the lower-case spelling in authored copy.
+ * - A name outside `NAMED_ENTITIES` stays literal. `a &hearts; b` used to render `a ♥ b` and now
+ *   renders as written.
+ *
+ * Reachable as `Handsontable.helper.decodeHtmlEntities()`, because `src/index.ts` spreads the
+ * string helpers into the public barrel, so both limits above are part of the published contract.
+ *
+ * @param {string} string String to decode.
+ * @returns {string}
+ */
+export function decodeHtmlEntities(string: string): string {
+  // One pass, so a decoded `&` cannot start a second reference - `&amp;lt;` decodes to `&lt;`,
+  // which is what the parser produced, not to `<`.
+  return String(string).replace(/&(#[0-9]+|#[xX][0-9a-fA-F]+|[a-zA-Z]+);/g, (match, reference: string) => {
+    if (reference[0] === '#') {
+      const codePoint = reference[1] === 'x' || reference[1] === 'X'
+        ? parseInt(reference.slice(2), 16)
+        : parseInt(reference.slice(1), 10);
+
+      if (!Number.isFinite(codePoint) || codePoint < 0 || codePoint > 0x10FFFF) {
+        return match;
+      }
+
+      // The parser replaces NUL and lone surrogates with U+FFFD rather than passing them through,
+      // and `Number.isFinite` cannot catch either, because `parseInt` succeeds on both. Passing a
+      // lone surrogate on would put invalid UTF-16 into cell data, which a later JSON or CSV write
+      // then has to deal with.
+      if (codePoint === 0 || (codePoint >= 0xD800 && codePoint <= 0xDFFF)) {
+        return '\uFFFD';
+      }
+
+      return String.fromCodePoint(codePoint);
+    }
+
+    // `Object.hasOwn`, not a bare lookup: `NAMED_ENTITIES` is an object literal, so a bare read
+    // walks the prototype chain and `&constructor;` resolves to `Object`, stringified into the
+    // output. The same went for `&toString;`, `&valueOf;`, `&hasOwnProperty;`, `&isPrototypeOf;`
+    // and `&propertyIsEnumerable;`. The parser leaves all of those literal, and so must this.
+    return Object.hasOwn(NAMED_ENTITIES, reference) ? NAMED_ENTITIES[reference] : match;
+  });
+}
+
+/**
+ * Strips HTML tags from a string and decodes any character references left behind.
+ *
+ * This is what a surface needs when it renders authored copy as text: it reproduces what assigning
+ * the string to `innerHTML` and reading `textContent` back used to produce, without going near a
+ * sink. Use it wherever `stripTags()` output is written through `textContent`.
+ *
+ * @param {string} string String to convert.
+ * @returns {string}
+ */
+export function htmlToPlainText(string: string): string {
+  return decodeHtmlEntities(stripTags(string));
+}
+
+/**
+ * Strip any HTML tag from the string.
+ *
+ * @param {string} string String to cut HTML from.
+ * @returns {string}
+ */
+export function stripTags(string: string): string {
+  const str = String(string);
+  let result = '';
+  let depth = 0;
+  let inQuote = false;
+  let quoteChar = '';
+
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+
+    if (depth > 0 && !inQuote && (ch === '"' || ch === '\'')) {
+      inQuote = true;
+      quoteChar = ch;
+    } else if (inQuote && ch === quoteChar) {
+      inQuote = false;
+    } else if (!inQuote && ch === '<') {
+      depth += 1;
+    } else if (!inQuote && ch === '>' && depth > 0) {
+      depth -= 1;
+    } else if (depth === 0) {
+      result += ch;
+    }
+  }
+
+  return result;
+}
+
+const HTML_ESCAPE_CHARS: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  '\'': '&#39;',
+};
+
+/**
+ * Escapes the characters that carry meaning in HTML, so the string renders as the text it is.
+ *
+ * Prefer this over {@link stripTags} for a value interpolated into a markup string: `stripTags`
+ * drops everything between a `<` and the next `>`, so a title such as `'Loaded 5 < 10 rows'` loses
+ * half of itself, while escaping blocks the markup and keeps the text whole.
+ *
+ * @param {string} string String to escape.
+ * @returns {string}
+ */
+export function escapeHtml(string: string): string {
+  return String(string).replace(/[&<>"']/g, char => HTML_ESCAPE_CHARS[char]);
+}
+
+/**
+ * Converts camel case to hyphens in a string.
+ *
+ * @param {string} str - The string to convert.
+ * @returns {string} - The converted string.
+ */
+export function toHyphen(str: string): string {
+  if (typeof str !== 'string') {
+    return str;
+  }
+
+  return str.replace(/([A-Z])/g, '-$1').replaceAll('_', '-').toLowerCase();
+}
+
+/**
+ * Most languages use the same uppercase-to-lowercase rules as plain English — for
+ * example, `'A'` always becomes `'a'`, `'Ö'` always becomes `'ö'`. Only three locales
+ * diverge: Turkish and Azeri treat dotted `'İ'` and dotless `'I'` as separate letters
+ * (so `'I'` lowercases to `'ı'`, not `'i'`), and Lithuanian inserts an extra dot when
+ * lowercasing `'Ì'`, `'Í'`, and `'Ĩ'`. These five characters are therefore the only
+ * ones in Unicode where locale matters for lowercasing, which makes them a reliable
+ * probe: if a locale changes how they lowercase, it needs special handling; every other
+ * locale can use the much faster `toLowerCase()`.
+ */
+const LOCALE_LOWERCASE_PROBE = 'IİÌÍĨ';
+const LOCALE_LOWERCASE_PROBE_DEFAULT = LOCALE_LOWERCASE_PROBE.toLowerCase();
+const localeLowerCaseTailoringCache = new Map<string | undefined, boolean>();
+
+/**
+ * Returns `true` when the given locale changes how letters are lowercased compared
+ * with the standard rules. This is only true for Turkish, Azeri, and Lithuanian.
+ *
+ * The result is cached the first time a locale is seen because the answer never
+ * changes — it is a fixed property of the JavaScript engine, not of the data. Calling
+ * `updateSettings({ locale: 'tr-TR' })` does not invalidate the cache; it simply means
+ * the next call passes `'tr-TR'` as the locale string, which is already cached.
+ *
+ * An invalid or empty locale tag (e.g. `''` or `'en_US'` with an underscore) is treated
+ * as "does not change lowercasing" so the function never throws.
+ *
+ * @param {string} [locale] A BCP 47 locale tag such as `'tr-TR'`, or `undefined` to use
+ *   the host default.
+ * @returns {boolean} `true` for Turkish (`tr`), Azeri (`az`), and Lithuanian (`lt`);
+ *   `false` for everything else.
+ */
+function localeAffectsLowerCase(locale?: string): boolean {
+  const cached = localeLowerCaseTailoringCache.get(locale);
+
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  let affects: boolean;
+
+  try {
+    // eslint-disable-next-line no-restricted-syntax
+    affects = LOCALE_LOWERCASE_PROBE.toLocaleLowerCase(locale) !== LOCALE_LOWERCASE_PROBE_DEFAULT;
+  } catch {
+    affects = false;
+  }
+
+  localeLowerCaseTailoringCache.set(locale, affects);
+
+  return affects;
+}
+
+/**
+ * Lowercases a string in a locale-aware and performant way.
+ *
+ * The built-in `toLocaleLowerCase(locale)` is correct but slow — passing an explicit
+ * locale forces the JavaScript engine to use its full international library on every
+ * call, even for languages like German or French where the result would be exactly the
+ * same as plain `toLowerCase()`. This function checks first whether the given locale
+ * actually changes anything, and falls back to the faster `toLowerCase()` when it does
+ * not. The check result is cached, so the overhead is paid only once per locale.
+ *
+ * Invalid or empty locale tags (such as `''` or `'en_US'` with an underscore instead
+ * of a hyphen) are handled gracefully instead of throwing an error.
+ *
+ * @param {string} value The string to lowercase.
+ * @param {string} [locale] A BCP 47 locale tag such as `'tr-TR'` or `'en-US'`,
+ *   or `undefined` to use the host default.
+ * @returns {string} The lowercased string.
+ */
+export function localeLowerCase(value: string, locale?: string): string {
+  // eslint-disable-next-line no-restricted-syntax
+  return localeAffectsLowerCase(locale) ? value.toLocaleLowerCase(locale) : value.toLowerCase();
+}
+
+/**
+ * The shared grapheme segmenter, built on first use. The constructor is one of the pricier `Intl`
+ * ones and the instance keeps no state between calls, while the callers run on every keystroke.
+ */
+let characterSegmenter: Intl.Segmenter | null = null;
+
+/**
+ * Matches a string in which every UTF-16 code unit is a character of its own. That holds for all the
+ * code units below U+0300, which has no combining mark, joiner, or surrogate, except the carriage return,
+ * because `\r\n` is one character. Such a string is by far the most common one, and it can skip the
+ * segmenter, which costs about 6 µs for a short string, against 0.1 µs for this test.
+ */
+// The range is deliberate: it names every code unit that may join a neighbor, and so keeps it out of the fast path.
+// eslint-disable-next-line no-misleading-character-class
+const SINGLE_UNIT_CHARACTERS = /^[^\r\u0300-\uFFFF]*$/;
+
+/**
+ * Splits a string into the characters a reader sees. These are grapheme clusters, so a flag, a skin
+ * tone emoji, a family emoji, or a letter with a combining mark is one character, not two or seven.
+ *
+ * @param {string} text The text to split.
+ * @returns {string[]} The characters.
+ */
+export function splitIntoCharacters(text: string): string[] {
+  if (SINGLE_UNIT_CHARACTERS.test(text)) {
+    return text.split('');
+  }
+
+  characterSegmenter ??= new Intl.Segmenter();
+
+  return Array.from(characterSegmenter.segment(text), segment => segment.segment);
+}
+
+/**
+ * Counts the characters a reader sees in a string (see {@link splitIntoCharacters}), where
+ * `String#length` counts UTF-16 code units.
+ *
+ * @param {string} value The string to measure.
+ * @returns {number}
+ */
+export function getCharacterLength(value: string): number {
+  if (SINGLE_UNIT_CHARACTERS.test(value)) {
+    return value.length;
+  }
+
+  characterSegmenter ??= new Intl.Segmenter();
+
+  let length = 0;
+
+  for (const segment of characterSegmenter.segment(value)) { // eslint-disable-line no-unused-vars
+    length += 1;
+  }
+
+  return length;
+}
+
+/**
+ * Removes up to `count` characters that end right before the given UTF-16 index. A character is
+ * never split. Stops early when it reaches the start of the string.
+ *
+ * @param {string} value The source string.
+ * @param {number} index The UTF-16 index that the removed range ends at (exclusive).
+ * @param {number} count The number of characters to remove.
+ * @returns {object} The shortened string (`value`) and the UTF-16 index (`index`) that now sits where
+ * the removed range began.
+ */
+export function removeCharactersBefore(
+  value: string, index: number, count: number
+): { value: string, index: number } {
+  const characters = splitIntoCharacters(value.slice(0, index));
+  const kept = characters.slice(0, Math.max(characters.length - count, 0)).join('');
+
+  return { value: kept + value.slice(index), index: kept.length };
+}

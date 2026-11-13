@@ -29,64 +29,84 @@ describe('a11y DOM attributes (ARIA tags)', () => {
   });
 
   it('should assign the `role=menu` attribute to the root element of the dropdown menu', async() => {
-    const hot = handsontable({
-      dropdownMenu: true,
-      colHeaders: true,
-    });
-
-    dropdownMenu(0);
-
-    await sleep(50);
-
-    expect(hot.getPlugin('dropdownMenu').menu.container.getAttribute('role')).toEqual('menu');
-  });
-
-  it('should assign the `role=menuitem` attribute to all the options of the dropdown menu', () => {
-    const hot = handsontable({
-      dropdownMenu: true,
-      colHeaders: true,
-    });
-
-    dropdownMenu(0);
-
-    const cMenu = hot.getPlugin('dropdownMenu').menu;
-
-    expect(filterElementsByAttribute(
-      cMenu.container,
-      'td',
-      'role',
-      'menuitem'
-    ).length).toEqual(cMenu.hotMenu.countRows());
-
-    expect(cMenu.hotMenu.getCell(0, 0).getAttribute('role')).toEqual('menuitem');
-  });
-
-  it('should assign the `aria-label` attribute to all the options of the dropdown menu', () => {
     handsontable({
       dropdownMenu: true,
       colHeaders: true,
     });
 
-    dropdownMenu(0);
+    await dropdownMenu(0);
+
+    await sleep(50);
+
+    expect(getPlugin('dropdownMenu').menu.container.getAttribute('role')).toEqual('menu');
+  });
+
+  it('should assign the `role=menuitem` attribute to all the options of the dropdown menu', async() => {
+    handsontable({
+      dropdownMenu: true,
+      colHeaders: true,
+    });
+
+    await dropdownMenu(0);
 
     const cMenu = getPlugin('dropdownMenu').menu;
 
     expect(filterElementsByAttribute(
       cMenu.container,
       'td',
-      'aria-label',
-      el => (el.innerText === '' ? '---------' : el.innerText)
-    ).length).toBe(cMenu.hotMenu.countRows());
-    expect(cMenu.hotMenu.getCell(0, 0).getAttribute('aria-label')).toBe('Insert column left');
+      'role',
+      'menuitem'
+    ).length).toEqual(cMenu.hotMenu.countRows() - 1);
+
+    expect(cMenu.hotMenu.getCell(0, 0).getAttribute('role')).toEqual('menuitem');
   });
 
-  it('should assign the `tabindex` attribute to all the options of the dropdown menu', () => {
+  it('should assign the `role=menuitemcheckbox` attribute to the `Read only` item', async() => {
     handsontable({
       dropdownMenu: true,
       colHeaders: true,
     });
 
-    dropdownMenu(0);
+    await dropdownMenu(0);
+
+    const cMenu = getPlugin('dropdownMenu').menu;
+
+    const menuItemCheckboxes = filterElementsByAttribute(
+      cMenu.container,
+      'td',
+      'role',
+      'menuitemcheckbox'
+    );
+
+    expect(menuItemCheckboxes.length).toEqual(1);
+    expect(menuItemCheckboxes[0].ariaLabel).toBe('Read only');
+  });
+
+  it('should assign the `aria-label` attribute to all the options of the dropdown menu', async() => {
+    handsontable({
+      dropdownMenu: true,
+      colHeaders: true,
+    });
+
+    await dropdownMenu(0);
+
+    const cMenu = getPlugin('dropdownMenu').menu;
+
+    const ariaLabelledCells = [...cMenu.container.querySelectorAll('td')]
+      .filter(el => el.ariaLabel !== undefined);
+
+    expect(ariaLabelledCells.length).toBe(cMenu.hotMenu.countRows());
+
+    expect(cMenu.hotMenu.getCell(0, 0).getAttribute('aria-label')).toBe('Insert column left');
+  });
+
+  it('should assign the `tabindex` attribute to all the options of the dropdown menu', async() => {
+    handsontable({
+      dropdownMenu: true,
+      colHeaders: true,
+    });
+
+    await dropdownMenu(0);
 
     const cMenu = getPlugin('dropdownMenu').menu;
 
@@ -98,16 +118,16 @@ describe('a11y DOM attributes (ARIA tags)', () => {
     ).length).toBe(6);
   });
 
-  it('should assign the `aria-disabled` attribute to all the disabled options of the dropdown menu', () => {
-    const hot = handsontable({
+  it('should assign the `aria-disabled` attribute to all the disabled options of the dropdown menu', async() => {
+    handsontable({
       data: [{ a: 1 }],
       dropdownMenu: true,
       colHeaders: true,
     });
 
-    dropdownMenu(0);
+    await dropdownMenu(0);
 
-    const cMenu = hot.getPlugin('dropdownMenu').menu;
+    const cMenu = getPlugin('dropdownMenu').menu;
 
     // Undo and Redo options
     expect(cMenu.hotMenu.getCell(0, 0).getAttribute('aria-disabled')).toEqual('true');
@@ -116,14 +136,14 @@ describe('a11y DOM attributes (ARIA tags)', () => {
 
   it('should assign the `aria-expanded` attribute to all the expandable options of the dropdown menu and set it to' +
     ' either `true` of `false`, depending on their state (via mouse movement)', async() => {
-    const hot = handsontable({
+    handsontable({
       dropdownMenu: true,
       colHeaders: true,
     });
 
-    dropdownMenu(0);
+    await dropdownMenu(0);
 
-    const cMenu = hot.getPlugin('dropdownMenu').menu;
+    const cMenu = getPlugin('dropdownMenu').menu;
 
     expect(filterElementsByAttribute(
       cMenu.container,
@@ -139,13 +159,19 @@ describe('a11y DOM attributes (ARIA tags)', () => {
 
     $expandableItem.simulate('mouseover');
 
-    await sleep(300);
+    // Waits for the expansion rather than for exactly the 300ms open delay, which left no margin
+    // at all.
+    await waitUntil(() => $expandableItem.get(0).getAttribute('aria-expanded') === 'true');
 
     expect($expandableItem.get(0).getAttribute('aria-expanded')).toEqual('true');
 
     $unExpandableItem.simulate('mouseover');
 
-    await sleep(50);
+    // Closing a sub-menu now waits the same 300ms opening does (DEV-2861), so this waits for the
+    // collapse itself rather than for a fixed delay. The requirement is unchanged: resting on an
+    // item with no sub-menu must still collapse the expanded one, and this times out if it never
+    // does.
+    await waitUntil(() => $expandableItem.get(0).getAttribute('aria-expanded') === 'false');
 
     expect($expandableItem.get(0).getAttribute('aria-expanded')).toEqual('false');
   });
@@ -157,7 +183,7 @@ describe('a11y DOM attributes (ARIA tags)', () => {
       dropdownMenu: ['remove_col', 'alignment']
     });
 
-    dropdownMenu();
+    await dropdownMenu();
 
     const cMenu = getPlugin('dropdownMenu').menu;
 
@@ -171,56 +197,21 @@ describe('a11y DOM attributes (ARIA tags)', () => {
     const $unExpandableItem = $(cMenu.hotMenu.getCell(0, 0));
     const $expandableItem = $(cMenu.hotMenu.getCell(1, 0));
 
-    keyDownUp('arrowdown');
-    keyDownUp('arrowright');
+    await keyDownUp('arrowdown');
+    await keyDownUp('arrowright');
 
     expect($unExpandableItem.get(0).hasAttribute('aria-expanded')).toBe(false);
 
-    keyDownUp('arrowdown');
+    await keyDownUp('arrowdown');
 
     expect($expandableItem.get(0).getAttribute('aria-expanded')).toBe('false');
 
-    keyDownUp('arrowright');
+    await keyDownUp('arrowright');
 
     expect($expandableItem.get(0).getAttribute('aria-expanded')).toBe('true');
 
-    keyDownUp('arrowleft');
+    await keyDownUp('arrowleft');
 
     expect($expandableItem.get(0).getAttribute('aria-expanded')).toBe('false');
-  });
-
-  it('should add `aria-label` attribute to the menu-opening button in the column headers', () => {
-    const hot = handsontable({
-      colHeaders: true,
-      dropdownMenu: ['remove_col', 'alignment']
-    });
-    const dictionaryKeys = Handsontable.languages.dictionaryKeys;
-
-    expect(getCell(-1, 0).querySelector('button').getAttribute('aria-label')).toEqual(
-      hot.getTranslatedPhrase(dictionaryKeys.COLUMN_HEADER_LABEL_OPEN_MENU)
-    );
-    expect(getCell(-1, 1).querySelector('button').getAttribute('aria-label')).toEqual(
-      hot.getTranslatedPhrase(dictionaryKeys.COLUMN_HEADER_LABEL_OPEN_MENU)
-    );
-    expect(getCell(-1, 2).querySelector('button').getAttribute('aria-label')).toEqual(
-      hot.getTranslatedPhrase(dictionaryKeys.COLUMN_HEADER_LABEL_OPEN_MENU)
-    );
-  });
-
-  it('should add the `aria-haspopup` attribute to the column headers when the plugin is enabled', () => {
-    handsontable({
-      colHeaders: true,
-      dropdownMenu: ['remove_col', 'alignment']
-    });
-
-    expect(getCell(-1, 0).getAttribute('aria-haspopup')).toEqual('menu');
-    expect(getCell(-1, 1).getAttribute('aria-haspopup')).toEqual('menu');
-
-    updateSettings({
-      dropdownMenu: false
-    });
-
-    expect(getCell(-1, 0).getAttribute('aria-haspopup')).toEqual(null);
-    expect(getCell(-1, 1).getAttribute('aria-haspopup')).toEqual(null);
   });
 });

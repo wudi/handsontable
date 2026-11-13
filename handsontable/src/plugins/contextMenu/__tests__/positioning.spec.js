@@ -1,34 +1,46 @@
 describe('ContextMenu', () => {
+  beforeEach(function() {
+    this.$container = $('<div id="testContainer"></div>').appendTo('body');
+  });
+
+  afterEach(function() {
+    if (this.$container) {
+      destroy();
+      this.$container.remove();
+    }
+  });
+
   using('configuration object', [
     { htmlDir: 'ltr', layoutDirection: 'inherit' },
     { htmlDir: 'rtl', layoutDirection: 'ltr' },
   ], ({ htmlDir, layoutDirection }) => {
-    const id = 'testContainer';
-
-    beforeEach(function() {
+    beforeEach(() => {
       $('html').attr('dir', htmlDir);
-      this.$container = $(`<div id="${id}"></div>`).appendTo('body');
     });
 
-    afterEach(function() {
+    afterEach(() => {
       $('html').attr('dir', 'ltr');
-
-      if (this.$container) {
-        destroy();
-        this.$container.remove();
-      }
     });
+
+    // Where a submenu opens is asserted from DOM rects in tests/e2e/submenu-position.spec.ts: from every
+    // corner on the two layouts whose grid and page directions differ (the mixed rows of this using()
+    // table), and with the window scrolled on all four. A scroll of the grid's own holder never reaches
+    // the positioner. ./visual-tests/tests/js-only/context-menu/ keeps a look check of the menu.
 
     describe('menu opening', () => {
       it('should open context menu in proper position in iframe', async() => {
-        const iframeOutside = $('<iframe/>').css({ width: '500px', height: '500px' }).appendTo(spec().$container);
+        const themeLinkHtml = getE2eThemeStylesheetLinkTagHtml(getLoadedTheme());
+        // Tall enough for the whole menu below the cell on every theme (horizon's is the tallest, about 475px):
+        // a menu that fits neither below nor above its point is pulled back inside the frame, and this spec
+        // is about where the menu opens, not about that.
+        const iframeOutside = $('<iframe/>').css({ width: '500px', height: '700px' }).appendTo(spec().$container);
         const docOutside = iframeOutside[0].contentDocument;
 
         docOutside.open('text/html', 'replace');
         docOutside.write(`
           <!doctype html>
           <head>
-            <link type="text/css" rel="stylesheet" href="../dist/handsontable.full.min.css">
+            ${themeLinkHtml}
           </head>`);
         docOutside.close();
 
@@ -40,7 +52,7 @@ describe('ContextMenu', () => {
         docInside.write(`
           <!doctype html>
           <head>
-            <link type="text/css" rel="stylesheet" href="../dist/handsontable.full.min.css">
+            ${themeLinkHtml}
           </head>`);
         docInside.close();
 
@@ -59,17 +71,49 @@ describe('ContextMenu', () => {
         docInside.documentElement.scrollTop = 500;
         docInside.documentElement.scrollLeft = 500;
 
-        await sleep(400);
+        await waitForNextAnimationFrames(2);
 
         const cell = hot.getCell(2, 2);
 
-        contextMenu(cell, hot);
+        // Use direct simulation instead of the `contextMenu()` helper: that helper wraps in
+        // `waitOnScroll`, which patches the iframe HoT's scroll functions and later calls
+        // `hot().view.render()`. In this nested-iframe setup the render dispatches synthetic
+        // keyboard events cross-realm that confuse the recorder's listener cleanup logic.
+        $(cell).simulate('mousedown', { button: 2 });
+
+        // Wait for the cell to STOP MOVING, then read its position — the way a real `contextmenu`
+        // event carries the pointer's current coordinates. The mousedown selects the cell, and the
+        // selection's window-scroll strategy calls `scrollIntoView` on it, which scrolls the frames
+        // the cell sits outside of: this grid is driven from the parent realm, and the engine reads
+        // its window's scroll offset correctly now, so that strategy runs here as it does for a grid
+        // built in its own realm. Coordinates taken before the mousedown point at where the cell
+        // was, and the menu then opens there, 104px from where the cell is.
+        //
+        // Two equal samples in a row is the settled state itself, not a guess at how long settling
+        // takes, so it holds whether the scroll lands synchronously or a frame later.
+        let lastCellTop = null;
+
+        await waitUntil(() => {
+          const { top } = cell.getBoundingClientRect();
+          const settled = lastCellTop === top;
+
+          lastCellTop = top;
+
+          return settled;
+        });
+
+        const cellOffset = $(cell).offset();
+
+        $(cell).simulate('contextmenu', {
+          clientX: cellOffset.left - Handsontable.dom.getWindowScrollLeft(hot.rootWindow),
+          clientY: cellOffset.top - Handsontable.dom.getWindowScrollTop(hot.rootWindow),
+        });
+        await waitForNextAnimationFrames(2);
 
         const contextMenuElem = $(docOutside.body).find('.htContextMenu');
         const contextMenuOffset = contextMenuElem.offset();
         const { top: cellTop, left: cellLeft } = cell.getBoundingClientRect();
-        const { top: iframeTop, left: iframeLeft } = iframeInside.offset()
-        ;
+        const { top: iframeTop, left: iframeLeft } = iframeInside.offset();
         const cellOffsetTop = cellTop + iframeTop;
         const cellOffsetLeft = cellLeft + iframeLeft;
 
@@ -80,107 +124,7 @@ describe('ContextMenu', () => {
       });
     });
 
-    describe('subMenu opening', () => {
-      it('should open subMenu by default on the right-bottom position of the main menu', async() => {
-        handsontable({
-          layoutDirection,
-          data: createSpreadsheetData(4, Math.floor(window.innerWidth / 50)),
-          contextMenu: true,
-        });
-
-        selectCell(0, 0);
-        openContextSubmenuOption('Alignment');
-
-        await sleep(350);
-
-        const subMenuItem = $('.htContextMenu .ht_master .htCore  td:contains(Alignment)');
-        const subMenuItemOffset = subMenuItem.offset();
-        const contextMenuRoot = $('.htContextMenu');
-        const contextMenuOffset = contextMenuRoot.offset();
-        const subMenuRoot = $('.htContextMenuSub_Alignment');
-        const subMenuOffset = subMenuRoot.offset();
-
-        expect(subMenuOffset.top).toBeCloseTo(subMenuItemOffset.top - 1, 0);
-        expect(subMenuOffset.left).toBeCloseTo(contextMenuOffset.left + contextMenuRoot.outerWidth(), 0);
-      });
-
-      it('should open subMenu on the right-top of the main menu if on the left and bottom there\'s no space left', async() => {
-        handsontable({
-          layoutDirection,
-          data: createSpreadsheetData(Math.floor(window.innerHeight / 23), 4),
-          contextMenu: true,
-        });
-
-        selectCell(countRows() - 1, 0);
-        openContextSubmenuOption('Alignment');
-
-        await sleep(350);
-
-        const subMenuItem = $('.htContextMenu .ht_master .htCore td:contains(Alignment)');
-        const subMenuItemOffset = subMenuItem.offset();
-        const contextMenuRoot = $('.htContextMenu');
-        const contextMenuOffset = contextMenuRoot.offset();
-        const subMenuRoot = $('.htContextMenuSub_Alignment');
-        const subMenuOffset = subMenuRoot.offset();
-
-        // 3px comes from bottom borders
-        expect(subMenuOffset.top)
-          .toBeCloseTo(subMenuItemOffset.top - subMenuRoot.outerHeight() + subMenuItem.outerHeight() + 3, 0);
-        expect(subMenuOffset.left)
-          .toBeCloseTo(contextMenuOffset.left + contextMenuRoot.outerWidth(), 0);
-      });
-
-      it('should open subMenu on the left-bottom of the main menu if on the right there\'s no space left', async() => {
-        handsontable({
-          layoutDirection,
-          data: createSpreadsheetData(4, Math.floor(window.innerWidth / 50)),
-          contextMenu: true,
-        });
-
-        selectCell(0, countCols() - 1);
-        openContextSubmenuOption('Alignment');
-
-        await sleep(350);
-
-        const subMenuItem = $('.htContextMenu .ht_master .htCore td:contains(Alignment)');
-        const subMenuItemOffset = subMenuItem.offset();
-        const contextMenuRoot = $('.htContextMenu');
-        const contextMenuOffset = contextMenuRoot.offset();
-        const subMenuRoot = $('.htContextMenuSub_Alignment');
-        const subMenuOffset = subMenuRoot.offset();
-
-        expect(subMenuOffset.top).toBeCloseTo(subMenuItemOffset.top - 1, 0);
-        expect(subMenuOffset.left).toBeCloseTo(contextMenuOffset.left - contextMenuRoot.outerWidth(), 0);
-      });
-
-      it('should open subMenu on the left-top of the main menu if on the right and bottom there\'s no space left', async() => {
-        handsontable({
-          layoutDirection,
-          data: createSpreadsheetData(Math.floor(window.innerHeight / 23), Math.floor(window.innerWidth / 50)),
-          contextMenu: true,
-        });
-
-        selectCell(countRows() - 1, countCols() - 1);
-        openContextSubmenuOption('Alignment');
-
-        await sleep(350);
-
-        const subMenuItem = $('.htContextMenu .ht_master .htCore td:contains(Alignment)');
-        const subMenuItemOffset = subMenuItem.offset();
-        const contextMenuRoot = $('.htContextMenu');
-        const contextMenuOffset = contextMenuRoot.offset();
-        const subMenuRoot = $('.htContextMenuSub_Alignment');
-        const subMenuOffset = subMenuRoot.offset();
-
-        // 3px comes from bottom borders
-        expect(subMenuOffset.top)
-          .toBeCloseTo(subMenuItemOffset.top - subMenuRoot.outerHeight() + subMenuItem.outerHeight() + 3, 0);
-        expect(subMenuOffset.left)
-          .toBeCloseTo(contextMenuOffset.left - contextMenuRoot.outerWidth(), 0);
-      });
-    });
-
-    it('should show tick from "Read only" element at proper place', () => {
+    it('should show tick from "Read only" element at proper place', async() => {
       handsontable({
         layoutDirection,
         data: createSpreadsheetData(10, 10),
@@ -188,11 +132,11 @@ describe('ContextMenu', () => {
         readOnly: true,
       });
 
-      selectCell(0, 0);
+      await selectCell(0, 0);
 
       const cell = getCell(0, 0);
 
-      contextMenu(cell);
+      await contextMenu(cell);
 
       const $readOnlyItem = $('.htContextMenu .ht_master .htCore td:contains(Read only)');
       const $tickItem = $readOnlyItem.find('span.selected');
@@ -200,8 +144,13 @@ describe('ContextMenu', () => {
       const $contextMenuRoot = $('.htContextMenu');
       const contextMenuOffset = $contextMenuRoot.offset();
 
-      expect(tickItemOffset.top).toBe(216);
-      expect(tickItemOffset.left).toBe(contextMenuOffset.left + 4);
+      const readOnlyItemOffset = $readOnlyItem.offset();
+
+      expect(tickItemOffset.top).toBe(readOnlyItemOffset.top);
+      // The tick sits just inside the context-menu's left border. Theme tokens
+      // shift the baseline by 0px or 1px depending on density/border width, so
+      // allow a 1px tolerance instead of per-theme hardcoded values.
+      expect(tickItemOffset.left).toBeAroundValue(contextMenuOffset.left, 1);
     });
   });
 });

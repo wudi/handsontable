@@ -1,0 +1,537 @@
+import type { TableDeps } from '../../table/baseTable';
+import {
+  addClass,
+  getScrollLeft,
+  removeClass,
+  resetCssTransform,
+} from '../../../../../helpers/dom/element';
+import InlineStartOverlayTable from '../../table/regions/inlineStartTable';
+import { Overlay, type OverlayDeps } from './_base';
+import { getCornerStyle } from '../../selection';
+import {
+  CLONE_INLINE_START,
+} from '../constants';
+import {
+  holderOwnsAxisScrollbar,
+  reservedScrollbarSpace,
+  overlayExtentBesideScrollbar,
+  axisScrollbarClearance,
+} from '../scrollbarClearance';
+import { throwWithCause } from '../../../../../helpers/errors';
+import { setSpreaderOffset } from '../spreaderOffset';
+
+/**
+ * @class InlineStartOverlay
+ */
+export class InlineStartOverlay extends Overlay {
+  /**
+   * How much shorter than its root the overlay's holder is kept, so an overlay ("floating") horizontal
+   * scrollbar underneath stays reachable. 0 whenever the scrollbar has real width.
+   */
+  #holderClearance = 0;
+
+  /**
+   */
+  constructor(deps: OverlayDeps) {
+    super(deps, CLONE_INLINE_START);
+  }
+
+  /**
+   * Factory method to create a subclass of `Table` that is relevant to this overlay.
+   *
+   * @see Table#constructor
+   * @param {...*} args Parameters that will be forwarded to the `Table` constructor.
+   * @returns {InlineStartOverlayTable}
+   */
+  createTable(deps: TableDeps) {
+    return new InlineStartOverlayTable(deps);
+  }
+
+  /**
+   * Checks if overlay should be fully rendered.
+   *
+   * @returns {boolean}
+   */
+  shouldBeRendered(): boolean {
+    return this.wtSettings.getSetting('shouldRenderInlineStartOverlay') as boolean;
+  }
+
+  /**
+   * @returns {'inline'} This overlay follows the page sideways.
+   */
+  get railAxis(): 'inline' {
+    return 'inline';
+  }
+
+  /**
+   * Updates the left overlay position.
+   *
+   * @returns {boolean} Always `false` - this overlay's header-border classes shift no layout, so it
+   * never reports a position change. See `InlineStartOverlay#adjustHeaderBordersPosition`.
+   */
+  resetFixedPosition() {
+    const wtTable = this.deps.getWtTable();
+
+    if (!this.needFullRender || !this.shouldBeRendered() || !wtTable.holder.parentNode) {
+      // removed from DOM
+      return false;
+    }
+
+    if (!this.clone) {
+      return false;
+    }
+
+    const overlayRoot = this.clone.wtTable.holder.parentNode as HTMLElement;
+    const rail = this.getRail();
+    let overlayPosition = 0;
+
+    if (this.deps.getWtViewport().isHorizontallyScrollableByWindow()) {
+      overlayPosition = this.getOverlayOffset() * (this.isRtl() ? -1 : 1);
+      // Held at the viewport's inline-start edge by the browser, never by this listener (DEV-127).
+      // The block axis is the page's: this clone mirrors the master's rows and scrolls with them.
+      rail?.pin({
+        isRtl: this.isRtl(),
+        width: wtTable.getTotalWidth(),
+        height: wtTable.getTotalHeight(),
+        inline: true,
+        block: { pinned: false, edge: 'top' },
+      });
+
+    } else {
+      rail?.release();
+      overlayPosition = this.getScrollPosition();
+    }
+
+    resetCssTransform(overlayRoot);
+
+    this.adjustHeaderBordersPosition(overlayPosition);
+
+    this.adjustElementsSize();
+
+    return false;
+  }
+
+  /**
+   * Sets the main overlay's horizontal scroll position.
+   *
+   * @param {number} pos The scroll position.
+   * @returns {boolean}
+   */
+  setScrollPosition(pos: number) {
+    const { rootWindow } = this.deps;
+    const scrollableElement = this.mainTableScrollableElement;
+    const scrollEl = scrollableElement as HTMLElement;
+    const getScrollPosition = () => {
+      return scrollableElement === rootWindow ? rootWindow.scrollX : scrollEl.scrollLeft;
+    };
+    const setScrollPosition = (newPosition: number) => {
+      if (scrollableElement === rootWindow) {
+        rootWindow.scrollTo(newPosition, rootWindow.scrollY);
+      } else {
+        scrollEl.scrollLeft = newPosition;
+      }
+    };
+
+    if (this.isRtl()) {
+      pos = -pos;
+    }
+
+    const oldScrollPosition = getScrollPosition();
+    let result = false;
+
+    if (pos !== oldScrollPosition) {
+      setScrollPosition(pos);
+      result = oldScrollPosition !== getScrollPosition();
+    }
+
+    return result;
+  }
+
+  /**
+   * Triggers onScroll hook callback.
+   */
+  onScroll() {
+    this.wtSettings.getSetting('onScrollVertically');
+  }
+
+  /**
+   * Calculates total sum cells width. Walks the columns live instead of reading the column-width
+   * prefix-sum cache: stretched widths (`stretchH`) are derived from the workspace width, which in
+   * turn depends on this sum — the live read resolves that cycle fresh on every call, while a
+   * cached read would freeze pre-stretch widths (nothing invalidates the cache when stretching
+   * recomputes). Column counts stay far below row counts, so this walk is not a scroll hotspot.
+   *
+   * @param {number} from Column index which calculates started from.
+   * @param {number} to Column index where calculation is finished.
+   * @returns {number} Width sum.
+   */
+  sumCellSizes(from: number, to: number) {
+    const defaultColumnWidth = this.wtSettings.getSetting<number>('defaultColumnWidth');
+    let column = from;
+    let sum = 0;
+
+    while (column < to) {
+      sum += this.deps.getWtTable().getColumnWidth(column) || defaultColumnWidth;
+      column += 1;
+    }
+
+    return sum;
+  }
+
+  /**
+   * Adjust overlay root element, children and master table element sizes (width, height).
+   */
+  adjustElementsSize() {
+    this.updateTrimmingContainer();
+
+    if (this.needFullRender) {
+      this.adjustRootElementSize();
+      this.adjustRootChildrenSize();
+
+    } else if (this.clone) {
+      // Stopped rendering: drop the clearance, or its filler stays behind over live cells.
+      this.clearScrollbarClearance();
+    }
+  }
+
+  /**
+   * Adjust overlay root element size (width and height).
+   */
+  adjustRootElementSize() {
+    if (!this.clone) {
+      return;
+    }
+
+    const wtTable = this.deps.getWtTable();
+    const wtViewport = this.deps.getWtViewport();
+    const { rootDocument, rootWindow } = this.deps;
+    const overlayRoot = this.clone.wtTable.holder.parentNode as HTMLElement;
+    const overlayRootStyle = overlayRoot.style;
+
+    // Height is a vertical question: this overlay is sized against the scrollport whenever an
+    // element owns the vertical axis, whichever owner its own (horizontal) axis has. Reading its own
+    // owner here would size the frozen-column clone to the full hider height on a grid that scrolls
+    // horizontally inside its box and vertically with the window.
+    const rootSized = !wtViewport.isVerticallyScrollableByWindow();
+    // The master's horizontal scrollbar sits along the bottom edge this overlay covers. Only worth a
+    // strip when the holder paints that scrollbar - otherwise the page scrolls, the scrollbar is not
+    // under this overlay, and clipping would expose the master for nothing. Read from the element
+    // that scrolls the columns, not from the horizontal owner: in the reverse split the window owns
+    // the axis while the holder scrolls it (`Overlay#ownsWindowScroll()`).
+    // A touch-only device has no pointer that could reach the scrollbar - see `canGrabScrollbar`.
+    // Clip and band together, or not at all - see `TopOverlay#adjustRootElementSize`.
+    const clearanceApplies = holderOwnsAxisScrollbar(this.mainTableScrollableElement === rootWindow, rootWindow);
+
+    this.#holderClearance = axisScrollbarClearance(
+      this.deps.geometryReader,
+      wtTable.holder,
+      this.deps.geometryReader.getScrollbarWidth(rootDocument),
+      clearanceApplies && wtViewport.hasHorizontalScroll(),
+      'horizontal'
+    );
+
+    if (rootSized) {
+      let height = wtViewport.getWorkspaceHeight();
+
+      // Only the holder's own horizontal scrollbar takes height off this overlay; the page's
+      // scrollbar sits outside the grid's box.
+      if (wtViewport.hasHorizontalScroll() && !wtViewport.isHorizontallyScrollableByWindow()) {
+        // The same rule the top and bottom overlays apply to widths - `clientHeight` accounts for the
+        // horizontal scrollbar at the browser's sub-pixel accuracy, where a rounded
+        // `getScrollbarWidth()` diverges under fractional zoom and gave the frozen overlay a different
+        // vertical scroll range than the master, clamping its scrollTop ~1px short (#12632).
+        height = overlayExtentBesideScrollbar(
+          height,
+          this.deps.geometryReader.clientHeight(wtTable.holder),
+          this.deps.geometryReader.getScrollbarWidth(rootDocument),
+          reservedScrollbarSpace(this.deps.geometryReader, wtTable.holder, 'horizontal')
+        );
+      }
+
+      height = Math.min(height, this.deps.geometryReader.scrollHeight(wtTable.wtRootElement));
+      overlayRootStyle.height = `${height}px`;
+
+    } else {
+      overlayRootStyle.height = '';
+    }
+
+    this.clone.wtTable.holder.style.height = overlayRootStyle.height;
+
+    const tableWidth = this.deps.geometryReader.outerWidth(this.clone.wtTable.TABLE);
+
+    overlayRootStyle.width = `${tableWidth}px`;
+
+    this.publishScrollbarClearance({
+      bottom: this.#holderClearance,
+      rtl: this.isRtl(),
+    }, this.wot.wtOverlays.isScrollbarVisible());
+  }
+
+  /**
+   * Adjust overlay root childs size.
+   */
+  adjustRootChildrenSize() {
+    if (!this.clone) {
+      return;
+    }
+
+    const { holder } = this.clone.wtTable;
+    const cornerStyle = getCornerStyle(this.wot);
+    const selectionCornerOffset = this.deps.getSelectionManager()
+      .getFocusSelection() ? parseInt(cornerStyle.width as string, 10) / 2 : 0;
+
+    this.clone.wtTable.hider.style.height = this.hider.style.height;
+    const holderParent = holder.parentNode as HTMLElement;
+
+    holder.style.height = holderParent.style.height;
+    // Add selection corner protruding part to the holder total width to make sure that
+    // borders' corner won't be cut after horizontal scroll (#6937).
+    holder.style.width = `${parseInt(holderParent.style.width, 10) + selectionCornerOffset}px`;
+  }
+
+  /**
+   * Adjust the overlay dimensions and position.
+   */
+  applyToDOM() {
+    const total = this.wtSettings.getSetting('totalColumns');
+    const isRtl = this.isRtl();
+
+    const columnsRenderCalculator = this.deps.getWtViewport().columnsRenderCalculator;
+    // During a native scrollbar drag the sticky-scroll strategy positions the spreader itself;
+    // the offset is only recorded then, and the transform returns on release.
+    const suspended = this.deps.getWtOverlays().isStickyScrollActive();
+
+    if (typeof columnsRenderCalculator?.startPosition === 'number') {
+      const start = columnsRenderCalculator.startPosition;
+
+      // In RTL the spreader moves away from the hider's right edge, so the physical direction flips.
+      setSpreaderOffset(this.spreader, 'x', isRtl ? -start : start, suspended);
+
+    } else if (total === 0 || columnsRenderCalculator === null) {
+      // 0 columns, or nothing rendered yet — a `null` calculator is the drawn-but-never-rendered state
+      // a skipped first draw leaves behind (see `restoreRenderedStateIfSafe` in `table/drawCycle.ts`).
+      setSpreaderOffset(this.spreader, 'x', 0, suspended);
+
+    } else {
+      throwWithCause('Incorrect value of the columnsRenderCalculator');
+    }
+
+    if (isRtl) {
+      this.spreader.style.left = '';
+    } else {
+      this.spreader.style.right = '';
+    }
+
+    if (this.needFullRender) {
+      this.syncOverlayOffset();
+    }
+  }
+
+  /**
+   * Synchronize calculated top position to an element.
+   */
+  syncOverlayOffset() {
+    if (!this.clone) {
+      return;
+    }
+
+    const rowsRenderCalculator = this.deps.getWtViewport().rowsRenderCalculator;
+    const start = typeof rowsRenderCalculator?.startPosition === 'number'
+      ? rowsRenderCalculator.startPosition : 0;
+
+    // The clone is suspended only while the strategy positions the clones itself (element mode).
+    setSpreaderOffset(this.clone.wtTable.spreader, 'y', start, this.deps.getWtOverlays().isStickyScrollOwningClones());
+  }
+
+  /**
+   * Scrolls horizontally to a column at the left edge of the viewport.
+   *
+   * @param {number} sourceCol  Column index which you want to scroll to.
+   * @param {boolean} [beyondRendered]  If `true`, scrolls according to the right
+   *                                    edge (left edge is by default).
+   * @returns {boolean}
+   */
+  scrollTo(sourceCol: number, beyondRendered: boolean) {
+    const { geometryReader } = this.deps;
+    const sourceInstance = this.wot.cloneSource ? this.wot.cloneSource : this.wot;
+    const mainHolder = sourceInstance.wtTable.holder;
+    let newX = this.getTableParentOffset();
+    let scrollbarCompensation = 0;
+
+    // The end columns cover the inline-end edge of the viewport (as the bottom rows cover the bottom one).
+    const inlineEndBandWidth = this.deps.getWtOverlays().inlineEndOverlay.getBandWidth();
+    const viewportWidth = this.deps.getWtViewport().getViewportWidth();
+
+    if (beyondRendered) {
+      const columnWidth = this.deps.getWtTable().getColumnWidth(sourceCol);
+
+      // A column wider than the room the end band leaves cannot be aligned to the inline-end edge.
+      if (columnWidth > viewportWidth - inlineEndBandWidth) {
+        beyondRendered = false;
+      }
+    }
+
+    if (beyondRendered && geometryReader.offsetWidth(mainHolder) !== geometryReader.clientWidth(mainHolder)) {
+      scrollbarCompensation = geometryReader.getScrollbarWidth(this.deps.rootDocument);
+    }
+    if (beyondRendered) {
+      newX += this.sumCellSizes(0, sourceCol + 1);
+      newX -= viewportWidth - inlineEndBandWidth;
+
+    } else {
+      newX += this.sumCellSizes(this.wtSettings.getSetting<number>('fixedColumnsStart'), sourceCol);
+    }
+
+    newX += scrollbarCompensation;
+
+    return this.setScrollPosition(newX);
+  }
+
+  /**
+   * Gets the distance between the page's inline-start edge and the table's: the table's left edge in LTR, and
+   * its right edge, measured from the page's right edge, in RTL. The RTL value is the page margin on the right
+   * and does not depend on how far the page is scrolled. It is `0` while the holder, not the window, scrolls
+   * the columns: the page offset is not part of the holder's scroll position.
+   *
+   * @returns {number}
+   */
+  getTableParentOffset() {
+    const preventOverflow = this.wtSettings.getSetting('preventOverflow');
+    let offset = 0;
+
+    if (
+      !preventOverflow &&
+      this.trimmingContainer === this.deps.rootWindow &&
+      this.isScrolledByWindow()
+    ) {
+      const wtTable = this.deps.getWtTable();
+
+      if (!this.isRtl()) {
+        offset = (wtTable.holderOffset as { top: number; left: number }).left;
+
+      } else {
+        // The holder's left edge is not where the table starts in RTL: a grid in a shrink-to-fit wrapper
+        // reaches far past the page's left edge, and a grid with a margin on the right does not start
+        // at the page's right edge. Take the margin measured with the draw's `holderOffset`, so a draw
+        // that widens the table does not leave the two out of step.
+        offset = wtTable.holderInlineStartMargin;
+      }
+    }
+
+    return offset;
+  }
+
+  /**
+   * Gets the main overlay's horizontal scroll position.
+   *
+   * @returns {number} Main table's horizontal scroll position.
+   */
+  getScrollPosition() {
+    return Math.abs(getScrollLeft(this.mainTableScrollableElement, this.deps.rootWindow));
+  }
+
+  /**
+   * Gets the main overlay's horizontal overlay offset.
+   *
+   * @returns {number} Main table's horizontal overlay offset.
+   */
+  getOverlayOffset() {
+    const { rootWindow } = this.deps;
+    let overlayOffset = 0;
+
+    // Gated on the axis owner alone, not on `isScrolledByWindow()`: in the reverse split the page offset is 0
+    // (`getTableParentOffset()`), so this is the raw holder scroll position, which the column-move backlight reads.
+    if (this.trimmingContainer === rootWindow) {
+      if (this.isRtl()) {
+        overlayOffset = Math.abs(Math.min(this.getTableParentOffset() - this.getScrollPosition(), 0));
+      } else {
+        overlayOffset = Math.max(this.getScrollPosition() - this.getTableParentOffset(), 0);
+      }
+      const rootWidth = this.deps.getWtTable().getTotalWidth();
+      const overlayRootWidth = this.clone ? this.clone.wtTable.getTotalWidth() : 0;
+      const maxOffset = rootWidth - overlayRootWidth;
+
+      if (overlayOffset > maxOffset) {
+        overlayOffset = 0;
+      }
+    }
+
+    return overlayOffset;
+  }
+
+  /**
+   * The part of the overlay offset that the layout does not already carry. While the holder scrolls the columns
+   * (the reverse split), the clone sits in the holder's own box and nothing moves it, so there is nothing to add,
+   * whereas {@link InlineStartOverlay#getOverlayOffset} stays the raw holder scroll position.
+   *
+   * @returns {number}
+   */
+  getOverlayTransformOffset(): number {
+    return this.isScrolledByWindow() ? super.getOverlayTransformOffset() : 0;
+  }
+
+  /**
+   * Stamps the `innerBorderInlineStart` / `innerBorderLeft` / `emptyRows` classes on the master.
+   *
+   * Always reports `false`: the row header carries its inline-end border at every scroll position
+   * and no cell behind it carries an inline-start border (#6673), so none of these classes moves the
+   * layout by a pixel and no stylesheet reads them. They are stamped for backward compatibility
+   * only. Reporting a position change made every scroll crossing horizontal offset 0 run
+   * `refreshAll()` - a nested `wot.draw(true)` over the master and every clone - to reconcile a
+   * 1px shift that cannot happen.
+   *
+   * @param {number} position Header X position if trimming container is window or scroll top if not.
+   * @returns {boolean} Always `false`.
+   */
+  adjustHeaderBordersPosition(position: number) {
+    const masterParent = this.deps.getWtTable().holder.parentNode as HTMLElement;
+    const state = this.#computeHeaderBordersState(position);
+
+    if (state.hasEmptyRows) {
+      addClass(masterParent, 'emptyRows');
+    } else {
+      removeClass(masterParent, 'emptyRows');
+    }
+
+    // "innerBorderLeft" is for backward compatibility.
+    if (state.innerBorder === 'add') {
+      addClass(masterParent, 'innerBorderLeft innerBorderInlineStart');
+    } else if (state.innerBorder === 'remove') {
+      removeClass(masterParent, 'innerBorderLeft innerBorderInlineStart');
+    }
+
+    return false;
+  }
+
+  /**
+   * Computes the inline-start overlay's header-border state without mutating the DOM. Pure: reads
+   * the settings only. Splitting the decision from the write lets the single-pass draw resolve the
+   * `innerBorderInlineStart` toggle before rendering, instead of after.
+   *
+   * Reports no position change, which is why it does not read the current class state either: the
+   * class shifts nothing. See `InlineStartOverlay#adjustHeaderBordersPosition`.
+   *
+   * @param {number} position The overlay offset that decides whether the inline-start border is shown.
+   * @returns {{ hasEmptyRows: boolean, innerBorder: string }}
+   */
+  #computeHeaderBordersState(position: number) {
+    const { wtSettings } = this;
+    const rowHeaders = wtSettings.getSetting('rowHeaders') as ((...args: unknown[]) => unknown)[];
+    const fixedColumnsStart = wtSettings.getSetting<number>('fixedColumnsStart');
+    const totalRows = wtSettings.getSetting<number>('totalRows');
+    const preventVerticalOverflow = wtSettings.getSetting('preventOverflow') === 'vertical';
+    const hasEmptyRows = !totalRows;
+    let innerBorder = 'keep';
+
+    if (!preventVerticalOverflow) {
+      if (fixedColumnsStart && !rowHeaders.length) {
+        innerBorder = 'add';
+
+      } else if (!fixedColumnsStart && rowHeaders.length) {
+        innerBorder = position ? 'add' : 'remove';
+      }
+    }
+
+    return { hasEmptyRows, innerBorder };
+  }
+}

@@ -1,0 +1,1562 @@
+import type { HotInstance } from '../core/types';
+import type { default as MetaManager } from './metaManager';
+import type { DataAccessorFn } from './dataSource';
+import { stringify } from '../3rdparty/SheetClip';
+import {
+  countFirstRowKeys
+} from '../helpers/data';
+import {
+  createObjectPropListener,
+  deepClone,
+  deepExtend,
+  deepObjectSize,
+  duckSchema,
+  hasOwnProperty,
+  isObject,
+  isPlainObject,
+  objectEach
+} from '../helpers/object';
+import { extendArray, insertValuesInPlace, removeIndexesInPlace, to2dArray } from '../helpers/array';
+import { rangeEach, isUnsignedNumber } from '../helpers/number';
+import { isDefined } from '../helpers/mixed';
+import { isFunction } from '../helpers/function';
+import { getValueGetterValue } from '../utils/valueAccessors';
+import { throwWithCause } from '../helpers/errors';
+import { recordRemovedColumns, recordRemovedRows } from './dataJournal';
+import { colToPropOrIndex } from '../helpers/columnProp';
+
+/*
+This class contains open-source contributions covered by the MIT license.
+
+1) In the `createRow` method: Row creation using functional `dataSchema` value
+2) In the `set` method: Data setting using functional `prop` value
+3) in the `get` method: Data getting using functional `prop` value
+
+The remaining part of this code comment contains the full license text of these contributions.
+
+======
+
+The MIT License
+
+Copyright 2013 Nicholas Bollweg
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+/**
+ * Utility class that gets and saves data from/to the data source using mapping of columns numbers to object property names.
+ *
+ * @todo Refactor arguments of methods getRange, getText to be numbers (not objects).
+ * @todo Remove priv, GridSettings from object constructor.
+ *
+ * @class DataMap
+ * @private
+ */
+class DataMap {
+  /**
+   * @type {number}
+   */
+  static get DESTINATION_RENDERER() {
+    return 1;
+  }
+
+  /**
+   * @type {number}
+   */
+  static get DESTINATION_CLIPBOARD_GENERATOR() {
+    return 2;
+  }
+
+  /**
+   * Instance of {@link Handsontable}.
+   *
+   * @private
+   * @type {Handsontable}
+   */
+  declare hot: HotInstance | null;
+  /**
+   * Instance of {@link MetaManager}.
+   *
+   * @private
+   * @type {MetaManager}
+   */
+  declare metaManager: MetaManager | null;
+  /**
+   * Instance of {@link TableMeta}.
+   *
+   * @private
+   * @type {TableMeta}
+   */
+  tableMeta: Record<string, unknown> & {
+    maxRows?: number;
+    maxCols?: number;
+    columns?: ((column: number) => Record<string, unknown> & { data?: string | number | DataAccessorFn })
+      | (Record<string, unknown> & { data?: string | number | DataAccessorFn })[];
+    dataSchema?: unknown;
+    startRows?: number;
+    startCols?: number;
+    colHeaders?: boolean;
+    rowHeaders?: boolean;
+    data?: unknown;
+    dataDotNotation?: boolean;
+  };
+  /**
+   * Reference to the original dataset.
+   *
+   * @type {*}
+   */
+  declare dataSource: (Record<string, unknown> | unknown[])[] | null;
+  /**
+   * Generated schema based on the first row from the source data.
+   *
+   * @type {object}
+   */
+  declare duckSchema: unknown;
+  /**
+   * Cached array of properties to columns.
+   *
+   * @type {Array}
+   */
+  declare colToPropCache: (string | number | DataAccessorFn)[];
+  /**
+   * Cached map of properties to columns.
+   *
+   * @type {Map}
+   */
+  declare propToColCache: Map<string | number | DataAccessorFn, number> | undefined;
+  /**
+   * The number of rows at the physical end of the data set that `minRows`/`minSpareRows` appended and that no
+   * other row follows. A lowered option removes only these, so an empty row the data set brought with it, one
+   * the user inserted, or one a write past the last row created is never taken.
+   *
+   * A count rather than a set of row objects: those options always append, so the rows they add are the
+   * physically last ones, and a sort or a row move reorders the VISUAL space only. Both counters are kept in
+   * step by every insert and removal that goes through this class.
+   */
+  #trailingFillerRows = 0;
+  /**
+   * The number of columns at the physical end of every row that `minCols`/`minSpareCols` appended and that no
+   * other column follows. Same rule as `#trailingFillerRows`.
+   */
+  #trailingFillerColumns = 0;
+
+  /**
+   * @param {object} hotInstance Instance of Handsontable.
+   * @param {Array} data Array of arrays or array of objects containing data.
+   * @param {MetaManager} metaManager The meta manager instance.
+   */
+  constructor(hotInstance: HotInstance, data: (Record<string, unknown> | unknown[])[], metaManager: MetaManager) {
+    this.hot = hotInstance;
+    this.metaManager = metaManager;
+    this.tableMeta = metaManager.getTableMeta();
+    this.dataSource = data;
+    this.colToPropCache = [];
+    this.propToColCache = new Map();
+
+    this.refreshDuckSchema();
+    this.createMap();
+  }
+
+  /**
+   * Generates cache for property to and from column addressation.
+   */
+  createMap() {
+    const schema = this.getSchema();
+
+    if (typeof schema === 'undefined') {
+      throwWithCause('trying to create `columns` definition but you didn\'t provide `schema` nor `data`');
+    }
+
+    const columns = this.tableMeta.columns;
+
+    this.colToPropCache = [];
+    this.propToColCache = new Map();
+
+    if (columns) {
+      this.#buildColumnCache(columns, schema);
+    } else {
+      this.recursiveDuckColumns(schema);
+    }
+  }
+
+  /**
+   * Checks whether a `null` property names no column. `null` is a real property only for a column
+   * declared `{ data: null }`, which reads and writes through a `"null"` key as it always has.
+   *
+   * @param {*} prop The column property.
+   * @returns {boolean}
+   */
+  #namesNoColumn(prop: unknown): boolean {
+    return prop === null && !this.propToColCache!.has(null as unknown as string);
+  }
+
+  /**
+   * Builds the column property cache from the `columns` setting.
+   *
+   * @param {Function|Array} columns The columns setting value.
+   * @param {unknown} schema The current data schema.
+   */
+  #buildColumnCache(
+    columns: ((column: number) => Record<string, unknown> & { data?: string | number | DataAccessorFn })
+      | (Record<string, unknown> & { data?: string | number | DataAccessorFn })[],
+    schema: unknown
+  ) {
+    let columnsLen = 0;
+    let filteredIndex = 0;
+    const isColumnsFn = typeof columns === 'function';
+
+    if (isColumnsFn) {
+      const schemaLen = deepObjectSize(schema);
+
+      columnsLen = schemaLen > 0 ? schemaLen : this.countFirstRowKeys();
+
+    } else {
+      const maxCols = this.tableMeta.maxCols;
+
+      columnsLen = Math.min(maxCols ?? Infinity, columns.length);
+    }
+
+    for (let i = 0; i < columnsLen; i++) {
+      const column = isColumnsFn
+        ? (columns as (index: number) => Record<string, unknown> & { data?: string | number | DataAccessorFn })(i)
+        : columns[i];
+
+      if (isObject(column)) {
+        if (typeof column.data !== 'undefined') {
+          const index = isColumnsFn ? filteredIndex : i;
+          const columnData = column.data;
+
+          this.colToPropCache[index] = columnData;
+          this.propToColCache!.set(columnData, index);
+        }
+
+        filteredIndex += 1;
+      }
+    }
+  }
+
+  /**
+   * Get the amount of physical columns in the first data row.
+   *
+   * @returns {number} Amount of physical columns in the first data row.
+   */
+  countFirstRowKeys() {
+    return countFirstRowKeys(this.dataSource ?? []);
+  }
+
+  /**
+   * Generates columns' translation cache. A plain object is walked, and every primitive leaf
+   * (`null`, `undefined`, a number, a string, a boolean) gets a column, whatever its default
+   * value. An array, a function, any other object (a `Date`, a `Map`) and the `__children` key get
+   * none. `deepObjectSize()` still counts an array, a function and such an object as a column, so
+   * the count can exceed the number of properties registered here.
+   *
+   * @param {object} schema An object to generate schema from.
+   * @param {number} lastCol The column index.
+   * @param {number} parent The property cache for recursive calls.
+   * @returns {number}
+   */
+  recursiveDuckColumns(schema: unknown, lastCol?: number, parent?: string) {
+    let lastColumn: number = lastCol ?? 0;
+    const propertyParent: string = parent ?? '';
+    let prop;
+
+    if (typeof schema === 'object' && schema !== null && !Array.isArray(schema)) {
+      objectEach(schema, (value: unknown, key: string) => {
+        const isObjectValue = typeof value === 'object' && value !== null;
+
+        if (
+          key === '__children' ||
+          typeof value === 'function' ||
+          Array.isArray(value) ||
+          (isObjectValue && !isPlainObject(value))
+        ) {
+          return;
+        }
+
+        if (isPlainObject(value)) {
+          lastColumn = this.recursiveDuckColumns(value, lastColumn, `${propertyParent}${key}.`);
+        } else {
+          prop = propertyParent + key;
+          this.colToPropCache.push(prop);
+          this.propToColCache!.set(prop, lastColumn);
+
+          lastColumn += 1;
+        }
+      });
+    }
+
+    return lastColumn;
+  }
+
+  /**
+   * Returns property name that corresponds with the given column index.
+   *
+   * A `columns[].data` accessor function is handed back as-is at runtime – code that has to handle
+   * it reads the result through `unknown` and `isDataAccessorFn()`.
+   *
+   * @param {string|number} column Visual column index or another passed argument.
+   * @returns {string|number|null} Column property, physical column index, `null` when the index
+   *   names no column that exists and is visible, or the passed argument when it is not an integer.
+   */
+  colToProp(column: number): string | number | null;
+  /* eslint-disable jsdoc/require-jsdoc -- the implementation shares the JSDoc of the overload above */
+  colToProp(column: number): string | number | DataAccessorFn | null {
+    // TODO: Should it work? Please, look at the test:
+    // "it should return the provided property name, when the user passes a property name as a column number".
+    if (Number.isInteger(column) === false) {
+      return column;
+    }
+
+    const physicalColumn = this.hot!.toPhysicalColumn(column);
+
+    // The index identifies no column that currently exists, so there is no property to name.
+    // `null` matches `toPhysicalColumn` / `toVisualColumn`, which the caller has to test for
+    // anyway. Returning the argument instead made an unknown index indistinguishable from a
+    // physical one (#7031).
+    if (physicalColumn === null) {
+      return null;
+    }
+
+    // Cached property.
+    if (this.colToPropCache && isDefined(this.colToPropCache[physicalColumn])) {
+      return this.colToPropCache[physicalColumn];
+    }
+
+    return physicalColumn;
+  }
+  /* eslint-enable jsdoc/require-jsdoc */
+
+  /**
+   * Translates property into visual column index.
+   *
+   * @param {string|number|Function|null} prop Column property, a physical column index, a
+   *   `columns[].data` accessor function, or `null`.
+   * @returns {string|number|Function|null} Visual column index, `null` when the argument names no
+   *   visible column, or the passed argument when it is a property this data set does not use.
+   */
+  propToCol(prop: string | number | DataAccessorFn | null) {
+    // The cache is consulted before `null` is rejected: a column declared `{ data: null }` stores
+    // `null` as its property, so the lookup resolves it to a real column.
+    const cachedPhysicalIndex = this.propToColCache!.get(prop as string | number | DataAccessorFn);
+
+    if (cachedPhysicalIndex !== undefined) {
+      return this.hot!.toVisualColumn(cachedPhysicalIndex);
+    }
+
+    // No column uses `null` as its property, so it means "no column" — most often it arrived from
+    // a `colToProp()` that could not resolve one.
+    if (prop === null) {
+      return null;
+    }
+
+    // A property that names no column is handed back unchanged. Only a numeric argument is
+    // treated as an index and resolved below.
+    if (typeof prop !== 'number') {
+      return prop;
+    }
+
+    // Property may be a physical column index. `null` when it identifies no visible column —
+    // either past the last one or trimmed. It used to fall back to the passed index, which
+    // named a different column whenever the two coordinate spaces had diverged (#7031).
+    return this.hot!.toVisualColumn(prop);
+  }
+
+  /**
+   * Returns data's schema.
+   *
+   * @returns {object}
+   */
+  getSchema(): unknown[] | Record<string, unknown> {
+    const schema = this.tableMeta.dataSchema;
+
+    if (schema) {
+      if (typeof schema === 'function') {
+        return (schema as () => unknown[] | Record<string, unknown>)();
+      }
+
+      return schema as unknown[] | Record<string, unknown>;
+    }
+
+    return this.duckSchema as unknown[] | Record<string, unknown>;
+  }
+
+  /**
+   * Creates the duck schema based on the current dataset.
+   *
+   * @returns {Array|object}
+   */
+  createDuckSchema() {
+    return this.dataSource && this.dataSource![0] ? duckSchema(this.dataSource![0]) : {};
+  }
+
+  /**
+   * Refresh the data schema.
+   */
+  refreshDuckSchema() {
+    this.duckSchema = this.createDuckSchema();
+  }
+
+  /**
+   * Creates row at the bottom of the data array.
+   *
+   * @param {number} [index] Physical index of the row before which the new row will be inserted.
+   * @param {number} [amount=1] An amount of rows to add.
+   * @param {object} [options] Additional options for created rows.
+   * @param {string} [options.source] Source of method call.
+   * @param {'above'|'below'} [options.mode] Sets where the row is inserted: above or below the passed index.
+   * @param {boolean} [options.fillsMinimumSize] Whether the rows are appended to satisfy `minRows`/`minSpareRows`.
+   * Only such rows are given back when one of those options is lowered.
+   * @fires Hooks#afterCreateRow
+   * @returns {number} Returns number of created rows.
+   */
+  createRow(index: number | undefined, amount = 1,
+            { source, mode = 'above', fillsMinimumSize = false }:
+            { source?: string; mode?: string; fillsMinimumSize?: boolean } = {}) {
+    const sourceRowsCount = this.hot!.countSourceRows();
+    let physicalRowIndex = sourceRowsCount;
+    let numberOfCreatedRows = 0;
+    let rowIndex = index;
+
+    if (typeof rowIndex !== 'number' || rowIndex >= sourceRowsCount) {
+      rowIndex = sourceRowsCount;
+    }
+
+    if (rowIndex < this.hot!.countRows()) {
+      physicalRowIndex = this.hot!.toPhysicalRow(rowIndex);
+    }
+
+    const continueProcess = this.hot!.runHooks('beforeCreateRow', rowIndex, amount, source);
+
+    if (continueProcess === false || physicalRowIndex === null) {
+      return {
+        delta: 0,
+      };
+    }
+
+    const maxRows = this.tableMeta.maxRows;
+    const columnCount = (this.getSchema() as unknown[]).length;
+    const rowsToAdd = [];
+
+    while (numberOfCreatedRows < amount && sourceRowsCount + numberOfCreatedRows < (maxRows ?? Infinity)) {
+      let row = null;
+
+      if (this.hot!.dataType === 'array') {
+        if (this.tableMeta.dataSchema) {
+          // Clone template array
+          row = deepClone(this.getSchema());
+
+        } else {
+          row = [];
+          /* eslint-disable no-loop-func */
+          rangeEach(columnCount - 1, () => row.push(null));
+        }
+
+      } else if (this.hot!.dataType === 'function') {
+        const dataSchemaFn = this.tableMeta.dataSchema;
+
+        if (typeof dataSchemaFn !== 'function') {
+          throwWithCause('`dataSchema` must be a function when `dataType` is `function`');
+        }
+        row = (dataSchemaFn as (rowIndex: number) => unknown)(rowIndex + numberOfCreatedRows);
+
+      } else {
+        row = {};
+        deepExtend(row, this.getSchema() as Record<string, unknown>);
+      }
+
+      rowsToAdd.push(row);
+
+      numberOfCreatedRows += 1;
+    }
+
+    // The mode puts the new slots of every row index map at the physical index the rows take below (the ManualRowResize
+    // heights, the hidden and trimmed flags, the `rowHeights` origins), the way `createCol()` does for columns.
+    this.hot!.rowIndexMapper.insertIndexes(rowIndex, numberOfCreatedRows, mode === 'below' ? 'end' : 'start');
+
+    if (mode === 'below') {
+      physicalRowIndex = Math.min(physicalRowIndex + 1, sourceRowsCount);
+    }
+
+    // After the `below` adjustment, so the tracked position is the one the rows actually take.
+    this.#trackInsertedRows(physicalRowIndex, numberOfCreatedRows, sourceRowsCount, fillsMinimumSize);
+
+    this.spliceData(physicalRowIndex, 0, rowsToAdd);
+
+    if (numberOfCreatedRows > 0) {
+      // The index mapper already holds the new rows.
+      this.hot!._getOperationScope().record({
+        type: 'insertRows',
+        physicalIndex: physicalRowIndex,
+        amount: numberOfCreatedRows,
+        atAxisEnd: physicalRowIndex === this.hot!.rowIndexMapper.getNumberOfIndexes() - numberOfCreatedRows,
+      });
+    }
+
+    const newVisualRowIndex = this.hot!.toVisualRow(physicalRowIndex);
+
+    // In case the created rows are the only ones in the table, the column index mappers need to be rebuilt based on
+    // the number of columns created in the row or the schema.
+    if (this.hot!.countSourceRows() === rowsToAdd.length) {
+      this.hot!.columnIndexMapper.initToLength(this.hot!.getInitialColumnCount());
+    }
+
+    if (numberOfCreatedRows > 0) {
+      if ((index === undefined || index === null)) {
+        // Creates the meta rows at the end of the rows collection without shifting the cells
+        // that were defined out of the range of the dataset.
+        this.metaManager!.createRow(null, numberOfCreatedRows);
+
+      } else if (source !== 'auto') {
+        this.metaManager!.createRow(physicalRowIndex, amount);
+      }
+    }
+
+    this.hot!.runHooks('afterCreateRow', newVisualRowIndex, numberOfCreatedRows, source);
+
+    return {
+      delta: numberOfCreatedRows,
+      startPhysicalIndex: physicalRowIndex,
+    };
+  }
+
+  /**
+   * Creates column at the right of the data array.
+   *
+   * @param {number} [index] Visual index of the column before which the new column will be inserted.
+   * @param {number} [amount=1] An amount of columns to add.
+   * @param {object} [options] Additional options for created columns.
+   * @param {string} [options.source] Source of method call.
+   * @param {'start'|'end'} [options.mode] Sets where the column is inserted: at the start (left in [LTR](@/api/options.md#layoutdirection), right in [RTL](@/api/options.md#layoutdirection)) or at the end (right in LTR, left in LTR)
+   * the passed index.
+   * @param {boolean} [options.fillsMinimumSize] Whether the columns are appended to satisfy `minCols`/`minSpareCols`.
+   * Only such columns are given back when one of those options is lowered.
+   * @fires Hooks#afterCreateCol
+   * @returns {number} Returns number of created columns.
+   */
+  createCol(index: number | undefined, amount = 1,
+            { source, mode = 'start', fillsMinimumSize = false }:
+            { source?: string; mode?: 'start' | 'end'; fillsMinimumSize?: boolean } = {}) {
+    if (!this.hot!.isColumnModificationAllowed()) {
+      throwWithCause('Cannot create a new column when the data source holds objects or the "columns" option is set. ' +
+        'You can only have as many columns as defined in the first data row, the data schema, ' +
+        'or the "columns" setting. To add new columns, use an array data source without the "columns" option.');
+    }
+
+    const dataSource = this.dataSource ?? [];
+    const maxCols = this.tableMeta.maxCols;
+    // The index mapper holds the physical end of the grid. `countSourceCols()` is the first row's length, which is
+    // shorter than the grid when `dataSchema` or `minCols` made it wider, and 0 once every row was removed.
+    const numberOfSourceCols = this.hot!.columnIndexMapper.getNumberOfIndexes();
+    const numberOfVisualCols = this.hot!.countCols();
+    const numberOfSourceRows = this.hot!.countSourceRows();
+    const visualColumnIndex = (typeof index === 'number' && index <= numberOfSourceCols) ? index : numberOfVisualCols;
+
+    if (this.hot!.runHooks('beforeCreateCol', visualColumnIndex, amount, source) === false) {
+      return { delta: 0 };
+    }
+
+    const physicalColumnIndex = (visualColumnIndex < numberOfVisualCols) ?
+      this.hot!.toPhysicalColumn(visualColumnIndex) : numberOfSourceCols;
+    const firstNewPhysicalColumnIndex = (mode === 'end') ?
+      Math.min(physicalColumnIndex + 1, numberOfSourceCols) : physicalColumnIndex;
+
+    const numberOfCreatedCols = Math.max(
+      0, Math.min(amount, (maxCols ?? Infinity) - numberOfVisualCols)
+    );
+
+    this.#trackInsertedColumns(
+      firstNewPhysicalColumnIndex, numberOfCreatedCols, numberOfSourceCols, fillsMinimumSize
+    );
+    this.#insertColumnsIntoDataSource(
+      dataSource, firstNewPhysicalColumnIndex, visualColumnIndex, numberOfVisualCols,
+      numberOfSourceRows, numberOfCreatedCols
+    );
+
+    if (numberOfCreatedCols > 0) {
+      // The index mapper takes the new columns below, after the record.
+      this.hot!._getOperationScope().record({
+        type: 'insertColumns',
+        physicalIndex: firstNewPhysicalColumnIndex,
+        amount: numberOfCreatedCols,
+        atAxisEnd: firstNewPhysicalColumnIndex === this.hot!.columnIndexMapper.getNumberOfIndexes(),
+      });
+    }
+
+    if (numberOfCreatedCols > 0) {
+      if ((index === undefined || index === null)) {
+        // Creates the meta columns at the end of the columns collection without shifting the cells
+        // that were defined out of the range of the dataset.
+        this.metaManager!.createColumn(null, numberOfCreatedCols);
+
+      } else if (source !== 'auto') {
+        this.metaManager!.createColumn(firstNewPhysicalColumnIndex, amount);
+      }
+    }
+
+    this.hot!.columnIndexMapper.insertIndexes(visualColumnIndex, numberOfCreatedCols, mode);
+
+    this.hot!.runHooks(
+      'afterCreateCol',
+      this.hot!.toVisualColumn(firstNewPhysicalColumnIndex),
+      numberOfCreatedCols,
+      source
+    );
+    this.refreshDuckSchema();
+
+    return {
+      delta: numberOfCreatedCols,
+      startPhysicalIndex: firstNewPhysicalColumnIndex,
+    };
+  }
+
+  /**
+   * Inserts the given amount of null columns into the data source, in one pass over the rows, as a block at
+   * the physical column the insertion is recorded at (the undo journal replays it by that index). The
+   * insertion index clamps to the row length inside `insertValuesInPlace`, so a row shorter than the
+   * insertion point gets the nulls at its end. A row longer than the grid keeps its values in order, and the
+   * nulls go in front of the values past the grid.
+   *
+   * @param {Array} dataSource The data source array.
+   * @param {number} firstColumn The physical column index at which the first column is inserted.
+   * @param {number|undefined} visualColumnIndex The visual column index being inserted.
+   * @param {number} numberOfVisualCols The visual column count before the insertion.
+   * @param {number} numberOfSourceRows The number of source rows.
+   * @param {number} amount The number of columns to insert.
+   */
+  #insertColumnsIntoDataSource(
+    dataSource: (Record<string, unknown> | unknown[])[],
+    firstColumn: number,
+    visualColumnIndex: number | undefined,
+    numberOfVisualCols: number,
+    numberOfSourceRows: number,
+    amount: number
+  ) {
+    if (amount <= 0) {
+      return;
+    }
+
+    if (numberOfSourceRows === 0) {
+      // A grid without rows gets one row per column created at its end, to hold the new columns.
+      const appendCount = typeof visualColumnIndex === 'number' ?
+        Math.max(0, Math.min(amount, visualColumnIndex - numberOfVisualCols + 1)) : amount;
+
+      for (let i = 0; i < appendCount; i++) {
+        dataSource.push([null]);
+      }
+
+      return;
+    }
+
+    for (let row = 0; row < numberOfSourceRows; row++) {
+      if (typeof dataSource[row] === 'undefined') {
+        dataSource[row] = [];
+      }
+
+      insertValuesInPlace(dataSource[row] as unknown[], firstColumn, amount, null);
+    }
+  }
+
+  /**
+   * Answers what a trailing filler count becomes after an insertion. A minimum-size fill appended past the last
+   * item extends the run; any other insertion that lands inside the run leaves only the fillers after it.
+   *
+   * @param {number} trailingFillers The current trailing filler count.
+   * @param {number} firstPhysicalIndex The physical index the first inserted item takes.
+   * @param {number} amount The number of inserted items.
+   * @param {number} count The number of items before the insertion.
+   * @param {boolean} fillsMinimumSize Whether the insertion fills a minimum size.
+   * @returns {number}
+   */
+  #trailingFillersAfterInsert(
+    trailingFillers: number, firstPhysicalIndex: number, amount: number, count: number, fillsMinimumSize: boolean
+  ): number {
+    if (amount <= 0) {
+      return trailingFillers;
+    }
+
+    if (fillsMinimumSize && firstPhysicalIndex >= count) {
+      return trailingFillers + amount;
+    }
+
+    if (firstPhysicalIndex > count - trailingFillers) {
+      return Math.max(count - firstPhysicalIndex, 0);
+    }
+
+    return trailingFillers;
+  }
+
+  /**
+   * Answers what a trailing filler count becomes after a removal, counting how many of the removed physical
+   * indexes fell inside the trailing run. Must be read before the items leave the data source.
+   *
+   * @param {number} trailingFillers The current trailing filler count.
+   * @param {number[]} removedPhysicalIndexes Physical indexes of the removed items.
+   * @param {number} count The number of items before the removal.
+   * @returns {number}
+   */
+  #trailingFillersAfterRemove(trailingFillers: number, removedPhysicalIndexes: number[], count: number): number {
+    const firstFillerIndex = count - trailingFillers;
+    let removedFillers = 0;
+
+    removedPhysicalIndexes.forEach((physicalIndex) => {
+      if (physicalIndex >= firstFillerIndex) {
+        removedFillers += 1;
+      }
+    });
+
+    return Math.max(trailingFillers - removedFillers, 0);
+  }
+
+  /**
+   * Keeps the trailing filler row count in step with a row insertion.
+   *
+   * @param {number} firstPhysicalRow The physical index the first inserted row takes.
+   * @param {number} amount The number of inserted rows.
+   * @param {number} numberOfSourceRows The number of source rows before the insertion.
+   * @param {boolean} fillsMinimumSize Whether the rows fill `minRows`/`minSpareRows`.
+   */
+  #trackInsertedRows(
+    firstPhysicalRow: number, amount: number, numberOfSourceRows: number, fillsMinimumSize: boolean
+  ) {
+    this.#trailingFillerRows = this.#trailingFillersAfterInsert(
+      this.#trailingFillerRows, firstPhysicalRow, amount, numberOfSourceRows, fillsMinimumSize
+    );
+  }
+
+  /**
+   * Keeps the trailing filler column count in step with a column insertion.
+   *
+   * @param {number} firstPhysicalColumn The physical index the first inserted column takes.
+   * @param {number} amount The number of inserted columns.
+   * @param {number} numberOfSourceCols The number of source columns before the insertion.
+   * @param {boolean} fillsMinimumSize Whether the columns fill `minCols`/`minSpareCols`.
+   */
+  #trackInsertedColumns(
+    firstPhysicalColumn: number, amount: number, numberOfSourceCols: number, fillsMinimumSize: boolean
+  ) {
+    this.#trailingFillerColumns = this.#trailingFillersAfterInsert(
+      this.#trailingFillerColumns, firstPhysicalColumn, amount, numberOfSourceCols, fillsMinimumSize
+    );
+  }
+
+  /**
+   * Removes row from the data array.
+   *
+   * @fires Hooks#beforeRemoveRow
+   * @fires Hooks#afterRemoveRow
+   * @param {number} [index] Visual index of the row to be removed. If not provided, the last row will be removed.
+   * @param {number} [amount=1] Amount of the rows to be removed. If not provided, one row will be removed.
+   * @param {string} [source] Source of method call.
+   * @returns {boolean} Returns `false` when action was canceled, otherwise `true`.
+   */
+  removeRow(index: number, amount = 1, source: string) {
+    let rowIndex = Number.isInteger(index) ? index : -amount; // -amount = taking indexes from the end.
+    const removedPhysicalIndexes = this.visualRowsToPhysical(rowIndex, amount);
+    const visualRowsLength = this.hot!.countRows();
+
+    rowIndex = (visualRowsLength + rowIndex) % visualRowsLength;
+
+    // It handle also callback from the `NestedRows` plugin. Removing parent node has effect in removing children nodes.
+    const actionWasNotCancelled = this.hot!.runHooks(
+      'beforeRemoveRow', rowIndex, removedPhysicalIndexes.length, removedPhysicalIndexes, source
+    );
+
+    if (actionWasNotCancelled === false) {
+      return false;
+    }
+
+    // List of removed indexes might be changed in the `beforeRemoveRow` hook. There may be new values.
+    const numberOfRemovedIndexes = removedPhysicalIndexes.length;
+
+    // Journaled from the final list, after the hook widened it and before the rows go.
+    recordRemovedRows(this.hot!, removedPhysicalIndexes);
+    this.#trackRemovedRows(removedPhysicalIndexes);
+
+    this.filterData(rowIndex, numberOfRemovedIndexes, removedPhysicalIndexes);
+
+    if (rowIndex < this.hot!.countRows()) {
+      this.hot!.rowIndexMapper.removeIndexes(removedPhysicalIndexes);
+
+      const preserveColumns = isDefined(this.tableMeta.columns) ||
+        isDefined(this.tableMeta.dataSchema) || this.tableMeta.colHeaders;
+
+      if (this.hot!.rowIndexMapper.getNotTrimmedIndexesLength() === 0 && !preserveColumns) {
+        this.hot!.columnIndexMapper.setIndexesSequence([]);
+      }
+    }
+
+    const descendingPhysicalRows = removedPhysicalIndexes.slice(0).sort((a, b) => b - a);
+
+    this.#eachDescendingRun(descendingPhysicalRows, (start, runLength) => {
+      this.metaManager!.removeRow(start, runLength);
+    });
+
+    this.hot!.runHooks('afterRemoveRow', rowIndex, numberOfRemovedIndexes, removedPhysicalIndexes, source);
+
+    return true;
+  }
+
+  /**
+   * Removes column from the data array.
+   *
+   * @fires Hooks#beforeRemoveCol
+   * @fires Hooks#afterRemoveCol
+   * @param {number} [index] Visual index of the column to be removed. If not provided, the last column will be removed.
+   * @param {number} [amount=1] Amount of the columns to be removed. If not provided, one column will be removed.
+   * @param {string} [source] Source of method call.
+   * @returns {boolean} Returns `false` when action was canceled, otherwise `true`.
+   */
+  removeCol(index: number, amount = 1, source: string) {
+    if (this.hot!.dataType === 'object' || this.tableMeta.columns) {
+      throwWithCause('Cannot remove a column when the data source holds objects or the "columns" option is set.');
+    }
+    let columnIndex = typeof index !== 'number' ? -amount : index;
+
+    columnIndex = (this.hot!.countCols() + columnIndex) % this.hot!.countCols();
+
+    const removedPhysicalIndexes = this.visualColumnsToPhysical(columnIndex, amount);
+    const descendingPhysicalColumns = removedPhysicalIndexes.slice(0).sort((a, b) => b - a);
+    const actionWasNotCancelled = this.hot!.runHooks(
+      'beforeRemoveCol', columnIndex, amount, removedPhysicalIndexes, source
+    );
+
+    if (actionWasNotCancelled === false) {
+      return false;
+    }
+
+    let isTableUniform = true;
+    const removedColumnsCount = descendingPhysicalColumns.length;
+    const data = this.dataSource ?? [];
+
+    for (let c = 0; c < removedColumnsCount; c++) {
+      if (isTableUniform && removedPhysicalIndexes[0] !== removedPhysicalIndexes[c] - c) {
+        isTableUniform = false;
+      }
+    }
+
+    recordRemovedColumns(this.hot!, data, removedPhysicalIndexes);
+    this.#trackRemovedColumns(removedPhysicalIndexes);
+
+    this.#spliceRemovedColumns(data, isTableUniform, removedPhysicalIndexes, descendingPhysicalColumns, amount);
+
+    if (columnIndex < this.hot!.countCols()) {
+      this.hot!.columnIndexMapper.removeIndexes(removedPhysicalIndexes);
+
+      if (!this.tableMeta.rowHeaders && this.hot!.columnIndexMapper.getNotTrimmedIndexesLength() === 0) {
+        this.hot!.rowIndexMapper.setIndexesSequence([]);
+      }
+    }
+
+    this.hot!.runHooks('afterRemoveCol', columnIndex, amount, removedPhysicalIndexes, source);
+    this.refreshDuckSchema();
+
+    return true;
+  }
+
+  /**
+   * Checks whether a row is one of the filler rows at the end of the data set, that is, one `minRows` or
+   * `minSpareRows` appended with no other row after it.
+   *
+   * @param {number|null} physicalRow The physical row index.
+   * @returns {boolean}
+   */
+  isTrailingFillerRow(physicalRow: number | null): boolean {
+    return physicalRow !== null && physicalRow >= this.hot!.countSourceRows() - this.#trailingFillerRows;
+  }
+
+  /**
+   * Checks whether a column is one of the filler columns at the end of the data set, that is, one `minCols` or
+   * `minSpareCols` appended with no other column after it.
+   *
+   * @param {number|null} physicalColumn The physical column index.
+   * @returns {boolean}
+   */
+  isTrailingFillerColumn(physicalColumn: number | null): boolean {
+    return physicalColumn !== null && physicalColumn >= this.hot!.countSourceCols() - this.#trailingFillerColumns;
+  }
+
+  /**
+   * Removes the given physical columns from each row in the data source and keeps
+   * the meta manager in sync. Rows are mutated in place so external references to
+   * the row arrays stay valid.
+   *
+   * @param {Array} data The data source array.
+   * @param {boolean} isTableUniform Whether the removed columns form a contiguous range.
+   * @param {number[]} removedPhysicalIndexes Physical indexes of removed columns in ascending order.
+   * @param {number[]} descendingPhysicalColumns Physical indexes of removed columns in descending order.
+   * @param {number} amount The number of columns to remove.
+   */
+  #spliceRemovedColumns(
+    data: (Record<string, unknown> | unknown[])[],
+    isTableUniform: boolean,
+    removedPhysicalIndexes: number[],
+    descendingPhysicalColumns: number[],
+    amount: number
+  ) {
+    if (isTableUniform) {
+      for (let r = 0, rlen = this.hot!.countSourceRows(); r < rlen; r++) {
+        (data[r] as unknown[]).splice(removedPhysicalIndexes[0], amount);
+
+        if (r === 0) {
+          this.metaManager!.removeColumn(removedPhysicalIndexes[0], amount);
+        }
+      }
+
+    } else {
+      // One in-place compaction pass per row instead of one `splice` per removed column per row.
+      // The splice variant costs O(rows * removed columns * columns) after any column reorder;
+      // the compaction pass is O(rows * columns) regardless of how many columns are removed.
+      const removedColumns = new Set(removedPhysicalIndexes);
+      const numberOfSourceRows = this.hot!.countSourceRows();
+
+      for (let r = 0; r < numberOfSourceRows; r++) {
+        removeIndexesInPlace(data[r] as unknown[], removedColumns);
+      }
+
+      if (numberOfSourceRows > 0) {
+        this.#eachDescendingRun(descendingPhysicalColumns, (start, runLength) => {
+          this.metaManager!.removeColumn(start, runLength);
+        });
+      }
+    }
+  }
+
+  /**
+   * Keeps the trailing filler column count in step with a column removal. Must run before the columns leave the
+   * data source, while the source column count still includes them.
+   *
+   * @param {number[]} removedPhysicalIndexes Physical indexes of the removed columns.
+   */
+  #trackRemovedColumns(removedPhysicalIndexes: number[]) {
+    this.#trailingFillerColumns = this.#trailingFillersAfterRemove(
+      this.#trailingFillerColumns, removedPhysicalIndexes, this.hot!.countSourceCols()
+    );
+  }
+
+  /**
+   * Keeps the trailing filler row count in step with a row removal. Must run before the rows leave the data
+   * source, while the source row count still includes them.
+   *
+   * @param {number[]} removedPhysicalIndexes Physical indexes of the removed rows.
+   */
+  #trackRemovedRows(removedPhysicalIndexes: number[]) {
+    this.#trailingFillerRows = this.#trailingFillersAfterRemove(
+      this.#trailingFillerRows, removedPhysicalIndexes, this.hot!.countSourceRows()
+    );
+  }
+
+  /**
+   * Groups physical indexes sorted in descending order into contiguous runs and invokes the
+   * callback once per run with the run's lowest index and its length. A sequence of
+   * one-at-a-time removals at descending contiguous indexes equals one bulk removal at the
+   * run's lowest index, and each meta-layer removal call pays a fixed walk over the
+   * materialized entries - so collapsing runs removes that per-index constant.
+   *
+   * @param {number[]} descendingIndexes Physical indexes sorted in descending order.
+   * @param {Function} callback Called with `(start, amount)` once per contiguous run.
+   */
+  #eachDescendingRun(descendingIndexes: number[], callback: (start: number, amount: number) => void) {
+    let runStartPosition = 0;
+
+    for (let i = 0; i < descendingIndexes.length; i++) {
+      const isLastOfRun = i + 1 >= descendingIndexes.length ||
+        descendingIndexes[i + 1] !== descendingIndexes[i] - 1;
+
+      if (isLastOfRun) {
+        callback(descendingIndexes[i], i - runStartPosition + 1);
+        runStartPosition = i + 1;
+      }
+    }
+  }
+
+  /**
+   * Add/Removes data from the column.
+   *
+   * @param {number} col Physical index of column in which do you want to do splice.
+   * @param {number} index Index at which to start changing the array. If negative, will begin that many elements from the end.
+   * @param {number} amount An integer indicating the number of old array elements to remove. If amount is 0, no elements are removed.
+   * @param {Array} [elements] The new columns to add.
+   * @returns {Array} Returns removed portion of columns.
+   */
+  spliceCol(col: number, index: number, amount: number, ...elements: unknown[]) {
+    const colData = this.hot!.getDataAtCol(col);
+    const removed = colData.slice(index, index + amount);
+    const after = colData.slice(index + amount);
+
+    extendArray(elements, after);
+    let i = 0;
+
+    while (i < amount) {
+      elements.push(null); // add null in place of removed elements
+      i += 1;
+    }
+    to2dArray(elements);
+    this.hot!.populateFromArray(index, col, elements as unknown[][], undefined, undefined, 'spliceCol');
+
+    return removed;
+  }
+
+  /**
+   * Add/Removes data from the row.
+   *
+   * @param {number} row Physical index of row in which do you want to do splice.
+   * @param {number} index Index at which to start changing the array. If negative, will begin that many elements from the end.
+   * @param {number} amount An integer indicating the number of old array elements to remove. If amount is 0, no elements are removed.
+   * @param {Array} [elements] The new rows to add.
+   * @returns {Array} Returns removed portion of rows.
+   */
+  spliceRow(row: number, index: number, amount: number, ...elements: unknown[]) {
+    const rowData = this.hot!.getSourceDataAtRow(row) as unknown[];
+    const removed = rowData.slice(index, index + amount);
+    const after = rowData.slice(index + amount);
+
+    extendArray(elements, after);
+    let i = 0;
+
+    while (i < amount) {
+      elements.push(null); // add null in place of removed elements
+      i += 1;
+    }
+    this.hot!.populateFromArray(row, index, [elements], undefined, undefined, 'spliceRow');
+
+    return removed;
+  }
+
+  /**
+   * Add/remove row(s) to/from the data source.
+   *
+   * @param {number} index Physical index of the element to add/remove.
+   * @param {number} deleteCount Number of rows to remove.
+   * @param {Array<object>} elements Row elements to be added.
+   */
+  spliceData(index: number, deleteCount: number, elements: unknown[]) {
+    const continueSplicing = this.hot!.runHooks('beforeDataSplice', index, deleteCount, elements);
+
+    if (continueSplicing !== false) {
+      const newData = [...this.dataSource!.slice(0, index), ...elements, ...this.dataSource!.slice(index)];
+
+      // We try not to change the reference.
+      this.dataSource!.length = 0;
+
+      // Pushing to array instead of using `splice`, because Babel changes the code to one that uses the `apply` method.
+      // The used method was cause of the problem described within #7840.
+      newData.forEach(row => this.dataSource!.push(row as Record<string, unknown> | unknown[]));
+    }
+  }
+
+  /**
+   * Filter unwanted data elements from the data source.
+   *
+   * @param {number} index Visual index of the element to remove.
+   * @param {number} amount Number of rows to add/remove.
+   * @param {number} physicalRows Physical row indexes.
+   */
+  filterData(index: number, amount: number, physicalRows: number[]) {
+    // Custom data filtering (run as a consequence of calling the below hook) provide an array containing new data.
+    const data = this.hot!.runHooks('filterData', index, amount, physicalRows);
+
+    // Hooks by default returns first argument (when there is no callback changing execution result).
+    if (Array.isArray(data)) {
+      this.dataSource!.length = 0;
+      // Pushing in a loop instead of `push.apply`, which passes one call argument per row and
+      // overflows the call stack on grids with roughly 125k rows or more (same pattern as #7840).
+      (data as unknown[]).forEach((row) => {
+        this.dataSource!.push(row as Record<string, unknown> | unknown[]);
+      });
+    } else {
+      // One O(source rows) compaction pass with an O(1) Set membership test per row. The previous
+      // `filter` + `indexOf` variant cost O(source rows * removed rows) - a multi-second freeze
+      // when bulk-removing rows from a large grid - and copied the survivors back afterwards.
+      removeIndexesInPlace(this.dataSource!, new Set(physicalRows));
+    }
+  }
+
+  /**
+   * Returns single value from the data array.
+   *
+   * @param {number} row Visual row index.
+   * @param {number|string|Function|null} prop The column property, a `columns[].data` accessor
+   *   function, or `null` when the caller's column index named no column (see `colToProp()`).
+   * @param {object} [options] Read options.
+   * @param {boolean} [options.skipValueGetter=false] When `true`, returns the stored value without the
+   *   column's `valueGetter` (the `modifyRowData` and `modifyData` hooks still apply). Bulk validation
+   *   reads cells this way, because an edit validates the stored value too.
+   * @returns {*}
+   */
+  get(row: number, prop: string | number | DataAccessorFn | null, options?: { skipValueGetter?: boolean }) {
+    // Read without a default object: this runs for every cell a render or a data read touches.
+    const skipValueGetter = options?.skipValueGetter === true;
+    const physicalRow = this.hot!.toPhysicalRow(row);
+
+    let dataRow: Record<string | number, unknown> = this.dataSource![physicalRow] as Record<string | number, unknown>;
+    // TODO: To remove, use 'modifyData' hook instead (see below)
+    const modifiedRowData = this.hot!.runHooks('modifyRowData', physicalRow);
+
+    dataRow = typeof modifiedRowData !== 'number' ? modifiedRowData as Record<string | number, unknown> : dataRow;
+    //
+
+    const { dataDotNotation } = this.hot!.getSettings();
+    let value: unknown = null;
+
+    // try to get value under property `prop` (includes dot)
+    if (dataRow && !this.#namesNoColumn(prop) && typeof prop !== 'function' &&
+        hasOwnProperty(dataRow, prop as string | number)) {
+      value = dataRow[prop as string | number];
+
+    } else if (dataDotNotation && typeof prop === 'string' && prop.indexOf('.') > -1) {
+      let out: Record<string, unknown> = dataRow;
+
+      if (!out) {
+        return null;
+      }
+
+      const sliced = prop.split('.');
+
+      for (let i = 0, ilen = sliced.length; i < ilen; i++) {
+        out = out[sliced[i]] as Record<string, unknown>;
+
+        // A `null` parent has nothing to read under it, while a `null` leaf is a value like any other.
+        if (typeof out === 'undefined' || (out === null && i < ilen - 1)) {
+          return null;
+        }
+      }
+
+      value = out;
+
+    } else if (typeof prop === 'function') {
+      // `dataRow` already reflects the `modifyRowData` hook (e.g. `nestedRows` swaps the row),
+      // so the accessor must read through it like every other branch. It is also `undefined` for
+      // a row index that is mapped but not (yet) backed by source data – e.g. mid-way through an
+      // undo of a row removal – which must read as empty instead of handing `undefined` to user
+      // code.
+      if (dataRow) {
+        value = prop(dataRow);
+      }
+    }
+
+    const visualColumnIndex = this.propToCol(prop);
+    const physicalColumn = typeof visualColumnIndex === 'number'
+      ? this.hot!.toPhysicalColumn(visualColumnIndex)
+      : null;
+
+    if (!skipValueGetter && typeof visualColumnIndex === 'number' &&
+        isUnsignedNumber(physicalRow) && isUnsignedNumber(physicalColumn)) {
+      // The uncached read returns the stored meta when the cell carries persisted overrides and a
+      // transient object otherwise - a plain data read must not permanently materialize one meta
+      // object per visited cell (a full-table scan such as sorting would retain O(rows) of them).
+      value = getValueGetterValue(
+        value,
+        this.metaManager!.getCellMetaUncached(physicalRow, physicalColumn, {
+          visualRow: row,
+          visualColumn: visualColumnIndex,
+        })
+      );
+    }
+
+    if (this.hot!.hasHook('modifyData')) {
+      const valueHolder = createObjectPropListener(value);
+
+      this.hot!.runHooks('modifyData', row, visualColumnIndex, valueHolder, 'get');
+
+      if (valueHolder.isTouched()) {
+        value = valueHolder.value;
+      }
+    }
+
+    return value;
+  }
+
+  /**
+   * Reads one column's values for a list of physical rows, in any order, in a single pass.
+   *
+   * `get()` resolves the column property, the visual and physical column, the settings and the hook
+   * answers once per cell, although every one of them is constant across the rows. This resolves
+   * them once and then reads the source rows directly, which is what a full-column scan such as a
+   * sort needs.
+   *
+   * The fast loop runs no user code, so it is entered only when nothing that can transform a value
+   * is in play: no `columns[].data` accessor function, no `dataDotNotation` property path, no
+   * listener on `modifyRowData`, `modifyData` or `modifySourceData`, and no `valueGetter` resolved
+   * through the column meta layer (`autocomplete`, `dropdown` and `multiSelect` each ship one). Every
+   * probe is re-read per call - a host app can register a listener or retype a column at any time,
+   * so caching the answers across calls would read stale values.
+   *
+   * Stored cell meta is the one thing a column-layer probe cannot see: a `cells()` function and a
+   * `cell: [{ row, col, type }]` entry both land a `valueGetter` on a single cell, and a rendered
+   * grid stores meta for its viewport rows. Any row that carries stored meta therefore falls back to
+   * `get()`, so what the caller receives is what `getDataAtCell()` returns today.
+   *
+   * `physicalRows` is the only row source both paths read. `get()` takes a visual row, so a fallback
+   * translates the physical row back rather than assuming the block is a contiguous visual band -
+   * the rows read are the rows asked for, whatever order they arrive in.
+   *
+   * A `null` entry reads as an empty cell on either path, exactly as `get()` resolves an unmapped
+   * row. A physical row that exists but has no visual position - a trimmed one - is outside the
+   * contract: the fast loop reads its source value while a fallback reads it as empty. The sort
+   * gather loop cannot produce one, because every index it passes came out of `toPhysicalRow()`.
+   *
+   * @private
+   * @param {number} column Visual column index.
+   * @param {Array} physicalRows Physical row indexes to read, in the order the values are wanted.
+   * @returns {Array} Column values in the same order as `physicalRows`.
+   */
+  getAtColumnForRows(column: number, physicalRows: (number | null)[]): unknown[] {
+    const prop = this.colToProp(column);
+    const rowsLength = physicalRows.length;
+    const values: unknown[] = [];
+    const visualColumnIndex = this.propToCol(prop);
+    const physicalColumn = typeof visualColumnIndex === 'number'
+      ? this.hot!.toPhysicalColumn(visualColumnIndex)
+      : null;
+    // Mirrors the coordinate check `get()` makes before it consults the cell meta at all - when it
+    // fails, no `valueGetter` can reach the value and the meta layer needs no probing.
+    const isValueGetterReachable = typeof visualColumnIndex === 'number' && isUnsignedNumber(physicalColumn);
+    const { dataDotNotation } = this.hot!.getSettings();
+    // The column meta object IS the prototype the transient cell meta inherits from
+    // (`ColumnMeta#_createMeta()` returns the constructor's prototype), so reading `valueGetter` off
+    // it resolves exactly what `getCellMetaUncached()` would resolve for an unstored cell - without
+    // allocating one object per row to find that out.
+    const isBulkReadable = typeof prop !== 'function'
+      && !(dataDotNotation && typeof prop === 'string' && prop.indexOf('.') > -1)
+      && !this.hot!.hasHook('modifyRowData')
+      && !this.hot!.hasHook('modifyData')
+      && !this.hot!.hasHook('modifySourceData')
+      && !(isValueGetterReachable && isFunction(this.metaManager!.getColumnMeta(physicalColumn!).valueGetter));
+
+    if (!isBulkReadable) {
+      for (let i = 0; i < rowsLength; i++) {
+        values.push(this.get(this.hot!.toVisualRow(physicalRows[i] as number), prop));
+      }
+
+      return values;
+    }
+
+    const dataSource = this.dataSource!;
+    const plainProp = prop as string | number;
+
+    for (let i = 0; i < rowsLength; i++) {
+      const physicalRow = physicalRows[i];
+
+      if (isValueGetterReachable && isUnsignedNumber(physicalRow) &&
+          this.metaManager!.getCellMetaIfExists(physicalRow as number, physicalColumn as number) !== undefined) {
+        values.push(this.get(this.hot!.toVisualRow(physicalRow as number), prop));
+
+        continue;
+      }
+
+      const dataRow = dataSource[physicalRow as number] as Record<string | number, unknown>;
+
+      values.push(dataRow && hasOwnProperty(dataRow, plainProp) ? dataRow[plainProp] : null);
+    }
+
+    return values;
+  }
+
+  /**
+   * Returns single value from the data array (intended for clipboard copy to an external application).
+   *
+   * The value is returned as it is stored, so it can be of any type. `Core#getCopyableData()`
+   * converts it to a string; the clipboard and Autofill consume it raw.
+   *
+   * @param {number} row Visual row index.
+   * @param {number|string|Function} prop The column property, or a `columns[].data` accessor function.
+   * @returns {*}
+   */
+  getCopyable(row: number, prop: string | number | DataAccessorFn | null) {
+    // Falls back to the prop so an out-of-range index still reaches the meta lookup, keeping the
+    // copyable getters reading back what they did before `propToCol()` began answering `null`.
+    const colIndex = this.propToCol(prop) ?? prop;
+
+    // The transient read honors a `cells()`-driven `copyable: false` (the dynamic extension
+    // runs) without permanently materializing one meta object per copied cell - the copy path
+    // walks the whole copied range through this method.
+    if (typeof colIndex === 'number' && this.hot!.getCellMetaTransient(row, colIndex).copyable) {
+      return this.get(row, prop);
+    }
+
+    return '';
+  }
+
+  /**
+   * Saves single value to the data array.
+   *
+   * @param {number} row Visual row index.
+   * @param {number|string|Function|null} prop The column property, a `columns[].data` accessor
+   *   function, or `null` when the caller's column index named no column (see `colToProp()`).
+   * @param {string} value The value to set.
+   */
+  set(row: number, prop: string | number | DataAccessorFn | null, value: unknown) {
+    // No column, nothing to write. Falling through would add a literal `"null"` key to the row.
+    if (this.#namesNoColumn(prop)) {
+      return;
+    }
+
+    const physicalRow = this.hot!.toPhysicalRow(row);
+    let newValue = value;
+    let dataRow: Record<string | number, unknown> = this.dataSource![physicalRow] as Record<string | number, unknown>;
+    // TODO: To remove, use 'modifyData' hook instead (see below)
+    const modifiedRowData = this.hot!.runHooks('modifyRowData', physicalRow);
+
+    dataRow = typeof modifiedRowData !== 'number' ? modifiedRowData as Record<string | number, unknown> : dataRow;
+    //
+
+    if (this.hot!.hasHook('modifyData')) {
+      const valueHolder = createObjectPropListener(newValue);
+
+      this.hot!.runHooks('modifyData', row, this.propToCol(prop), valueHolder, 'set');
+
+      if (valueHolder.isTouched()) {
+        newValue = valueHolder.value;
+      }
+    }
+
+    const { dataDotNotation } = this.hot!.getSettings();
+
+    // try to set value under property `prop` (includes dot)
+    if (dataRow && typeof prop !== 'function' && hasOwnProperty(dataRow, prop as string | number)) {
+      dataRow[prop as string | number] = newValue;
+
+    } else if (dataDotNotation && typeof prop === 'string' && prop.indexOf('.') > -1) {
+      let out: Record<string, unknown> = dataRow;
+      let i = 0;
+      let ilen;
+
+      const sliced = prop.split('.');
+
+      for (i = 0, ilen = sliced.length - 1; i < ilen; i++) {
+        if (sliced[i] === '__proto__' || sliced[i] === 'constructor' || sliced[i] === 'prototype') {
+          // Security: prototype-polluting is not allowed
+          return;
+        }
+
+        if (typeof out[sliced[i]] === 'undefined' || out[sliced[i]] === null) {
+          out[sliced[i]] = {};
+        }
+        out = out[sliced[i]] as Record<string, unknown>;
+      }
+
+      out[sliced[i]] = newValue;
+    } else if (typeof prop === 'function') {
+      // Mirrors the `get()` guard: read through the `modifyRowData`-aware `dataRow`, and skip the
+      // write when the row index is mapped but not (yet) backed by source data – calling the
+      // accessor with `undefined` would throw inside user code.
+      if (dataRow) {
+        (prop as (row: unknown, value: unknown) => void)(dataRow, newValue);
+      }
+
+    } else {
+      if (prop === '__proto__' || prop === 'constructor' || prop === 'prototype') {
+        // Security: prototype-polluting is not allowed
+        return;
+      }
+
+      // An unbound column (`{ data: null }`) stores its value under a `"null"` key.
+      dataRow[prop as string | number] = newValue;
+    }
+  }
+
+  /**
+   * This ridiculous piece of code maps rows Id that are present in table data to those displayed for user.
+   * The trick is, the physical row id (stored in settings.data) is not necessary the same
+   * as the visual (displayed) row id (e.g. When sorting is applied).
+   *
+   * @param {number} index Visual row index.
+   * @param {number} amount An amount of rows to translate.
+   * @returns {number}
+   */
+  visualRowsToPhysical(index: number, amount: number) {
+    const totalRows = this.hot!.countRows();
+    const logicRows = [];
+    let visualRow = (totalRows + index) % totalRows;
+    let rowsToRemove = amount;
+    let row;
+
+    while (visualRow < totalRows && rowsToRemove) {
+      row = this.hot!.toPhysicalRow(visualRow);
+      logicRows.push(row);
+
+      rowsToRemove -= 1;
+      visualRow += 1;
+    }
+
+    return logicRows;
+  }
+
+  /**
+   *
+   * @param {number} index Visual column index.
+   * @param {number} amount An amount of rows to translate.
+   * @returns {Array}
+   */
+  visualColumnsToPhysical(index: number, amount: number) {
+    const totalCols = this.hot!.countCols();
+    const visualCols = [];
+    let physicalCol = (totalCols + index) % totalCols;
+    let colsToRemove = amount;
+
+    while (physicalCol < totalCols && colsToRemove) {
+      const col = this.hot!.toPhysicalColumn(physicalCol);
+
+      visualCols.push(col);
+
+      colsToRemove -= 1;
+      physicalCol += 1;
+    }
+
+    return visualCols;
+  }
+
+  /**
+   * Clears the data array.
+   */
+  clear() {
+    for (let r = 0; r < this.hot!.countSourceRows(); r++) {
+      for (let c = 0; c < this.hot!.countCols(); c++) {
+        this.set(r, this.colToProp(c), '');
+      }
+    }
+  }
+
+  /**
+   * Get data length.
+   *
+   * @returns {number}
+   */
+  getLength() {
+    const maxRowsFromSettings = this.tableMeta.maxRows;
+    let maxRows;
+
+    if ((maxRowsFromSettings ?? 0) < 0 || maxRowsFromSettings === 0) {
+      maxRows = 0;
+
+    } else {
+      maxRows = maxRowsFromSettings || Infinity;
+    }
+
+    const length = this.hot!.rowIndexMapper.getNotTrimmedIndexesLength();
+
+    return Math.min(length, maxRows);
+  }
+
+  /**
+   * Returns the data array.
+   *
+   * @returns {Array}
+   */
+  getAll() {
+    const start = {
+      row: 0,
+      col: 0,
+    };
+
+    const end = {
+      row: Math.max(this.hot!.countRows() - 1, 0),
+      col: Math.max(this.hot!.countCols() - 1, 0),
+    };
+
+    if (start.row - end.row === 0 && !this.hot!.countSourceRows()) {
+      return [];
+    }
+
+    return this.getRange(start, end, DataMap.DESTINATION_RENDERER);
+  }
+
+  /**
+   * Count the number of columns cached in the `colToProp` cache.
+   *
+   * @returns {number} Amount of cached columns.
+   */
+  countCachedColumns() {
+    return this.colToPropCache.length;
+  }
+
+  /**
+   * Returns data range as array.
+   *
+   * @param {object} [start] Start selection position. Visual indexes.
+   * @param {object} [end] End selection position. Visual indexes.
+   * @param {number} destination Destination of datamap.get.
+   * @returns {Array}
+   */
+  getRange(start: { row: number; col: number }, end: { row: number; col: number }, destination: number) {
+    const output: unknown[][] = [];
+    let r;
+    let c;
+    let row: unknown[];
+
+    const maxRows = this.tableMeta.maxRows;
+    const maxCols = this.tableMeta.maxCols;
+
+    if (maxRows === 0 || maxCols === 0) {
+      return [];
+    }
+
+    const getFn = destination === DataMap.DESTINATION_CLIPBOARD_GENERATOR ? this.getCopyable : this.get;
+
+    const rlen = Math.min(Math.max((maxRows ?? Infinity) - 1, 0), Math.max(start.row, end.row));
+    const clen = Math.min(Math.max((maxCols ?? Infinity) - 1, 0), Math.max(start.col, end.col));
+
+    for (r = Math.min(start.row, end.row); r <= rlen; r++) {
+      row = [];
+      // We just store indexes for rows without headers.
+      const physicalRow = r >= 0 ? this.hot!.toPhysicalRow(r) : r;
+
+      for (c = Math.min(start.col, end.col); c <= clen; c++) {
+
+        if (physicalRow === null) {
+          break;
+        }
+        // An index past the last column keeps its index, so it cannot resolve to an unbound column.
+        row.push(getFn.call(this, r, colToPropOrIndex(this.hot!, c)));
+      }
+      if (physicalRow !== null) {
+        output.push(row);
+      }
+    }
+
+    return output;
+  }
+
+  /**
+   * Return data as text (tab separated columns).
+   *
+   * @param {object} [start] Start selection position. Visual indexes.
+   * @param {object} [end] End selection position. Visual indexes.
+   * @returns {string}
+   */
+  getText(start: { row: number; col: number }, end: { row: number; col: number }) {
+    return stringify(this.getRange(start, end, DataMap.DESTINATION_RENDERER));
+  }
+
+  /**
+   * Return data as copyable text (tab separated columns intended for clipboard copy to an external application).
+   *
+   * @param {object} [start] Start selection position. Visual indexes.
+   * @param {object} [end] End selection position. Visual indexes.
+   * @returns {string}
+   */
+  getCopyableText(start: { row: number; col: number }, end: { row: number; col: number }) {
+    return stringify(this.getRange(start, end, DataMap.DESTINATION_CLIPBOARD_GENERATOR));
+  }
+
+  /**
+   * Destroy instance.
+   */
+  destroy() {
+    this.hot = null;
+    this.metaManager = null;
+    this.dataSource = null;
+    this.duckSchema = null;
+    this.colToPropCache.length = 0;
+
+    this.propToColCache!.clear();
+    this.propToColCache = undefined;
+  }
+}
+
+export default DataMap;

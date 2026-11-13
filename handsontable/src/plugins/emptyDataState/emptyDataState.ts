@@ -1,0 +1,953 @@
+import { BasePlugin } from '../base';
+import { EmptyDataStateUI } from './ui';
+import { isObject } from '../../helpers/object';
+import { isButtonType } from '../../helpers/uiButton';
+import { isRootInstance } from '../../utils/rootInstance';
+import { GRID_SCOPE } from '../../shortcuts/contexts/constants';
+import { command as selectAllCellsCommand } from '../../shortcuts/contexts/commands/selectAllCells';
+import { hasRenderedCells } from '../../shortcuts/guards';
+import * as C from '../../i18n/constants';
+import type { SelectionState } from '../../selection/types';
+import { LICENSE } from './feature.generated';
+
+/**
+ * Local type-guard narrowing `unknown` to `Record<string, unknown>`.
+ * The public `isObject` is intentionally non-narrowing, so we wrap it here.
+ *
+ * @param {unknown} v The value to check.
+ * @returns {boolean}
+ */
+function isPlainRecord(v: unknown): v is Record<string, unknown> {
+  return isObject(v);
+}
+
+/**
+ * The possible shapes of the `message` setting value.
+ */
+type MessageSetting =
+  | string
+  | Record<string, unknown>
+  | ((source: string) => string | Record<string, unknown>)
+  | undefined;
+
+export const PLUGIN_KEY = 'emptyDataState';
+export const PLUGIN_PRIORITY = 370;
+const SOURCE = Object.freeze({
+  UNKNOWN: 'unknown',
+  FILTERS: 'filters',
+  LOADING: 'loading',
+});
+const SHORTCUTS_CONTEXT_NAME = `plugin:${PLUGIN_KEY}`;
+const SHORTCUTS_GROUP = PLUGIN_KEY;
+
+/**
+ * @plugin EmptyDataState
+ * @class EmptyDataState
+ *
+ * @description
+ * The empty data state plugin provides an empty data state overlay system for Handsontable DataGrid.
+ * It displays an empty data state overlay with customizable message.
+ *
+ * In order to enable the empty data state mechanism, {@link Options#emptyDataState} option must be set to `true`.
+ *
+ * When {@link Options#dataProvider} is enabled, the loading overlay is toggled from DataProvider fetch hooks
+ * ({@link Hooks#beforeDataProviderFetch}, {@link Hooks#afterDataProviderFetch}, {@link Hooks#afterDataProviderFetchError}).
+ *
+ * The plugin provides several configuration options to customize the empty data state behavior and appearance:
+ * - `message`: Message to display in the empty data state overlay.
+ *   - `title`: Title to display in the empty data state overlay.
+ *   - `description`: Description to display in the empty data state overlay.
+ *   - `buttons`: Buttons to display in the empty data state overlay.
+ *     - `text`: Text to display in the button.
+ *     - `type`: Type of the button.
+ *     - `callback`: Callback function to call when the button is clicked.
+ *
+ * @example
+ * ::: only-for javascript
+ * ```javascript
+ * // Enable empty data state plugin with default messages
+ * emptyDataState: true,
+ *
+ * // Enable empty data state plugin with custom message
+ * emptyDataState: {
+ *   message: 'No data available',
+ * },
+ *
+ * // Enable empty data state plugin with custom message and buttons for any source
+ * emptyDataState: {
+ *   message: {
+ *     title: 'No data available',
+ *     description: 'There’s nothing to display yet.',
+ *     buttons: [{ text: 'Reset filters', type: 'secondary', callback: () => {} }],
+ *   },
+ * },
+ *
+ * // Enable empty data state plugin with custom message and buttons for specific source
+ * emptyDataState: {
+ *   message: (source) => {
+ *     switch (source) {
+ *       case "filters":
+ *         return {
+ *           title: 'No data available',
+ *           description: 'There’s nothing to display yet.',
+ *           buttons: [{ text: 'Reset filters', type: 'secondary', callback: () => {} }],
+ *         };
+ *       case "loading":
+ *         return {
+ *           title: 'Loading data',
+ *           description: 'Please wait.',
+ *         };
+ *       default:
+ *         return {
+ *           title: 'No data available',
+ *           description: 'There’s nothing to display yet.',
+ *         };
+ *     }
+ *   },
+ * },
+ * ```
+ * :::
+ *
+ * ::: only-for react
+ * ```jsx
+ * // Enable empty data state plugin with default messages
+ * <HotTable emptyDataState={true} />;
+ *
+ * // Enable empty data state plugin with custom message
+ * <HotTable emptyDataState={{ message: 'No data available' }} />;
+ *
+ * // Enable empty data state plugin with custom message and buttons for any source
+ * <HotTable emptyDataState={{
+ *   message: {
+ *     title: 'No data available',
+ *     description: 'There’s nothing to display yet.',
+ *     buttons: [{ text: 'Reset filters', type: 'secondary', callback: () => {} }],
+ *   }
+ * }} />;
+ *
+ * // Enable empty data state plugin with custom message and buttons for specific source
+ * <HotTable emptyDataState={{
+ *   message: (source) => {
+ *     switch (source) {
+ *       case "filters":
+ *         return {
+ *           title: 'No data available',
+ *           description: 'There’s nothing to display yet.',
+ *           buttons: [{ text: 'Reset filters', type: 'secondary', callback: () => {} }],
+ *         };
+ *       case "loading":
+ *         return {
+ *           title: 'Loading data',
+ *           description: 'Please wait.',
+ *         };
+ *       default:
+ *         return {
+ *           title: 'No data available',
+ *           description: 'There’s nothing to display yet.',
+ *         };
+ *     }
+ *   }
+ * }} />;
+ * ```
+ * :::
+ *
+ * ::: only-for angular
+ * ```ts
+ * // Enable empty data state plugin with default messages
+ * hotSettings: Handsontable.GridSettings = {
+ *   emptyDataState: true
+ * }
+ *
+ * // Enable empty data state plugin with custom message
+ * hotSettings: Handsontable.GridSettings = {
+ *   emptyDataState: {
+ *     message: 'No data available'
+ *   }
+ * }
+ *
+ * // Enable empty data state plugin with custom message and buttons for any source
+ * hotSettings: Handsontable.GridSettings = {
+ *   emptyDataState: {
+ *     message: {
+ *       title: 'No data available',
+ *       description: 'There’s nothing to display yet.',
+ *       buttons: [{ text: 'Reset filters', type: 'secondary', callback: () => {} }],
+ *     },
+ *   },
+ * },
+ *
+ * // Enable empty data state plugin with custom message and buttons for specific source
+ * hotSettings: Handsontable.GridSettings = {
+ *   emptyDataState: {
+ *     message: (source) => {
+ *       switch (source) {
+ *         case "filters":
+ *           return {
+ *             title: 'No data available for filters',
+ *             description: 'There’s nothing to display yet.',
+ *             buttons: [{ text: 'Reset filters', type: 'secondary', callback: () => {} }],
+ *           };
+ *         case "loading":
+ *           return {
+ *             title: 'Loading data',
+ *             description: 'Please wait.',
+ *           };
+ *         default:
+ *           return {
+ *             title: 'No data available',
+ *             description: 'There’s nothing to display yet.',
+ *           };
+ *       }
+ *     }
+ *   }
+ * }
+ * ```
+ *
+ * ```html
+ * <hot-table [settings]="hotSettings"></hot-table>
+ * ```
+ * :::
+ */
+export class EmptyDataState extends BasePlugin {
+  /**
+   * Returns the plugin key used to identify this plugin in Handsontable settings.
+   */
+  static get PLUGIN_KEY() {
+    return PLUGIN_KEY;
+  }
+
+  /**
+   * Returns the priority order used to determine the order in which plugins are initialized.
+   */
+  static get PLUGIN_PRIORITY() {
+    return PLUGIN_PRIORITY;
+  }
+
+  /**
+   * Returns the license token of the plugin, its display name, where it is checked, and the tokens it
+   * requires.
+   */
+  static get LICENSE() {
+    return LICENSE;
+  }
+
+  /**
+   * Returns the default settings applied when the plugin is enabled without explicit configuration.
+   */
+  static get DEFAULT_SETTINGS() {
+    return {
+      message: undefined as string | Record<string, unknown> | undefined,
+    };
+  }
+
+  /**
+   * Returns validator functions for each plugin setting to verify their values are valid before applying them.
+   */
+  static get SETTINGS_VALIDATORS() {
+    return {
+      message: (value: unknown) => {
+        if (typeof value === 'string' || typeof value === 'function' || value === undefined) {
+          return true;
+        }
+        if (!isPlainRecord(value)) {
+          return false;
+        }
+
+        return (typeof value.title === 'undefined' || typeof value.title === 'string') &&
+          (typeof value.description === 'undefined' || typeof value.description === 'string') &&
+          (typeof value.buttons === 'undefined' || Array.isArray(value.buttons) &&
+            (value.buttons as Record<string, unknown>[]).every((item: Record<string, unknown>) =>
+              typeof item === 'object' &&
+              typeof item.text === 'string' &&
+              isButtonType(item.type) &&
+              typeof item.callback === 'function'
+            ));
+      },
+    };
+  }
+
+  /**
+   * Flag indicating if emptyDataState is currently visible.
+   *
+   * @type {boolean}
+   */
+  #isVisible = false;
+
+  /**
+   * UI instance of the emptyDataState plugin.
+   *
+   * @type {EmptyDataStateUI}
+   */
+  #ui: EmptyDataStateUI | null = null;
+
+  /**
+   * Flag indicating if there are filter conditions.
+   *
+   * @type {boolean}
+   */
+  #hasFilterConditions = false;
+
+  /**
+   * Keeps the selection state that will be restored after the overlay is closed.
+   *
+   * @type {SelectionState | null}
+   */
+  #selectionState: SelectionState | null = null;
+  /**
+   * Whether a `loadData()` replaced the data the kept selection addressed. The next hide then leaves the
+   * selection alone, as a view change does, instead of selecting the first cell.
+   */
+  #isSelectionDataReplaced = false;
+  /**
+   * How many view changes (`_runViewChange()`) are running. While one runs, the overlay hides without
+   * touching the selection.
+   *
+   * @type {number}
+   */
+  #viewChanges = 0;
+
+  /**
+   * Whether the DataProvider-driven loading branch of the overlay is active.
+   *
+   * @type {boolean}
+   */
+  #loadingActive = false;
+
+  /**
+   * `true` after an enable that ran without a view (the grid was still being built), so its own toggle did
+   * nothing and the ready step owes it. An enable with a view toggles, or leaves it to `onDataReady()`.
+   *
+   * @type {boolean}
+   */
+  #toggleOwed = false;
+
+  /**
+   * Check if the plugin is enabled in the handsontable settings.
+   *
+   * The empty data state renders into the root grid element and registers a focus scope, and both
+   * belong to the main Handsontable instance. In a nested grid (the one the `handsontable`,
+   * `autocomplete`, and `dropdown` cell types create) neither exists, so the plugin stays disabled
+   * there.
+   *
+   * @returns {boolean}
+   */
+  isEnabled(): boolean {
+    return isRootInstance(this.hot) && !!this.hot.getSettings()[PLUGIN_KEY];
+  }
+
+  /**
+   * Enable plugin for this Handsontable instance.
+   */
+  enablePlugin() {
+    if (this.enabled) {
+      return;
+    }
+
+    if (!this.#ui) {
+      this.#ui = new EmptyDataStateUI({
+        gridContainer: this.hot.rootGridElement,
+        rootDocument: this.hot.rootDocument,
+      });
+
+      this.#registerFocusScope();
+      this.#registerShortcuts();
+      this.#registerEvents();
+    }
+
+    this.addHook('afterRender', this.#onAfterRender);
+    this.addHook('afterRowSequenceCacheUpdate', this.#onSequenceCacheUpdate);
+    this.addHook('afterColumnSequenceCacheUpdate', this.#onSequenceCacheUpdate);
+    this.addHook('beforeFilter', this.#onBeforeFilter);
+    this.addHook('beforeLoadData', this.#onBeforeLoadData);
+    this.addHook('beforeDataProviderFetch', (queryParameters: Record<string, unknown>) => {
+      if (!queryParameters.skipLoading) {
+        this.#setLoadingActive();
+      }
+    });
+    this.addHook('afterDataProviderFetch', this.#onAfterDataProviderFetch);
+    this.addHook('afterDataProviderFetchError', this.#onAfterDataProviderFetchError);
+
+    super.enablePlugin();
+
+    this.#onSequenceCacheUpdate();
+    this.#toggleOwed = !this.hot.view;
+  }
+
+  /**
+   * Toggles the empty state after the row or column sequence changed, or leaves the toggle for
+   * `onDataReady()` while core applies settings ahead of their data. The sequence changes several times
+   * on the way (the settings pass, the load re-initializing the index maps), and a toggle on one of the
+   * intermediate states showed the overlay, and took the keyboard, for a grid about to receive rows.
+   * Without a view (the grid is still being built) the toggle does nothing, and the ready step shows or
+   * hides the overlay.
+   */
+  #onSequenceCacheUpdate = () => {
+    if (this.isDataWorkDeferred() && this.hot.view) {
+      this.deferDataWork();
+    } else {
+      this.#toggleEmptyDataState();
+    }
+  };
+
+  /**
+   * Shows or hides the empty state once the data the settings describe is loaded. Core's
+   * `_applySettingsAndData()` applies settings ahead of their data, and an enable leaves the toggle for
+   * this step then: run against the rows the grid still held (or none, before the first load), it
+   * showed the overlay and took the keyboard for a grid about to receive rows.
+   *
+   * @private
+   */
+  onDataReady() {
+    if (this.takeDeferredDataWork()) {
+      this.#toggleEmptyDataState();
+    }
+  }
+
+  /**
+   * Shows or hides the empty state when the enable could not: it ran before the view existed, so its own
+   * toggle did nothing. Core runs it once after each enable or update, when the view exists, before the next
+   * render. At init that is where the overlay first appears. An enable or update with a view toggles itself,
+   * or leaves it to `onDataReady()`, so the step does nothing after it.
+   *
+   * @private
+   */
+  onGridReady() {
+    if (!this.#toggleOwed) {
+      return;
+    }
+
+    this.#toggleOwed = false;
+    this.#toggleEmptyDataState();
+  }
+
+  /**
+   * Update plugin state after Handsontable settings update.
+   */
+  updatePlugin() {
+    // `disablePlugin()` below unregisters the scope, which deactivates it and rolls the shortcuts
+    // context back. Only re-activate it when it was the active scope to begin with: re-activating
+    // unconditionally steals the keyboard from wherever the user actually is - an open modal dialog,
+    // or an element outside the grid they tabbed to - and `activateScope()` would then deactivate that
+    // scope on the way.
+    const hadActiveScope = isRootInstance(this.hot) &&
+      this.hot.getFocusScopeManager().getActiveScopeId() === PLUGIN_KEY;
+    const wasVisible = this.#isVisible;
+    const selectionState = this.#selectionState;
+    const isSelectionDataReplaced = this.#isSelectionDataReplaced;
+    const wasLoading = this.#loadingActive;
+
+    this.disablePlugin();
+    this.#isVisible = wasVisible;
+    this.#selectionState = selectionState;
+    this.#isSelectionDataReplaced = isSelectionDataReplaced;
+    this.#loadingActive = wasLoading;
+    this.enablePlugin();
+    this.#update();
+
+    if (this.isVisible()) {
+      this.#ui?.show();
+
+      if (hadActiveScope) {
+        this.hot.getFocusScopeManager().activateScope(PLUGIN_KEY);
+      }
+    }
+
+    super.updatePlugin();
+  }
+
+  /**
+   * Disable plugin for this Handsontable instance. The overlay goes away with the plugin's UI, so the
+   * plugin stops reporting it as visible and forgets the selection it kept for the hide. A later enable
+   * then starts from a hidden overlay, and a grid with rows fires no `afterEmptyDataStateHide` and gets
+   * no selection it did not ask for. `updatePlugin()` keeps that state across its own disable and enable,
+   * the loading flag included, so an update of the options made while a fetch runs keeps the loading
+   * overlay up.
+   */
+  disablePlugin() {
+    this.#loadingActive = false;
+    this.#isVisible = false;
+    this.#selectionState = null;
+    this.#isSelectionDataReplaced = false;
+
+    this.#unregisterShortcuts();
+    this.#unregisterFocusScope();
+
+    this.#ui?.destroy();
+    this.#ui = null;
+
+    super.disablePlugin();
+  }
+
+  /**
+   * Check if the plugin is currently visible.
+   *
+   * @returns {boolean}
+   */
+  isVisible(): boolean {
+    return this.#isVisible;
+  }
+
+  /**
+   * Registers the DOM listeners.
+   */
+  #registerEvents() {
+    this.eventManager.addEventListener(this.#ui!.getElement()!, 'wheel', (event) => {
+      this.#onMouseWheel(event as WheelEvent);
+    });
+  }
+
+  /**
+   * Shows or hides the loading overlay to match whether the DataProvider plugin is waiting for a `fetchRows`
+   * response that shows loading. The DataProvider plugin calls it when the view the grid shows changes, because
+   * no fetch hook fires then: a fetch left running for another view must not keep the overlay up, and a view
+   * whose fetch is still running must show it again. After a view change, the selection the overlay restores when
+   * it hides is the one the new view has, not the one the previous view had when the overlay appeared, and an
+   * overlay hidden by the change restores no selection at all. Does nothing while this plugin is disabled.
+   * Internal; not public API.
+   *
+   * @private
+   * @param {boolean} isLoading Whether the grid waits for a fetch that shows loading.
+   * @param {boolean} [isViewChange=false] Whether the view the grid shows has just changed.
+   */
+  _syncDataProviderLoading(isLoading: boolean, isViewChange = false): void {
+    if (!this.enabled) {
+      return;
+    }
+
+    if (isViewChange && this.#isVisible) {
+      this.#selectionState = this.hot.selection.exportSelection();
+      this.#isSelectionDataReplaced = false;
+    }
+
+    if (isLoading) {
+      this.#setLoadingActive();
+    } else {
+      this.#clearLoadingActive(!isViewChange);
+    }
+  }
+
+  /**
+   * Runs a change of the view the grid shows, made by a caller that switches the grid between data sets. The
+   * overlay that hides during it leaves the selection to the view (`#hide(false)`), as a view change through
+   * {@link EmptyDataState#_syncDataProviderLoading} does: the selection kept when it appeared belongs to the view
+   * that was left, and with none kept the hide selected the first cell of a view the user had not visited. When the
+   * change ends with the overlay shown, it keeps the arriving view's selection for its own hide. Runs `run` as it is
+   * while this plugin is disabled. Internal; not public API.
+   *
+   * @private
+   * @param {Function} run The view change.
+   */
+  _runViewChange(run: () => void): void {
+    if (!this.enabled) {
+      run();
+
+      return;
+    }
+
+    this.#viewChanges += 1;
+
+    try {
+      run();
+
+    } finally {
+      this.#viewChanges -= 1;
+
+      if (this.#viewChanges === 0 && this.#isVisible) {
+        this.#selectionState = this.hot.selection.exportSelection();
+        this.#isSelectionDataReplaced = false;
+      }
+    }
+  }
+
+  /**
+   * Sets the loading active flag and toggles the emptyDataState.
+   */
+  #setLoadingActive() {
+    if (this.#loadingActive) {
+      return;
+    }
+
+    this.#loadingActive = true;
+    this.#toggleEmptyDataState();
+  }
+
+  /**
+   * Clears the loading active flag and hides the emptyDataState.
+   *
+   * @param {boolean} [restoresSelection=true] Whether hiding restores the selection kept when the overlay appeared.
+   */
+  #clearLoadingActive(restoresSelection = true) {
+    if (!this.#loadingActive) {
+      return;
+    }
+
+    this.#loadingActive = false;
+    this.#hide(restoresSelection);
+    this.#toggleEmptyDataState();
+    this.hot.render();
+  }
+
+  /**
+   * Registers the focus scope for the emptyDataState plugin.
+   */
+  #registerFocusScope() {
+    this.hot.getFocusScopeManager()
+      .registerScope(PLUGIN_KEY, this.#ui!.getElement()!, {
+        shortcutsContextName: SHORTCUTS_CONTEXT_NAME,
+        // The overlay covers the grid, it does not replace it, so everything the grid answers stays
+        // answered - including shortcuts added to it after this line was written.
+        fallbackShortcutsContextName: GRID_SCOPE,
+        // The overlay is painted over the grid body, and during a DataProvider fetch it does that while
+        // the cells underneath are still DRAWN. Without this a shortcut that writes cell content asked
+        // only "are cells drawn", got `true`, and `Delete` wiped the data under the overlay.
+        coversGridBody: true,
+        runOnlyIf: () => this.isVisible(),
+        onActivate: (focusSource: string) => {
+          const focusableElements = this.#ui?.getFocusableElements() ?? [];
+
+          if (focusableElements.length > 0) {
+            if (focusSource === 'tab_from_above') {
+              focusableElements[0]?.focus();
+
+            } else if (focusSource === 'tab_from_below') {
+              focusableElements[focusableElements.length - 1]?.focus();
+            }
+          }
+        },
+      });
+  }
+
+  /**
+   * Registers the one shortcut the overlay answers differently from the grid.
+   *
+   * Everything else is inherited, through the scope's `fallbackShortcutsContextName`. Select all is
+   * the exception: the grid's own entry is guarded on `isDefined(getSelected())`, and the overlay
+   * starts with nothing selected, so the inherited one would be silently inert exactly when the user
+   * needs it - with every column hidden, where selecting the data is the way back to a context menu.
+   */
+  #registerShortcuts() {
+    const manager = this.hot.getShortcutManager();
+    const pluginContext = manager.getOrCreateContext(SHORTCUTS_CONTEXT_NAME);
+
+    pluginContext.addShortcut({
+      keys: [['Control/Meta', 'A']],
+      callback: () => selectAllCellsCommand.callback(this.hot),
+      // The data is still there when only the columns are hidden, which is the case worth selecting.
+      // With no rows or no columns at all there is nothing to select, so the chord stays unclaimed.
+      //
+      // `!hasRenderedCells()` keeps the override to the case it was written for. While a DataProvider
+      // fetch covers a grid whose cells are still DRAWN, selecting them all would put the selection on
+      // cells the user cannot see - the very move the grid's own guards refuse there.
+      runOnlyIf: () => this.hot.countRows() > 0 && this.hot.countCols() > 0 &&
+        !hasRenderedCells(this.hot),
+      group: SHORTCUTS_GROUP,
+    });
+  }
+
+  /**
+   * Unregisters the plugin's shortcut group.
+   */
+  #unregisterShortcuts() {
+    this.hot.getShortcutManager()
+      .getContext(SHORTCUTS_CONTEXT_NAME)?.removeShortcutsByGroup(SHORTCUTS_GROUP);
+  }
+
+  /**
+   * Unregisters the focus scope for the emptyDataState plugin.
+   *
+   * Nothing was registered on a non-root instance, where the plugin never enables and the
+   * `FocusScopeManager` does not exist, so a direct `disablePlugin()` call there must not reach it.
+   */
+  #unregisterFocusScope() {
+    if (!isRootInstance(this.hot)) {
+      return;
+    }
+
+    this.hot.getFocusScopeManager().unregisterScope(PLUGIN_KEY);
+  }
+
+  /**
+   * Get the message by the source for the emptyDataState.
+   *
+   * @param {string} source - The source.
+   * @returns {object} The message.
+   */
+  #getMessage(source: string): Record<string, unknown> {
+    const messageSetting = this.getSetting<MessageSetting>('message');
+
+    let message: string | Record<string, unknown> | undefined;
+
+    if (typeof messageSetting === 'function') {
+      message = messageSetting(source);
+    } else {
+      message = messageSetting;
+    }
+
+    // If the message is a string, set the title
+    if (typeof message === 'string') {
+      message = { title: message };
+    }
+
+    // If the message is not set, set the default message object
+    if (!message?.title && !message?.description && !message?.buttons) {
+      const result: Record<string, unknown> = {};
+
+      if (source === SOURCE.FILTERS) {
+        result.title = this.hot.getTranslatedPhrase(C.EMPTY_DATA_STATE_TITLE_FILTERS);
+        result.description = this.hot.getTranslatedPhrase(C.EMPTY_DATA_STATE_DESCRIPTION_FILTERS);
+        result.buttons = [{
+          text: this.hot.getTranslatedPhrase(C.EMPTY_DATA_STATE_BUTTONS_FILTERS_RESET),
+          type: 'secondary',
+          callback: () => {
+            const filtersPlugin = this.hot.getPlugin('filters');
+
+            if (filtersPlugin) {
+              filtersPlugin.clearConditions();
+              filtersPlugin.filter();
+            }
+          }
+        }];
+      } else if (source === SOURCE.LOADING) {
+        result.title = this.hot.getTranslatedPhrase(C.EMPTY_DATA_STATE_TITLE_LOADING);
+        result.description = this.hot.getTranslatedPhrase(C.EMPTY_DATA_STATE_DESCRIPTION_LOADING);
+      } else {
+        result.title = this.hot.getTranslatedPhrase(C.EMPTY_DATA_STATE_TITLE);
+        result.description = this.hot.getTranslatedPhrase(C.EMPTY_DATA_STATE_DESCRIPTION);
+      }
+
+      return result;
+    }
+
+    // At this point message is a Record<string, unknown> (string was already converted above).
+    // The union type is narrowed to Record<string, unknown> by the checks above.
+    return message as Record<string, unknown>;
+  }
+
+  /**
+   * Toggle visibility and content of the emptyDataState.
+   *
+   * Shows emptyDataState when table has no data or when all data is hidden by filters.
+   * When DataProvider loading is active, the overlay can show over non-empty data.
+   */
+  #toggleEmptyDataState() {
+    if (!this.hot.view) {
+      return;
+    }
+
+    if (this.#loadingActive) {
+      if (this.#isVisible) {
+        this.#update();
+      } else {
+        this.#show();
+      }
+
+      return;
+    }
+
+    if (
+      this.hot.view.countRenderableColumns() === 0 ||
+      this.hot.view.countRenderableRows() === 0
+    ) {
+      this.#show();
+    } else {
+      this.#hide(this.#viewChanges === 0);
+    }
+  }
+
+  /**
+   * Shows the emptyDataState overlay.
+   */
+  #show() {
+    if (this.#isVisible) {
+      return;
+    }
+
+    this.hot.runHooks('beforeEmptyDataStateShow');
+
+    this.#update();
+
+    this.#ui?.show();
+    this.#isVisible = true;
+    this.#updateLayout();
+
+    this.#selectionState = this.hot.selection.exportSelection();
+    this.#isSelectionDataReplaced = false;
+    this.hot.getFocusScopeManager().activateScope(PLUGIN_KEY);
+
+    this.hot.runHooks('afterEmptyDataStateShow');
+  }
+
+  /**
+   * Updates the content of the emptyDataState overlay.
+   */
+  #update() {
+    if (this.#loadingActive) {
+      this.#ui?.updateContent(this.#getMessage(SOURCE.LOADING), true);
+    } else if (this.#hasFilterConditions) {
+      this.#ui?.updateContent(this.#getMessage(SOURCE.FILTERS), false);
+    } else {
+      this.#ui?.updateContent(this.#getMessage(SOURCE.UNKNOWN), false);
+    }
+  }
+
+  /**
+   * Fits the visible overlay to the current grid layout.
+   *
+   * It runs after every render, and also when the overlay is shown between renders – a DataProvider
+   * fetch starting, for example. Without that the overlay keeps the size it had the last time it was on
+   * screen, and can spill over the pager or the sheets bar.
+   */
+  #updateLayout() {
+    if (!this.#ui?.getElement() || !this.isVisible() || !this.hot.view?._wt) {
+      return;
+    }
+
+    this.#ui.updateSize(this.hot.view, this.#loadingActive);
+    this.#ui.updateClassNames(this.hot.view);
+  }
+
+  /**
+   * Hides the emptyDataState overlay.
+   *
+   * @param {boolean} [restoresSelection=true] Whether to restore the selection kept when the overlay appeared,
+   * or select the first cell when none was kept. With `false`, the selection is left as it is, and so it is
+   * after a `loadData()` replaced the data the kept selection addressed.
+   */
+  #hide(restoresSelection = true) {
+    if (!this.#isVisible) {
+      return;
+    }
+
+    this.hot.runHooks('beforeEmptyDataStateHide');
+
+    this.#ui?.hide();
+    this.#isVisible = false;
+
+    // `deactivateScope()` restores the shortcuts context this scope displaced. Do not roll it back
+    // here as well - two rollbacks eventually disagree, and this one cannot know what it displaced.
+    this.hot.getFocusScopeManager().deactivateScope(PLUGIN_KEY);
+
+    if (!restoresSelection || this.#isSelectionDataReplaced) {
+      this.#selectionState = null;
+      this.#isSelectionDataReplaced = false;
+    } else if (this.#selectionState && this.#selectionState.ranges.length > 0) {
+      this.hot.selection.importSelection({
+        ...this.#selectionState,
+        activeRange: this.#selectionState.activeRange!,
+      });
+      this.hot.view.render();
+      this.#selectionState = null;
+    } else {
+      this.hot.selectCell(0, 0, undefined, undefined, false);
+    }
+
+    this.hot.runHooks('afterEmptyDataStateHide');
+  }
+
+  /**
+   * Handles the mouse wheel event.
+   *
+   * @param {WheelEvent} event - The wheel event.
+   */
+  #onMouseWheel(event: WheelEvent) {
+    // wheelDeltaX is a non-standard property present in some browsers (e.g. Safari)
+    const extendedEvent: WheelEvent & { wheelDeltaX?: number } = event;
+    const wheelDeltaX = extendedEvent.wheelDeltaX ?? 0;
+    const deltaX = Number.isNaN(event.deltaX) ? (-1) * wheelDeltaX : event.deltaX;
+
+    if (deltaX !== 0 && this.hot.view.hasHorizontalScroll() && !this.hot.view.isHorizontallyScrollableByWindow()) {
+      this.hot.view.setTableScrollPosition({ left: this.hot.view.getTableScrollPosition().left + deltaX });
+
+      event.preventDefault();
+    }
+  }
+
+  /**
+   * Called after the rendering of the table is completed.
+   * It updates the height and class names of the emptyDataState element.
+   */
+  #onAfterRender = () => {
+    this.#updateLayout();
+  };
+
+  /**
+   * Called before the filtering of the table is completed.
+   * It updates the flag indicating if there are filter conditions.
+   *
+   * @param {Array} conditions - The filter conditions.
+   */
+  #onBeforeFilter = (conditions: unknown[]) => {
+    this.#hasFilterConditions = conditions?.length > 0;
+
+    if (this.isVisible()) {
+      this.#update();
+    }
+  };
+
+  /**
+   * Forgets the selection kept for the hide when `loadData()` replaces the data. The kept coordinates
+   * address the replaced rows, so restoring them put a selection on unrelated cells of the new data. When a
+   * selection was kept, the hide then leaves the selection alone, as a view change does: the user selected
+   * cells of other data, so neither those cells nor the first cell is theirs. When none was kept, the hide
+   * still selects the first cell. A grid with an external data source keeps the selection: its loads bring
+   * another page or order of the same records, and restoring the selection is how the user keeps it across
+   * them. `updateData()` keeps the dataset's state by design, so it keeps the selection too.
+   */
+  #onBeforeLoadData = () => {
+    if (this.hot.runHooks('hasExternalDataSource') === true) {
+      return;
+    }
+
+    if (this.#selectionState && this.#selectionState.ranges.length > 0) {
+      this.#isSelectionDataReplaced = true;
+    }
+
+    this.#selectionState = null;
+  };
+
+  /**
+   * Hides the loading overlay when the fetch it waits for loads. A replayed response (`isRestored`) is not the end
+   * of a fetch: it brings back rows the grid already shows, and a fetch replayed over may still be running, so the
+   * overlay stays as it is. When no fetch runs, the overlay is already hidden by then.
+   *
+   * @param {object} [result] The {@link Hooks#afterDataProviderFetch} payload.
+   * @returns {void}
+   */
+  readonly #onAfterDataProviderFetch = (result?: { isRestored?: true }) => {
+    if (result?.isRestored !== true) {
+      this.#clearLoadingActive();
+    }
+  };
+
+  /**
+   * Hides the loading overlay when the fetch it waits for fails. A failed fetch made for a view the grid no longer
+   * shows (`isVisible` is `false`) leaves the overlay alone: the overlay belongs to the view on screen, which may
+   * still be waiting for its own fetch.
+   *
+   * @param {Error} error The thrown error.
+   * @param {object} queryParameters The query parameters of the failed request.
+   * @param {boolean} [isVisible] `false` when the request was made for a view the grid does not show.
+   * @returns {void}
+   */
+  readonly #onAfterDataProviderFetchError = (error: unknown, queryParameters: unknown, isVisible?: boolean) => {
+    if (isVisible !== false) {
+      this.#clearLoadingActive();
+    }
+  };
+
+  /**
+   * Destroy plugin instance.
+   */
+  destroy() {
+    this.#loadingActive = false;
+    this.#isVisible = false;
+    this.#ui?.destroy();
+    this.#ui = null;
+    this.#hasFilterConditions = false;
+    this.#selectionState = null;
+    this.#isSelectionDataReplaced = false;
+    this.#viewChanges = 0;
+
+    super.destroy();
+  }
+}

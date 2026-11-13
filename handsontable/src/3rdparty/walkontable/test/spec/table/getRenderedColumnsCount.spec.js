@@ -30,7 +30,7 @@ describe('WalkontableTable', () => {
   });
 
   describe('getRenderedColumnsCount()', () => {
-    it('should return 0 if there are no rendered rows and columns', () => {
+    it('should return 0 if there are no rendered rows and columns', async() => {
       createDataArray(0, 0);
       spec().$wrapper.width(250).height(170);
 
@@ -69,7 +69,7 @@ describe('WalkontableTable', () => {
       expectWtTable(wt, wtTable => wtTable.getRenderedColumnsCount(), 'top').toBe(0);
     });
 
-    it('should return sum that is relevant to a given overlay', () => {
+    it('should return sum that is relevant to a given overlay', async() => {
       createDataArray(18, 18);
       spec().$wrapper.width(250).height(170);
 
@@ -92,7 +92,45 @@ describe('WalkontableTable', () => {
       expectWtTable(wt, wtTable => wtTable.getRenderedColumnsCount(), 'top').toBe(3);
     });
 
-    it('should return columns count only for fully visible columns', () => {
+    it('should return 0 without throwing when the table is initialized inside a hidden container', async() => {
+      createDataArray(18, 18);
+      spec().$wrapper.width(250).height(170).css('display', 'none');
+
+      const wt = walkontable({
+        data: getData,
+        totalRows: getTotalRows,
+        totalColumns: getTotalColumns,
+      });
+
+      // draw() is interrupted because the container is hidden — columnsRenderCalculator stays undefined
+      wt.draw();
+
+      // should return 0 instead of throwing "can't access property 'count', columnsRenderCalculator is undefined"
+      expect(wt.wtTable.getRenderedColumnsCount()).toBe(0);
+    });
+
+    it('should return correct count after draw(fastDraw=true) is called once the container becomes visible', async() => {
+      createDataArray(18, 18);
+      spec().$wrapper.width(250).height(170).css('display', 'none');
+
+      const wt = walkontable({
+        data: getData,
+        totalRows: getTotalRows,
+        totalColumns: getTotalColumns,
+      });
+
+      // Initial draw is interrupted — columnsRenderCalculator is never set
+      wt.draw();
+
+      // Container becomes visible (e.g. accordion opens)
+      spec().$wrapper.css('display', '');
+
+      // draw(true) must not throw and must set columnsRenderCalculator
+      expect(() => wt.draw(true)).not.toThrow();
+      expect(wt.wtTable.getRenderedColumnsCount()).toBeGreaterThan(0);
+    });
+
+    it('should return columns count only for fully visible columns', async() => {
       createDataArray(18, 18);
       spec().$wrapper.width(209).height(185);
 

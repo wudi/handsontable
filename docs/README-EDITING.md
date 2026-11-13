@@ -10,7 +10,7 @@ When adding new documentation files, check the documentation [directory structur
 
 * Use only lower-case characters.
 * To separate words, use `-`.
-* Use the `.md` file extension. The `.vue` extension is disabled.
+* Use the `.md` file extension.
 
 ### Frontmatter
 
@@ -18,67 +18,68 @@ Each Markdown file can start with the following frontmatter tags:
 
 | Tag              | Meaning                                              | Default value                                              |
 | ---------------- | ---------------------------------------------------- | ---------------------------------------------------------- |
-| `id`             | The page's unique ID.                                  | Required. Used for redirecting between different versions (e.g., 12.1 to 11.0) of the same documentation page (https://github.com/handsontable/handsontable/pull/10163). Don't change the IDs of existing pages. To add an ID for a new page, generate 8 random alphanumeric characters (https://www.random.org/strings/?num=20&len=8&digits=on&loweralpha=on&unique=on&format=html&rnd=new). |
 | `title`          | The page's header.                                   | If not set, gets generated from the page's parent's title. |
 | `permalink`      | The page's **unique** URL.                           | If not set, gets generated from the Markdown file name.    |
 | `canonicalUrl`   | A canonical URL of the page's latest version.        | None (not required)                                        |
-| `metaTitle`      | The page's SEO meta title.                           | None (not required)                                        |
+| `metaTitle`      | The page's SEO meta title (see the note below the table). | None (not required) |
 | `description`    | The page's SEO meta description.                     | None (not required)                                        |
 | `tags`           | Search tags used by the documentation search engine. | None (not required)                                 |
 | `react`          | Holds an alternative set of frontmatter tags (applied only to the React version of the page) | None (not required)                                             |
+| `angular`        | Holds an alternative set of frontmatter tags (applied only to the Angular version of the page) | None (not required)                                             |
 | `searchCategory` | Search category used by the search engine to categorize the search results. | If not set, the search result will be listed under the default "Guides" section. |
+| `menuTag`        | A tag displayed next to the page title in the sidebar menu. | None (not required) |
+| `category`       | The content category for organizing pages. | None (not required) |
+| `addedIn`        | The Handsontable version that introduced the feature the page documents, as a quoted `"MAJOR.MINOR.PATCH"` string (for example `"17.0.0"`). Renders an "Added in Handsontable 17.0.0" badge next to the page title and adds the same sentence under the H1 of the page's Markdown and llms outputs. Set it only for features introduced in 14.0.0 or later; `npm run build` rejects malformed values and versions that were never released. | None (not required) |
 
-You can set different frontmatter tags for different framework versions of the page. For example, you can set `metaTitle` to say either `JS data grid` or `React data table`, depending on the framework:
+The `metaTitle` value reads `<Page> | Handsontable DataGrid for <Framework>`. The docs site does not render it yet: the browser tab title comes from `title` plus the site title.
+
+You can set different frontmatter tags for different framework versions of the page. For example, you can set `metaTitle` to say either `JavaScript` or `React`, depending on the framework:
 
 \```yaml
 // applies to the JS version of the page
-metaTitle: JS data grid
+metaTitle: Installation | Handsontable DataGrid for JavaScript
 
 // applies to the React version of the page
 react:
-  metaTitle: React data table
+  metaTitle: Installation | Handsontable DataGrid for React
+
+// applies to the Angular version of the page
+angular:
+  metaTitle: Installation | Handsontable DataGrid for Angular
 \```
 
 You can use the following framework keys:
 - `react`
+- `angular`
 
 Frontmatter example:
 
 ```yaml
 ---
-id: 1ezrscdc
 title: Introduction
-metaTitle: Installation - Guide - Handsontable Documentation for Javascript
+metaTitle: Introduction | Handsontable DataGrid for JavaScript
 description: Easily install the data grid using your preferred package manager or import Handsontable assets directly from the CDN.
 permalink: /api/
 canonicalUrl: /api/
 react:
-  id: xyr8fg2e # The page id should be different for different for other framework variations
-  metaTitle: Installation - Guide - Handsontable Documentation for React
+  metaTitle: Introduction | Handsontable DataGrid for React
   description: Install the wrapper for React via npm, import stylesheets, and use it to get up and running your application.
   customValue: Custom # Custom value that can be used within template and will be available only for React framework
+angular:
+  metaTitle: Introduction | Handsontable DataGrid for Angular
+  description: Install the wrapper for Angular via npm, import stylesheets, and use it to get up and running your application.
 tags:
   - api
   - api ref
-searchCategory: API Reference # The list of categories can be found here ./docs/.vuepress/config.js#L258
----
-```
-
-### Sitemap frontmatter
-
-The [`vuepress-plugin-sitemap`](https://www.npmjs.com/package/vuepress-plugin-sitemap) lets us use additional tags to customize the documentation site map:
-
-```
----
-sitemap:
-  exclude: false
-  changefreq: hourly
+searchCategory: API Reference
 ---
 ```
 
 ## Editing the documentation
 
 When editing the documentation content, follow the guidelines below.
+
+> **Note:** Content `.md` files and the example source files they embed hot reload automatically in `npm run dev`. The custom content loader (`src/plugins/framework-loader.mjs`) watches `content/` and re-syncs the affected pages on each change. If content ever looks stale, restart the dev server with `npm run dev -- --force` to rebuild Astro's data store from scratch.
 
 ### Editing the `next` documentation version
 
@@ -88,7 +89,7 @@ The `next` version of the documentation is available only locally and on the sta
 
 To display the `next` version in a browser:
 1. Start a [local Handsontable documentation server](./README.md#getting-started-with-handsontable-documentation).
-2. In your browser, go to http://localhost:8080/docs/.
+2. In your browser, go to http://localhost:4321/docs/.
 
 ### Editing a published documentation version
 
@@ -96,7 +97,7 @@ To edit an already-published documentation version, go to the [`prod-docs/<MAJOR
 
 To display a published documentation version in a browser:
 1. Start a [local Handsontable documentation server](./README.md#getting-started-with-handsontable-documentation).
-2. In your browser, go to http://localhost:8080/docs/{MAJOR.MINOR}/.
+2. In your browser, go to http://localhost:4321/docs/.
 
 If you're editing the `latest` version (a version with the largest `<MAJOR.MINOR>` number), remember to make the same edits to the `next` version as well.
 
@@ -118,24 +119,12 @@ To edit a published version's API reference:
 ## Reviewing the documentation
 
 When reviewing someone else's changes, you can see the documentation output in a few different ways:
-- Switch to the reviewed branch, pull the latest changes, and [start a local documentation server](./README.md#getting-started-with-handsontable-documentation) ([link redirects](./docker/redirects.conf) won't work, though).
-- [Deploy the documentation to the staging environment](./README-DEPLOYMENT.md#manually-deploying-the-documentation-to-the-staging-environment) (https://dev.handsontable.com/docs).
-- [Deploy the documentation locally at a specific commit](#deploying-the-documentation-locally-at-a-specific-commit).
-
-### Deploying the documentation locally at a specific commit
-
-To deploy the documentation locally at a `[COMMIT_HASH]` commit:
-1. If you don't have [Docker Desktop](https://www.docker.com/products/docker-desktop), install it.
-2. From the `docs` directory, run the following command:
-   ```bash
-   npm run docs:review [COMMIT_HASH]
-   ```
-3. In your browser, go to: http://localhost:8000/docs/.
+- Switch to the reviewed branch, pull the latest changes, and [start a local documentation server](./README.md#getting-started-with-handsontable-documentation).
+- [Deploy the documentation to the staging environment](./README-DEPLOYMENT.md#deploying-the-documentation-to-the-staging-environment) (https://dev.handsontable.com/docs).
 
 ## Documentation versioning
 
-New documentation is created automatically after the Handsontable is released. The `./scripts/release.mjs`
-takes care to create a Documentation production branch, generate API content from source code, commit, and deploy the Docs image to the production.
+New documentation is created automatically after the Handsontable is released. The `stable-publish` job in `.github/workflows/publish.yml` creates or updates the documentation production branch, generates API content from source code, commits, and pushes - which then triggers the Cloudflare Pages deployment.
 
 ## Markdown links
 
@@ -162,61 +151,24 @@ To link to another page but for other framework (and still for the same document
 For example, to link to a file called `./content/guides/getting-started/react-methods.md` that should be accessible only for React framework, use:
 
 ```markdown
-[React methods](@/react/guides/getting-started/react-methods.md)
+[React methods](@/react/guides/getting-started/react-methods/react-methods.md)
 ```
 
 When there is no framework defined in the link URL, the generated link will be pointed to the currently viewed framework. For example, link `[Core](@/api/core.md)` for Javascript will point to `/docs/javascript-data-grid/api/core` and for chosen React framework to `/docs/react-data-grid/api/core`.
 
-List of available frameworks: `javascript`, `react`.
+List of available frameworks: `javascript`, `react`, `angular`.
 
 Follow these rules:
-* After the `@` character, provide the target's relative file path (from the current version's root directory).<br>
-  For example: `[Clipboard][@/guides/cell-features/clipboard.md]`.
-* After the target file's name, add the `.md` [extension](#filenames)<br>
+* After the `@` character, provide the target's relative file path (from the current version's root directory).
+  For example: `[Clipboard][@/guides/cell-features/clipboard/clipboard.md]`.
+* After the target file's name, add the `.md` [extension](#filenames).
   For example: `[Autofill](@/api/autofill.md)`.
-* To link to a specific section, use anchors.<br>
+* To link to a specific section, use anchors.
   For example: `[Core](@/api/core.md#some-anchor)`.
 
 Also, the following rules apply:
 * The target file needs to have the `permalink` [frontmatter](#frontmatter) tag defined.
-* If generating a final URL link fails, the initial value gets output as a relative link.<br>
-  The documentation's [link checker](./README.md#documentation-npm-scripts) catches such failed links.
-
-### Checking for broken links
-
-To check for broken links:
-
-1. Generate the Handsontable API reference. From the `docs` directory, run:
-    ```bash
-    npm run docs:api
-    ```
-2. Build the documentation output. From the `docs` directory, run:
-    ```bash
-    npm run docs:build
-    ```
-3. Check for broken links. From the `docs` directory, run:
-   ```bash
-   npm run docs:check-links
-   ```
-4. Open the broken links report: `/docs/report-check-links.xlsx`.
-
-
-## Markdown variables
-
-It is possible to include metadata from VuePress or frontmatter in the content using the `$page` object and the following syntax:
-
-```
-Welcome the users of {{ $page.frameworkName }}!
-```
-
-The above code prints the following text in the React variant of the docs:
-
-> Welcome the users of React!
-
-The full list of available variables is available at:
-
-- https://vuepress.vuejs.org/guide/frontmatter.html (official)
-- https://github.com/handsontable/handsontable/blob/develop/docs/.vuepress/plugins/extend-page-data/index.js#L76-L82 (our modifications)
+* If generating a final URL link fails, the initial value gets output as a relative link.
 
 ## Markdown containers
 
@@ -241,7 +193,9 @@ We use the following Markdown containers:
 | `::: source-code-link <URL>` | Adds a source code link to the API ref header.    |
 | `::: example [options]`      | Renders a code example as specified in [options]. |
 
-For more information, see the [VuePress documentation](https://v1.vuepress.vuejs.org/guide/markdown.html#custom-containers).
+These containers are processed by the `vuepress-preprocessor.mjs` plugin in `src/plugins/`, which converts the VuePress-style syntax into Astro/Starlight-compatible output.
+
+For `tip` / `warning` / `danger` / `note` callouts, the body is not full CommonMark. The preprocessor turns inline `` `code` ``, `**bold**`, and `[label](url)` into HTML (see `aside-inline-markdown.mjs`).
 
 ### Adding code examples
 
@@ -267,46 +221,12 @@ The `example` Markdown container offers the following options:
 | -------------- | -------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `#exampleId`   | No       | `#example1`     | String                                                                                                                                                                                                                                                      | Container's unique ID.                                                                                |
 | `.class`       | No       | `.new-class`    | String                                                                                                                                                                                                                                                      | Container's custom class.                                                                             |
-| `:preset`      | No       | `:hot`          | `:hot` \| `:hot-lang` \| `:hot-numbro` \| `:react` \| `:react-languages` \| `:react-numbro` \| `:react-redux` \| `:react-advanced` \| `:angular` \| `:angular-languages` \| `:angular-numbro` \| `:vue` \| `:vue-numbro` \| `:vue-languages` \| `:vue-vuex` | Sets code dependencies.                                                                               |
+| `:preset`      | No       | `:hot`          | `:hot` \| `:hot-lang` \| `:hot-numbro` \| `:react` \| `:react-languages` \| `:react-numbro` \| `:react-redux` \| `:react-advanced` \| `:angular` \| `:angular-languages` \| `:angular-numbro` \| `:vue3` \| `:vue3-numbro` \| `:vue3-languages` \| `:vue3-vuex` | Sets code dependencies.                                                                               |
 | `--js <pos>`   | No       | `--js 1`        | Positive integer<br>(default `1`)                                                                                                                                                                                                                           | Sets the JS code snippet's position<br>in the markdown container.                                     |
 | `--html <pos>` | No       | `--html 2`      | Positive integer<br>(default `0`)                                                                                                                                                                                                                           | Sets the HTML code snippet's position<br>in the markdown container.<br><br>`0` disables the HTML tab. |
 | `--css <pos>`  | No       | `--css 2`       | Positive integer<br>(default `0`)                                                                                                                                                                                                                           | Sets the CSS code snippet's position<br>in the markdown container.<br><br>`0` disables the CSS tab.   |
 | `--no-edit`    | No       | `--no-edit`     | `--no-edit`                                                                                                                                                                                                                                                 | Removes the **Edit** button.                                                                          |
 | `--tab <tab>`  | No       | `--tab preview` | `code` \| `html` \| `css` \| `preview`                                                                                                                                                                                                                      | Sets a tab as open by default.                                                                        |
-
-### Non-editable examples
-You can also embed an example without the tabbed container.
-To display just the result of the code you want to present, use the `<HandsontablePreview>` component. The code wrapped in this component and a markdown code block will be rendered with the context of the current Handsontable version.
-````js
-<HandsontablePreview>
-```js
-  // enter the Handsontable-related code here.
-  const containerElement = document.querySelector('#hot');
-
-  new Handsontable(containerElement, {});
-```
-</HandsontablePreview>
-````
-
-**Note: Remember to place all the needed HTML and `<style>` elements in the markdown file as well.**
-
-### Finding the broken examples
-
-The `example-checker` script checks if:
-- Every example container's code initializes at least one Handsontable instance.
-- The number of Handsontable instances implemented in the example containers corresponds to the number of Handsontable instance DOM containers being rendered on the page.
-
-To use the `example-checker` script: (all the commands need to be run from the `docs` directory)
-1. Build the documentation.
-  ```bash
-  npm run docs:build
-  ```
-2. Run the script:
-  ```bash
-  npm run docs:test:example-checker
-  ```
-
-The script is also automatically executed by the `Docs Staging Deployment` Github Actions workflow.
 
 ## React style guide
 
@@ -316,10 +236,10 @@ For matters not covered here, follow the conventions of https://beta.reactjs.org
 
 - Don't gather multiple props in a single `settings={}` prop. Instead, specify individual props.
   ```jsx
-  <HotTable>
+  <HotTable
     data={data}
     height="auto"
-  <HotTable/>
+  />
   ```
 - In JSX, use double quotes (`""`). If a prop's value is a string, use double quotes without curly braces.
   ```jsx
@@ -327,12 +247,12 @@ For matters not covered here, follow the conventions of https://beta.reactjs.org
   ```
 - In JS inside of JSX, use single quotes (`''`). For example, if a React prop contains a JS object:
   ```jsx
-  <HotTable>
+  <HotTable
     licenseKey="00000-00000-00000-00000-00000"
     nestedHeaders={[
       ['A', { label: 'B', colspan: 8 }, 'C']
     ]}
-  <HotTable/>
+  />
   ```
 - Get rid of elements that are not necessary (e.g., a `<Fragment>` with a single child).
 - Use named imports:

@@ -1,0 +1,15 @@
+@use "sass:color";
+@use "./host-guards";
+@use "./base";
+@use "./border-radius";
+@use "./mobile";
+@use "./z-index-map";
+
+// Walkontable migration
+@mixin base-styles() {
+  @include host-guards.output();
+  @include base.output();
+  @include border-radius.output();
+  @include mobile.output();
+  @include z-index-map.output();
+}

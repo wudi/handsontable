@@ -4,11 +4,6 @@ describe('HiddenColumns (RTL mode)', () => {
     { htmlDir: 'ltr', layoutDirection: 'rtl' },
   ], ({ htmlDir, layoutDirection }) => {
     const id = 'testContainer';
-    const getIndicator = (parentEl, direction) => {
-      return direction === 'after' ?
-        parentEl.querySelector('.afterHiddenColumnIndicator')
-        : parentEl.querySelector('.beforeHiddenColumnIndicator');
-    };
 
     beforeEach(function() {
       $('html').attr('dir', htmlDir);
@@ -25,10 +20,10 @@ describe('HiddenColumns (RTL mode)', () => {
     });
 
     describe('indicators', () => {
-      it('should add proper class names in column headers', () => {
+      it('should add proper class names in column headers', async() => {
         handsontable({
           layoutDirection,
-          data: Handsontable.helper.createSpreadsheetData(1, 5),
+          data: createSpreadsheetData(1, 5),
           hiddenColumns: {
             columns: [1, 3],
             indicators: true,
@@ -36,23 +31,37 @@ describe('HiddenColumns (RTL mode)', () => {
           colHeaders: true,
         });
 
+        // The caret is a real `<i class="ht-icon ht-icon-caret-hidden-*">` element now
+        // (`syncIcon()` against a named slot that is a child of the `th` itself), not a
+        // `::before`/`::after` pseudo-element - `beforeHiddenColumn` fills the END slot with a
+        // left-pointing caret, `afterHiddenColumn` fills the START slot with a right-pointing one
+        // (see `hiddenColumns/AGENTS.md`, "The caret is a real element now"). Slot assignment is
+        // not direction-dependent - only the CSS that positions the slots mirrors under RTL.
         expect(getCell(-1, 0)).toHaveClass(CSS_CLASS_BEFORE_HIDDEN_COLUMN);
-        expect(getIndicator(getCell(-1, 0), 'after')).toBe(null);
-        expect(getComputedStyle(getIndicator(getCell(-1, 0), 'before'), ':after').content).toBe('"▶"');
+        expect(getCell(-1, 0).querySelector('.ht-hidden-indicator-start')).toBe(null);
+        expect(getCell(-1, 0).querySelector('.ht-hidden-indicator-end'))
+          .toHaveClass('ht-icon-caret-hidden-left');
         expect(getCell(-1, 1)).toBe(null);
         expect(getCell(-1, 2)).toHaveClass(CSS_CLASS_BEFORE_HIDDEN_COLUMN);
         expect(getCell(-1, 2)).toHaveClass(CSS_CLASS_AFTER_HIDDEN_COLUMN);
-        expect(getComputedStyle(getIndicator(getCell(-1, 2), 'after'), ':before').content).toBe('"◀"');
-        expect(getComputedStyle(getIndicator(getCell(-1, 2), 'before'), ':after').content).toBe('"▶"');
+        expect(getCell(-1, 2).querySelector('.ht-hidden-indicator-start'))
+          .toHaveClass('ht-icon-caret-hidden-right');
+        expect(getCell(-1, 2).querySelector('.ht-hidden-indicator-end'))
+          .toHaveClass('ht-icon-caret-hidden-left');
+        // The carets must actually paint, not merely exist: a CSS change that blanks the glyph
+        // would pass the class checks above.
+        expect(isIconPainted(getCell(-1, 2).querySelector('.ht-hidden-indicator-start'))).toBe(true);
+        expect(isIconPainted(getCell(-1, 2).querySelector('.ht-hidden-indicator-end'))).toBe(true);
         expect(getCell(-1, 3)).toBe(null);
         expect(getCell(-1, 4)).toHaveClass(CSS_CLASS_AFTER_HIDDEN_COLUMN);
-        expect(getComputedStyle(getIndicator(getCell(-1, 4), 'after'), ':before').content).toBe('"◀"');
-        expect(getIndicator(getCell(-1, 4), 'before')).toBe(null);
+        expect(getCell(-1, 4).querySelector('.ht-hidden-indicator-start'))
+          .toHaveClass('ht-icon-caret-hidden-right');
+        expect(getCell(-1, 4).querySelector('.ht-hidden-indicator-end')).toBe(null);
       });
 
-      it('should render indicators after enabling them in updateSettings', () => {
+      it('should render indicators after enabling them in updateSettings', async() => {
         handsontable({
-          data: Handsontable.helper.createSpreadsheetData(1, 3),
+          data: createSpreadsheetData(1, 3),
           hiddenColumns: {
             columns: [0, 2],
           },
@@ -62,7 +71,7 @@ describe('HiddenColumns (RTL mode)', () => {
         expect(getCell(-1, 1)).not.toHaveClass(CSS_CLASS_BEFORE_HIDDEN_COLUMN);
         expect(getCell(-1, 1)).not.toHaveClass(CSS_CLASS_AFTER_HIDDEN_COLUMN);
 
-        updateSettings({
+        await updateSettings({
           hiddenColumns: {
             columns: [0, 2],
             indicators: true,

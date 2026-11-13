@@ -1,0 +1,171 @@
+@use "../../utils/mixins";
+
+// Pagination
+
+@mixin output {
+  .handsontable {
+    &.ht-pagination {
+      width: 100%;
+      color: var(--ht-pagination-bar-foreground-color);
+      background: var(--ht-pagination-bar-background-color);
+      font-size: var(--ht-font-size);
+      line-height: var(--ht-line-height);
+      box-sizing: border-box;
+      overflow-x: auto;
+
+      // In the bottom slot the border is provided by `.ht-slot-element`. A standalone
+      // pagination (custom `uiContainer`, no `ht-slot-element`) draws its own full border.
+      &:not(.ht-slot-element) {
+        border: 1px solid var(--ht-border-color);
+        border-radius: var(--ht-border-radius);
+      }
+
+      .ht-pagination__inner {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: calc(var(--ht-gap-size) * 4);
+        padding-inline: var(--ht-pagination-bar-horizontal-padding);
+        padding-block: var(--ht-pagination-bar-vertical-padding);
+        min-width: 230px;
+      }
+
+      .ht-page-size-section {
+        display: flex;
+        align-items: center;
+        gap: calc(var(--ht-gap-size) * 2);
+
+        &__label {
+          white-space: nowrap;
+
+          @include mixins.inherit-text-metrics;
+        }
+
+        &__select-wrapper {
+          position: relative;
+          border-radius: var(--ht-input-border-radius);
+
+          // The visible fill lives on the wrapper. A native <select> clips its own
+          // background-color to a radius smaller than its border-radius, leaving the
+          // rounded corners unfilled (DEV-42); a <div> fills them correctly. The select
+          // fills this wrapper exactly, so wrapper :hover / :focus-within are equivalent
+          // to the select's own :hover / :focus. (`:has()` is banned in src/**.)
+          background-color: var(--ht-input-background-color);
+
+          // Keep `:hover` last so it wins over `:focus-within` when hovered while focused,
+          // matching the select's own hover-over-focus precedence.
+          &:focus-within {
+            background-color: var(--ht-input-focus-background-color);
+          }
+
+          &:hover {
+            background-color: var(--ht-input-hover-background-color);
+          }
+
+          select {
+            padding-inline-start: var(--ht-gap-size);
+            padding-inline-end: calc(var(--ht-gap-size) + var(--ht-icon-size));
+            padding-top: var(--ht-gap-size);
+            padding-bottom: var(--ht-gap-size);
+            border-radius: var(--ht-input-border-radius);
+            color: var(--ht-input-foreground-color);
+            background-color: transparent;
+            border: 1px solid var(--ht-input-border-color);
+            line-height: calc(var(--ht-line-height) - 4px);
+            -webkit-appearance: none;
+            font-size: inherit;
+            cursor: pointer;
+
+            // Disabled is never visible: pageSizeSelect.disabled is set only when the whole
+            // section is display:none (ui.ts setPageSizeSectionVisibility).
+            &:disabled {
+              opacity: 0.4;
+              cursor: default;
+              color: var(--ht-input-disabled-foreground-color);
+              border-color: var(--ht-input-disabled-border-color);
+            }
+
+            &:hover:not(:disabled) {
+              color: var(--ht-input-hover-foreground-color);
+              border-color: var(--ht-input-hover-border-color);
+            }
+
+            &:focus {
+              color: var(--ht-input-focus-foreground-color);
+              border-color: var(--ht-input-focus-border-color);
+              outline: none;
+            }
+          }
+
+          .ht-icon {
+            position: absolute;
+            inset-inline-end: var(--ht-gap-size);
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--ht-foreground-color);
+          }
+        }
+      }
+
+      .ht-page-counter-section {
+        margin-inline-end: auto;
+      }
+
+      .ht-page-navigation-section {
+        display: flex;
+        align-items: center;
+        gap: 1px;
+
+        &__button {
+          font-size: inherit;
+          border: 1px solid var(--ht-pagination-button-border-color);
+          color: var(--ht-pagination-button-foreground-color);
+          background-color: var(--ht-pagination-button-background-color);
+          border-radius: var(--ht-icon-button-large-border-radius);
+          padding: var(--ht-icon-button-large-padding);
+          cursor: pointer;
+
+          // A block icon makes the button's content box exactly the icon's box - the size the
+          // 18.1 `::before { display: block }` glyph gave it - without an inline line box adding
+          // strut/descender height. Do not make the button `inline-flex` to center the icon
+          // instead: under `forced-colors: active` Chromium keeps painting the disabled
+          // `GrayText` border on a flex button after `--disabled` is removed (see the
+          // pagination plugin's AGENTS.md).
+          .ht-icon {
+            display: block;
+          }
+
+          &--disabled {
+            cursor: default;
+            pointer-events: none;
+            color: var(--ht-pagination-button-disabled-foreground-color);
+            background-color: var(--ht-pagination-button-disabled-background-color);
+            border-color: var(--ht-pagination-button-disabled-border-color);
+          }
+
+          &:hover:not(:disabled) {
+            border-color: var(--ht-pagination-button-hover-border-color);
+            color: var(--ht-pagination-button-hover-foreground-color);
+            background-color: var(--ht-pagination-button-hover-background-color);
+          }
+
+          &:focus {
+            outline: none;
+            border-color: var(--ht-pagination-button-focus-border-color);
+            color: var(--ht-pagination-button-focus-foreground-color);
+            background-color: var(--ht-pagination-button-focus-background-color);
+          }
+        }
+
+        &__label {
+          white-space: nowrap;
+          min-width: 100px;
+          text-align: center;
+
+          @include mixins.inherit-text-metrics;
+        }
+      }
+    }
+  }
+}

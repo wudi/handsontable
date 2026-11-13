@@ -1,0 +1,268 @@
+import type { TableDeps } from '../../table/baseTable';
+import {
+  resetCssTransform
+} from '../../../../../helpers/dom/element';
+import BottomInlineStartCornerOverlayTable from '../../table/regions/bottomInlineStartCornerTable';
+import { Overlay, type OverlayDeps } from './_base';
+import type { BottomOverlay } from './bottomOverlay';
+import {
+  reservedScrollbarSpace,
+} from '../scrollbarClearance';
+import {
+  CLONE_BOTTOM_INLINE_START_CORNER,
+} from '../constants';
+
+/**
+ * @class BottomInlineStartCornerOverlay
+ */
+export class BottomInlineStartCornerOverlay extends Overlay {
+  /**
+   * @type {Overlay}
+   */
+  declare bottomOverlay: BottomOverlay;
+  /**
+   * @type {Overlay}
+   */
+  declare inlineStartOverlay: Overlay;
+
+  /**
+   * @param {BottomOverlay} bottomOverlay The instance of the Top overlay.
+   * @param {InlineStartOverlay} inlineStartOverlay The instance of the InlineStart overlay.
+   */
+  constructor(deps: OverlayDeps, bottomOverlay: BottomOverlay, inlineStartOverlay: Overlay) {
+    super(deps, CLONE_BOTTOM_INLINE_START_CORNER);
+    this.bottomOverlay = bottomOverlay;
+    this.inlineStartOverlay = inlineStartOverlay;
+  }
+
+  /**
+   * Factory method to create a subclass of `Table` that is relevant to this overlay.
+   *
+   * @see Table#constructor
+   * @param {...*} args Parameters that will be forwarded to the `Table` constructor.
+   * @returns {BottomInlineStartCornerOverlayTable}
+   */
+  createTable(deps: TableDeps) {
+    return new BottomInlineStartCornerOverlayTable(deps);
+  }
+
+  /**
+   * Checks if overlay should be fully rendered.
+   *
+   * @returns {boolean}
+   */
+  shouldBeRendered(): boolean {
+    return (this.wtSettings.getSetting('shouldRenderBottomOverlay') as boolean)
+      && (this.wtSettings.getSetting('shouldRenderInlineStartOverlay') as boolean);
+  }
+
+  /**
+   * How far the rendered master table reaches past the bottom of its holder.
+   *
+   * At fractional zoom the browser rounds each row's border to a physical pixel, so the table ends
+   * a fraction of a CSS pixel below the holder's integer height. Only meaningful while the holder's
+   * height is the DOM's to decide; against a holder sized in pixels by an element owner this is the
+   * whole clipped remainder of the table, not a rounding error.
+   *
+   * @returns {number}
+   */
+  #masterTableOverflow(): number {
+    const { geometryReader } = this.deps;
+    const masterTableRect = geometryReader.getBoundingClientRect(this.deps.getWtTable().TABLE);
+    const masterHolderRect = geometryReader.getBoundingClientRect(this.deps.getWtTable().holder);
+
+    return Math.max(0, masterTableRect.bottom - masterHolderRect.bottom);
+  }
+
+  /**
+   * Updates the corner overlay position.
+   *
+   * @returns {boolean}
+   */
+  resetFixedPosition() {
+    const { wot } = this;
+    const { clone } = this;
+    const { rootWindow } = this.deps;
+
+    if (!(wot.wtTable.holder.parentNode as HTMLElement) || !clone) {
+      // removed from DOM
+      return false;
+    }
+
+    const overlayRoot = clone.wtTable.holder.parentNode as HTMLElement;
+    const rail = this.getRail();
+    const inlineOnWindow = this.deps.getWtViewport().isHorizontallyScrollableByWindow();
+    const blockOnWindow = this.bottomOverlay.trimmingContainer === rootWindow;
+    // This corner travels on both axes the window owns (DEV-127 sideways, DEV-126 up and down). A
+    // corner that does not render stays out of the rail, as `reset()` left it, and keeps the insets
+    // below.
+    const railed = this.needFullRender && (inlineOnWindow || blockOnWindow);
+
+    if (!railed) {
+      // Before the insets below: releasing restores the clone's own top inset.
+      rail?.release();
+    }
+
+    overlayRoot.style.top = '';
+
+    // Measured before positioning: a rail hangs the clone from its top edge, so it needs the height.
+    let tableHeight = this.deps.geometryReader.outerHeight(clone.wtTable.TABLE);
+    const tableWidth = this.deps.geometryReader.outerWidth(clone.wtTable.TABLE);
+
+    if (!this.deps.getWtTable().hasDefinedSize()) {
+      tableHeight = 0;
+    }
+
+    // Same rule as the top corner: the positioned form whenever either neighbor's axis is owned by
+    // the window; each neighbor reports a 0 offset on an element-owned axis.
+    const anyAxisOnWindow = blockOnWindow || inlineOnWindow;
+
+    if (anyAxisOnWindow) {
+      const wtTable = this.deps.getWtTable();
+      const inlineStartOffset = this.inlineStartOverlay.getOverlayOffset();
+      // The fractional-zoom correction belongs to the VERTICAL axis, and only while the window owns
+      // it - it is the same subtraction `BottomOverlay#resetFixedPosition` makes on its own window
+      // branch, against a holder whose height the DOM decides. When an element owns the vertical
+      // axis the holder has that owner's pixel height, the clipped table reaches far past it, and
+      // subtracting that overflow pushed this corner hundreds of pixels below the grid.
+      const overflow = blockOnWindow ? this.#masterTableOverflow() : 0;
+      const bottom = this.bottomOverlay.getOverlayOffset() - overflow;
+
+      if (railed && rail) {
+        // A rail that spans the block axis reaches the table's painted bottom, so the clone rests
+        // there; one that does not hangs from its own bottom edge at the offset.
+        overlayRoot.style.bottom = '';
+        rail.pin({
+          isRtl: this.isRtl(),
+          width: wtTable.getTotalWidth(),
+          height: blockOnWindow ? wtTable.getTotalHeight() + overflow : tableHeight,
+          inline: inlineOnWindow,
+          block: blockOnWindow
+            ? { pinned: true, edge: 'bottom' }
+            : { pinned: false, edge: 'bottom', offset: bottom, height: tableHeight },
+        });
+      } else {
+        overlayRoot.style[this.isRtl() ? 'right' : 'left'] = `${inlineStartOffset}px`;
+        overlayRoot.style.bottom = `${bottom}px`;
+      }
+
+    } else {
+      resetCssTransform(overlayRoot);
+      this.repositionOverlay();
+    }
+
+    // This corner is drawn over the bottom edge, on top of both the frozen-column and frozen-bottom-row
+    // overlays, so it would re-cover the strip they leave clear for an overlay scrollbar (#10370).
+    // Only while this corner is actually painting. Its `clone` exists either way, and unlike its
+    // siblings it still has to be repositioned when it is not rendering (four positioning specs pin
+    // that), so the guard belongs on the clearance rather than on the whole method. Without it the
+    // corner recomputed a live strip on a dead overlay every draw, and went on reporting the bottom
+    // edge as covered - which is what decides whether a band is drawn at all.
+    // The strip is the frozen-bottom-rows overlay's own, read rather than recomputed: this corner is
+    // drawn over that overlay, so if the two disagree the band is left half-covered - a notch along
+    // the bottom edge where the frozen columns stop and the frozen rows carry on. That overlay keys
+    // the strip on the element that scrolls the COLUMNS (the scrollbar it clears is the horizontal
+    // one; its own `trimmingContainer` is the vertical owner, and in split mode that is the window)
+    // and on whether it rests on the holder's bottom edge, and the draw cycle positions it before
+    // this corner.
+    const bottomClearance = this.needFullRender ? this.bottomOverlay.getBottomClearance() : 0;
+
+    overlayRoot.style.height = `${tableHeight}px`;
+    overlayRoot.style.width = `${tableWidth}px`;
+    clone.wtTable.holder.style.height = overlayRoot.style.height;
+
+    this.publishScrollbarClearance(
+      { bottom: bottomClearance, rtl: this.isRtl() },
+      this.wot.wtOverlays.isScrollbarVisible()
+    );
+
+    return true;
+  }
+
+  /**
+   * Sets the scroll position (no-op for corner overlay).
+   * @param {number} _pos The scroll position (unused).
+   * @returns {boolean} Always returns false.
+   */
+  setScrollPosition(_pos: number) {
+    return false;
+  }
+  /**
+   * Gets the scroll position (no-op for corner overlay).
+   * @returns {number} Always returns 0.
+   */
+  getScrollPosition() {
+    return 0;
+  }
+  /**
+   * Gets the table parent offset (no-op for corner overlay).
+   * @returns {number} Always returns 0.
+   */
+  getTableParentOffset() {
+    return 0;
+  }
+  /**
+   * Gets the overlay offset (no-op for corner overlay).
+   * @returns {number} Always returns 0.
+   */
+  getOverlayOffset() {
+    return 0;
+  }
+  /**
+   * Handles scroll events (no-op for corner overlay).
+   */
+  onScroll() {}
+  /**
+   * Sums the size of cells between two indexes (no-op for corner overlay).
+   * @param {number} _from The starting cell index (unused).
+   * @param {number} _to The ending cell index (unused).
+   * @returns {number} Always returns 0.
+   */
+  sumCellSizes(_from: number, _to: number) {
+    return 0;
+  }
+  /**
+   * Adjusts the size of overlay elements (intentionally empty).
+   */
+  adjustElementsSize() { // intentionally empty
+  }
+  /**
+   * Applies changes to the DOM (intentionally empty).
+   */
+  applyToDOM() { // intentionally empty
+  }
+  /**
+   * Scrolls to a specified cell index (no-op for corner overlay).
+   * @param {number} _sourceIndex The source row or column index (unused).
+   * @param {boolean} _snapToEdge Whether to snap to the edge (unused).
+   * @returns {boolean} Always returns false.
+   */
+  scrollTo(_sourceIndex: number, _snapToEdge: boolean) {
+    return false;
+  }
+
+  /**
+   * Reposition the overlay.
+   */
+  repositionOverlay() {
+    if (!this.clone) {
+      return;
+    }
+
+    const wtTable = this.deps.getWtTable();
+    const wtViewport = this.deps.getWtViewport();
+    const cloneRoot = this.clone.wtTable.holder.parentNode as HTMLElement;
+    let bottomOffset = 0;
+
+    if (!wtViewport.hasVerticalScroll()) {
+      bottomOffset += (wtViewport.getWorkspaceHeight() - wtTable.getTotalHeight());
+    }
+
+    if (wtViewport.hasVerticalScroll() && wtViewport.hasHorizontalScroll()) {
+      // The master holder's real gutter, for the reason spelled out in `BottomOverlay#repositionOverlay`.
+      bottomOffset += reservedScrollbarSpace(this.deps.geometryReader, wtTable.holder, 'horizontal');
+    }
+
+    cloneRoot.style.bottom = `${bottomOffset}px`;
+  }
+}

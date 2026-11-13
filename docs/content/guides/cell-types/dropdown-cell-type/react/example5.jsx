@@ -1,0 +1,57 @@
+import { HotTable } from '@handsontable/react-wrapper';
+import { registerAllModules } from 'handsontable/registry';
+
+// register Handsontable's modules
+registerAllModules();
+
+const jobTitles = [
+  'Software Engineer',
+  'Senior Software Engineer',
+  'Staff Engineer',
+  'Engineering Manager',
+  'Product Manager',
+  'Product Designer',
+  'Data Analyst',
+  'Data Scientist',
+  'Marketing Specialist',
+  'Account Executive',
+  'Customer Success Manager',
+  'Finance Analyst',
+  'Recruiter',
+  'Office Manager',
+];
+
+const data = [
+  ['Ana García', 'Senior Software Engineer', 'Senior Software Engineer'],
+  ['James Okafor', 'Product Manager', 'Product Manager'],
+  ['Li Wei', 'Data Scientist', 'Data Scientist'],
+  ['Sofia Rossi', 'Account Executive', 'Account Executive'],
+];
+
+const ExampleComponent = () => {
+  return (
+    <HotTable
+      // licenseKey="your-license-key" // get a key at https://handsontable.com/pricing/
+      height="auto"
+      data={data}
+      colHeaders={['Employee', 'Job title (default)', 'Job title (compact)']}
+      columns={[
+        {},
+        {
+          type: 'dropdown',
+          source: jobTitles,
+        },
+        {
+          type: 'dropdown',
+          source: jobTitles,
+          // show 3 options at a time, then scroll
+          visibleRows: 3,
+        },
+      ]}
+      autoWrapRow={true}
+      autoWrapCol={true}
+    />
+  );
+};
+
+export default ExampleComponent;

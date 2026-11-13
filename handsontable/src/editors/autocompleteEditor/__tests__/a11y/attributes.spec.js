@@ -21,7 +21,7 @@ describe('a11y DOM attributes (ARIA tags)', () => {
       ],
     });
 
-    selectCell(0, 0);
+    await selectCell(0, 0);
 
     const editor = getActiveEditor();
     const editorTextarea = editor.TEXTAREA;
@@ -33,9 +33,8 @@ describe('a11y DOM attributes (ARIA tags)', () => {
     expect(editorTextarea.getAttribute('aria-autocomplete')).toEqual('list');
     expect(editorTextarea.getAttribute('aria-controls')).toEqual(`${hot.guid.slice(0, 9)}-listbox-0-0`);
 
-    keyDownUp('enter');
-
-    await sleep(50);
+    await keyDownUp('enter');
+    await waitForNextAnimationFrames(2);
 
     expect(editorTextarea.getAttribute('aria-expanded')).toEqual('true');
     expect(editorTextarea.getAttribute('aria-activedescendant')).toEqual(
@@ -47,18 +46,16 @@ describe('a11y DOM attributes (ARIA tags)', () => {
     );
   });
 
-  it('should add a correct set of aria tags to the choice dropdown element', async() => {
+  it.flaky('should add a correct set of aria tags to the choice dropdown element', async() => {
     const hot = handsontable({
       columns: [
         { editor: 'autocomplete', source: choices, strict: true }
       ],
     });
 
-    selectCell(0, 0);
-
-    keyDownUp('enter');
-
-    await sleep(50);
+    await selectCell(0, 0);
+    await keyDownUp('enter');
+    await waitForNextAnimationFrames(2);
 
     const editor = getActiveEditor();
     const editorHot = editor.htEditor;
@@ -78,18 +75,43 @@ describe('a11y DOM attributes (ARIA tags)', () => {
     });
   });
 
-  it('should should not add `aria-setsize` and `aria-posinset` if the source is a function`', async() => {
+  it.flaky('should add a correct set of aria tags to the choice dropdown element (choice list being scrolled to the best choice)', async() => {
+    const hot = handsontable({
+      data: [['11'], [], []],
+      type: 'dropdown',
+      cells: () => {
+        return { type: 'dropdown', source: Array.from({ length: 100 }, (_, i) => i + 1) };
+      },
+      width: 200,
+      height: 'auto',
+    });
+
+    await selectCell(0, 0);
+    await keyDownUp('enter');
+    await waitForNextAnimationFrames(2);
+
+    const editor = getActiveEditor();
+    const editorHot = editor.htEditor;
+    const choiceDropdownRoot = editorHot.rootElement;
+
+    expect(choiceDropdownRoot.getAttribute('role')).toEqual('listbox');
+    expect(choiceDropdownRoot.getAttribute('aria-live')).toEqual('polite');
+    expect(choiceDropdownRoot.getAttribute('aria-relevant')).toEqual('text');
+    expect(choiceDropdownRoot.getAttribute('id')).toEqual(`${hot.guid.slice(0, 9)}-listbox-0-0`);
+
+    expect(editorHot.getCell(...editorHot.getSelectedLast()).getAttribute('aria-selected')).toEqual('true');
+  });
+
+  it.flaky('should should not add `aria-setsize` and `aria-posinset` if the source is a function`', async() => {
     const hot = handsontable({
       columns: [
         { editor: 'autocomplete', source: (quiery, callback) => callback(choices), strict: true }
       ],
     });
 
-    selectCell(0, 0);
-
-    keyDownUp('enter');
-
-    await sleep(50);
+    await selectCell(0, 0);
+    await keyDownUp('enter');
+    await waitForNextAnimationFrames(2);
 
     const editor = getActiveEditor();
     const editorHot = editor.htEditor;

@@ -1,0 +1,697 @@
+---
+type: how-to
+title: Grid size
+metaTitle: Grid size | Handsontable DataGrid for JavaScript
+description: Set the width and height of the grid, using either absolute values or values relative to the parent container.
+permalink: /grid-size
+canonicalUrl: /grid-size
+tags:
+  - grid sizing
+  - width
+  - height
+  - dimensions
+react:
+  metaTitle: Grid size | Handsontable DataGrid for React
+angular:
+  metaTitle: Grid size | Handsontable DataGrid for Angular
+vue:
+  metaTitle: Grid size | Handsontable DataGrid for Vue
+searchCategory: Guides
+category: Getting started
+menuTag: updated
+---
+Set the width and height of the grid, using either absolute values or values relative to the parent container.
+
+[[toc]]
+
+## Set your grid's size
+
+You need to define the grid's container as a starting point to initialize it. Usually, the `div` element becomes this container. This container should have defined dimensions as well as the rest of your layout. Handsontable DataGrid supports relative units such as `%`, `rem`, `em`, `vh`, `vw`, and `px`.
+
+### Define the size in your CSS
+
+Both `width` and `height` could be defined as inline styles or as a CSS class property. In this case, it's important to define what should be an `overflow` parent properly. Handsontable looks for the closest element with `overflow: auto` or `overflow: hidden` to use it as a scrollable container. If no such element is found, a window will be used.
+
+A container with a CSS `height` but no `overflow` does not size the grid. The grid then follows the window and grows past that container. Handsontable's own bars (the pagination bar, the sheets bar) share the scrollable container with the grid, and the grid leaves room for them.
+
+::: tip
+
+Handsontable doesn't observe CSS changes for containers out of the box.
+If you'd like to observe it, you can define the dimensions in the configuration object or create your own observer.
+
+:::
+
+### Pass the size in the configuration
+
+You can pass width and height values to Handsontable as numbers or possible CSS values for the "width"/"height" properties:
+
+::: only-for javascript
+
+```js
+{
+  width: '100px',
+  height: '100px',
+}
+```
+
+or
+
+```js
+{
+  width: '75%',
+  height: '75%',
+}
+```
+
+or
+
+```js
+{
+  width: 100,
+  height: 100,
+}
+```
+
+:::
+
+::: only-for react
+
+```jsx
+  <HotTable height={100} width={100} />
+```
+
+or
+
+```jsx
+  <HotTable height="75%" width="75%" />
+```
+
+or
+
+```jsx
+  <HotTable height="100px" width="100px" />
+```
+
+:::
+
+::: only-for angular
+
+```ts
+import { GridSettings } from "@handsontable/angular-wrapper";
+
+gridSettings: GridSettings = {
+  height: 100,
+  width: 100,
+};
+```
+
+or
+
+```ts
+import { GridSettings } from "@handsontable/angular-wrapper";
+
+gridSettings: GridSettings = {
+  height: "75%",
+  width: "75%",
+};
+```
+
+or
+
+```ts
+import { GridSettings } from "@handsontable/angular-wrapper";
+
+gridSettings: GridSettings = {
+  height: "100px",
+  width: "100px",
+};
+```
+
+```html
+<hot-table [settings]="gridSettings" />
+```
+
+:::
+
+::: only-for vue
+
+```js
+const hotSettings = ref({
+  width: '100px',
+  height: '100px',
+});
+```
+
+or
+
+```js
+const hotSettings = ref({
+  width: '75%',
+  height: '75%',
+});
+```
+
+or
+
+```js
+const hotSettings = ref({
+  width: 100,
+  height: 100,
+});
+```
+
+:::
+
+You can also pass a function to `width` and `height`. Use this when you calculate dimensions from your current layout. The function can return a number (pixels) or a CSS size string.
+
+:::: only-for javascript
+
+```js
+{
+  width() {
+    return `${window.innerWidth - 64}px`;
+  },
+  height() {
+    return 400;
+  },
+}
+```
+
+::::
+
+:::: only-for react
+
+```jsx
+const getGridWidth = () => `${window.innerWidth - 64}px`;
+const getGridHeight = () => 400;
+
+<HotTable width={getGridWidth} height={getGridHeight} />
+```
+
+::::
+
+:::: only-for angular
+
+```ts
+import { GridSettings } from "@handsontable/angular-wrapper";
+
+gridSettings: GridSettings = {
+  width: () => `${window.innerWidth - 64}px`,
+  height: () => 400,
+};
+```
+
+```html
+<hot-table [settings]="gridSettings" />
+```
+
+::::
+
+:::: only-for vue
+
+```js
+const hotSettings = ref({
+  width: () => `${window.innerWidth - 64}px`,
+  height: () => 400,
+});
+```
+
+::::
+
+These dimensions will be set as inline styles in a container element, and `overflow: hidden` will be added automatically.
+
+If container is a block element, then its parent has to have defined `height`. By default block element is `0px` height, so `100%` from `0px` is still `0px`.
+
+Changes called in [`updateSettings()`](@/api/core.md#updatesettings) will re-render the grid with the new properties.
+
+### Compare size units
+
+Use the dropdown in the demo below to switch the grid's `width` and `height` between `px`, `%`, `em`, `rem`, `vh`, and `vw`, and see how the same grid responds to each unit.
+
+::: only-for javascript
+
+::: example #example2 --html 1 --css 2 --js 3 --ts 4
+
+@[code](@/content/guides/getting-started/grid-size/javascript/example2.html)
+@[code](@/content/guides/getting-started/grid-size/javascript/example2.css)
+@[code](@/content/guides/getting-started/grid-size/javascript/example2.js)
+@[code](@/content/guides/getting-started/grid-size/javascript/example2.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example2 :react --css 1 --js 2 --ts 3
+
+@[code](@/content/guides/getting-started/grid-size/react/example2.css)
+@[code](@/content/guides/getting-started/grid-size/react/example2.jsx)
+@[code](@/content/guides/getting-started/grid-size/react/example2.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example2 :angular --css 1 --ts 2 --html 3
+
+@[code](@/content/guides/getting-started/grid-size/angular/example2.css)
+@[code](@/content/guides/getting-started/grid-size/angular/example2.ts)
+@[code](@/content/guides/getting-started/grid-size/angular/example2.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example2 :vue3
+
+@[code](@/content/guides/getting-started/grid-size/vue/example2.vue)
+
+:::
+
+:::
+
+### Use `'auto'` sizing
+
+Set `height: 'auto'` to make the grid behave like a plain block element. Handsontable writes `height: auto` as an inline style on the root element, and nothing else. The grid grows to fit its rows, the nearest scrolling ancestor or the page scrolls it, and off-screen rows stay virtualized.
+
+::: only-for javascript
+
+```js
+{
+  height: 'auto',
+}
+```
+
+You can combine it with `width: 'auto'` to let the grid follow its parent container's width:
+
+```js
+{
+  height: 'auto',
+  width: 'auto',
+}
+```
+
+:::
+
+::: only-for react
+
+```jsx
+  <HotTable height="auto" />
+```
+
+You can combine it with `width="auto"` to let the grid follow its parent container's width:
+
+```jsx
+  <HotTable height="auto" width="auto" />
+```
+
+:::
+
+::: only-for angular
+
+```ts
+import { GridSettings } from "@handsontable/angular-wrapper";
+
+gridSettings: GridSettings = {
+  height: "auto",
+};
+```
+
+You can combine it with `width: "auto"` to let the grid follow its parent container's width:
+
+```ts
+import { GridSettings } from "@handsontable/angular-wrapper";
+
+gridSettings: GridSettings = {
+  height: "auto",
+  width: "auto",
+};
+```
+
+:::
+
+::: only-for vue
+
+```js
+const hotSettings = ref({
+  height: 'auto',
+});
+```
+
+You can combine it with `width: 'auto'` to let the grid follow its parent container's width:
+
+```js
+const hotSettings = ref({
+  height: 'auto',
+  width: 'auto',
+});
+```
+
+:::
+
+`height: 'auto'` is different from leaving `height` unset:
+
+| Setting                         | Inline styles on root                                       | Scroll parent                                                                  | Row virtualization |
+| ------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------ |
+| `height: 'auto'`                | `height: auto;`                                             | Nearest ancestor with `overflow: auto` or `overflow: hidden`, else the window  | Enabled            |
+| `height: <number or CSS length>` | `height: <value>; overflow: clip;`                          | The grid itself                                                                | Enabled            |
+| `height` unset                  | None, Handsontable does not touch the root inline styles    | Nearest ancestor with `overflow: auto` or `overflow: hidden`, else the window  | Enabled            |
+
+The one difference between `'auto'` and an unset `height` is the inline `height: auto`, which overrides a `height` that a stylesheet sets on the root element.
+
+::: tip
+
+Inside a parent with a fixed height and `overflow: auto`, a grid with `height: 'auto'` fills the parent and scrolls inside it rather than growing past it.
+
+Inside a parent with `overflow: auto` or `overflow: hidden` but no height of its own, a grid with `height: 'auto'` grows to fit its rows, and the parent grows with it.
+
+:::
+
+### Accepted values
+
+`width` and `height` accept the same set of values:
+
+| Value                                      | Example                                    |
+| ------------------------------------------ | ------------------------------------------ |
+| A number of pixels                         | `height: 500`                              |
+| A string with a number of pixels           | `height: '500'`, `height: '500px'`         |
+| A string with a CSS unit                   | `height: '50%'`, `height: '75vh'`          |
+| `'auto'`                                   | `height: 'auto'`                           |
+| A function that returns one of the above   | `height() { return 500; }`                 |
+
+Any other value the browser can read as a CSS length or expression (`'20em'`, `'calc(100% - 40px)'`, `'var(--grid-height)'`) is passed through as written.
+
+A value the browser cannot read as a size (`'abc'`, `-100`, `true`) is ignored, and so are these CSS keywords:
+
+- `'inherit'`, `'initial'`, `'unset'`, `'revert'`, `'revert-layer'`, `'none'`, and `'normal'`, which do not set a size.
+- `'min-content'`, `'max-content'`, and `'fit-content'`, which size the grid to its full content, so it cannot scroll inside its box.
+- `'stretch'`, `'-webkit-fill-available'`, and `'-moz-available'`, which fill the container but read as a fixed size. Use `'100%'` or `'auto'` instead.
+
+An ignored value leaves the grid's size as it was, and Handsontable prints a warning once per grid and value.
+
+Passing `null` to either option through [`updateSettings()`](@/api/core.md#updatesettings) restores that axis to the root element's initial inline style and leaves the other axis in place.
+
+The two options accept the same values, but they clip differently:
+
+- Any `height` other than `'auto'`, including a percentage or a viewport unit, sizes the grid's box. The grid clips both axes and scrolls inside that box, as the table above shows.
+- A `width` clips only when it is definite (a number, `'500px'`, `'20em'`). The grid then scrolls its columns inside that width on its own, with or without a `height`. A relative width (`'100%'`, `'80vw'`, `'var(--grid-width)'`) leaves the horizontal overflow to the page, so the columns past it stay reachable.
+
+### Troubleshooting with 100% height
+
+When the `height` option is set to 100%, there are three ways to define the container’s height. Assuming you're creating an Handsontable instance that has `100% height` and container is element with id `#example`.
+
+```js
+const container = document.querySelector('#example');
+
+const hot = new Handsontable(container, {
+  height: '100%',
+  // ...rest of config
+}
+```
+
+1. Set a fixed height (in pixels) directly on the `example` element where Handsontable is mounted
+
+```html
+<div class="page-wrapper">
+  <!-- Other HTML element -->
+  <div id="example" style="height: 500px">
+    <div class="ht-root-wrapper ht-theme-main">
+      <div class="ht-grid">
+        <div class="ht-wrapper">
+          <!-- Table content -->
+        </div>
+      </div>
+      <!-- Table components -->
+    </div>
+  </div>
+</div>
+```
+
+2. Set a fixed height on the parent element, and then give the `example` itself a height of 100%
+
+```html
+<div class="page-wrapper" style="height: 500px">
+  <!-- Other HTML element -->
+  <div id="example" style="height: 100%">
+    <div class="ht-root-wrapper ht-theme-main">
+      <div class="ht-grid">
+        <div class="ht-wrapper">
+          <!-- Table content -->
+        </div>
+      </div>
+      <!-- Table components -->
+    </div>
+  </div>
+</div>
+```
+
+3. Use flexbox on the wrapper element to make the `example` fill the available space
+
+```html
+<div class="page-wrapper" style="display: flex; height: 500px">
+  <!-- Other HTML element -->
+  <div id="example" style="flex: 1">
+    <div class="ht-root-wrapper ht-theme-main">
+      <div class="ht-grid">
+        <div class="ht-wrapper">
+          <!-- Table content -->
+        </div>
+      </div>
+      <!-- Table components -->
+    </div>
+  </div>
+</div>
+```
+
+When using Flexbox, the container automatically expands to fill the available space in the flex container. This is particularly useful when you want the grid to take up all the available space within its parent.
+
+## What if the size is not set
+
+If you don't define any dimensions, Handsontable generates as many rows and columns as needed to fill the available space.
+
+If your grid's contents don't fit in the viewport, the browser's native scrollbars are used for scrolling. For this to work properly, Handsontable's [layout direction](@/guides/internationalization/layout-direction/layout-direction.md) (e.g., [`layoutDirection: 'rtl'`](@/api/options.md#layoutdirection)) must be the same as your HTML document's layout direction (`<html dir='rtl'>`). Otherwise, horizontal scrolling doesn't work.
+
+A grid without a fixed height listens to page scroll events and runs code on every scroll step. On a page with many grids, give each grid a fixed height. See [Many grids on one page](@/guides/optimization/many-grids/many-grids.md).
+
+## Stretch columns to fit the grid width
+
+Setting the grid's width doesn't change the width of your columns. When the columns are narrower than the grid, the space on the right stays empty. To redistribute the column widths so they fill the grid's width, use the [`stretchH`](@/api/options.md#stretchh) option: `'all'` stretches all columns proportionally, and `'last'` stretches only the last column.
+
+For live examples of both modes, see the [column stretching](@/guides/columns/column-width/column-width.md#column-stretching) section of the Column width guide.
+
+## Autoresizing
+
+Handsontable observes window resizing. If the window's dimensions have changed, then we check if Handsontable should resize itself too. Due to the performance issue, we use the debounce method to respond on window resize.
+
+You can easily overwrite this behavior by returning `false` in the [`beforeRefreshDimensions`](@/api/hooks.md#beforerefreshdimensions) hook.
+
+::: only-for javascript
+
+```js
+{
+  beforeRefreshDimensions() { return false; }
+}
+```
+
+:::
+
+::: only-for react
+
+```jsx
+  <HotTable beforeRefreshDimensions={() => false} />
+```
+
+:::
+
+::: only-for angular
+
+```ts
+import { GridSettings } from "@handsontable/angular-wrapper";
+
+gridSettings: GridSettings = {
+  beforeRefreshDimensions: () => false,
+};
+```
+
+```html
+<hot-table [settings]="gridSettings" />
+```
+
+:::
+
+::: only-for vue
+
+```js
+const hotSettings = ref({
+  beforeRefreshDimensions() { return false; },
+});
+```
+
+:::
+
+Handsontable also re-measures its rows and columns when the page finishes loading a web font. A font that loads after the grid renders changes the size of the text without changing the size of the container. Without the re-measure, wrapped rows would fall out of line with their row headers, and columns sized by [`autoColumnSize`](@/api/options.md#autocolumnsize) would cut off the wider text. The grid listens to the [CSS Font Loading API](https://developer.mozilla.org/en-US/docs/Web/API/CSS_Font_Loading_API) (`document.fonts`), so it needs no configuration. The [`beforeRefreshDimensions`](@/api/hooks.md#beforerefreshdimensions) hook does not apply to this re-measure. If the grid is hidden when the font loads (for example, with `display: none`), it re-measures once it is shown and comes into view. To re-measure something of your own, such as a custom renderer's cached size, use the [`afterFontsLoad`](@/api/hooks.md#afterfontsload) hook. Your listener runs before the built-in plugins re-measure, so they measure with the sizes it dropped.
+
+## Manual resizing
+
+The Handsontable instance exposes the [`refreshDimensions()`](@/api/core.md#refreshdimensions) method, which helps you to resize grid elements properly.
+
+::: only-for react
+
+::: tip
+
+To use the Handsontable API, you'll need access to the Handsontable instance. You can do that by utilizing a reference to the `HotTable` component, and reading its `hotInstance` property.
+
+For more information, see the [Instance methods](@/guides/getting-started/react-methods/react-methods.md) page.
+
+:::
+
+:::
+
+::: only-for angular
+
+::: tip
+
+To use the Handsontable API, you'll need access to the Handsontable instance. You can do that by utilizing a reference
+to the `HotTableComponent`, and reading its `hotInstance` property.
+
+For more information, see the [Instance access](@/guides/getting-started/angular-hot-instance/angular-hot-instance.md) page.
+:::
+
+:::
+
+::: only-for vue
+
+::: tip
+
+To use the Handsontable API, you'll need access to the Handsontable instance. Use a template ref on the `HotTable` component and read its `hotInstance` property.
+
+For more information, see the [Referencing the Handsontable instance in Vue 3](@/guides/getting-started/vue3-hot-reference/vue3-hot-reference.md) page.
+
+:::
+
+:::
+
+```js
+hot.refreshDimensions();
+```
+
+You can listen for two hooks, [`beforeRefreshDimensions`](@/api/hooks.md#beforerefreshdimensions) and [`afterRefreshDimensions`](@/api/hooks.md#afterrefreshdimensions).
+
+::: only-for javascript
+
+::: example #example --html 1 --css 2 --js 3 --ts 4
+
+@[code](@/content/guides/getting-started/grid-size/javascript/example.html)
+@[code](@/content/guides/getting-started/grid-size/javascript/example.css)
+@[code](@/content/guides/getting-started/grid-size/javascript/example.js)
+@[code](@/content/guides/getting-started/grid-size/javascript/example.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example :react --css 1 --js 2 --ts 3
+
+@[code](@/content/guides/getting-started/grid-size/react/example.css)
+@[code](@/content/guides/getting-started/grid-size/react/example.jsx)
+@[code](@/content/guides/getting-started/grid-size/react/example.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example :angular --ts 1 --html 2
+
+@[code](@/content/guides/getting-started/grid-size/angular/example.ts)
+@[code](@/content/guides/getting-started/grid-size/angular/example.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example :vue --js 1
+
+@[code](@/content/guides/getting-started/grid-size/vue/example.vue)
+
+:::
+
+:::
+
+## Known limitations
+
+Handsontable relies on the browser's native scrollbars. Browsers cap how tall (or wide) a scrollable area can be, measured in CSS pixels. The taller the scroll area grows past that cap, the more rendering glitches appear - rows become misaligned, the autofill handle turns blurry, and eventually cell borders disappear.
+
+The point where these glitches start depends on the browser, the operating system, and the device. The following approximate values were measured on macOS, and mark where problems begin rather than a hard cutoff:
+
+| Browser | Glitches start around |
+| ------- | --------------------- |
+| Chrome  | ~8,000,000 px         |
+| Firefox | ~3,500,000 px         |
+| Safari  | ~16,000,000 px        |
+
+These values are approximate, were measured on specific browser versions, and can change as browsers update.
+
+To estimate the maximum number of rows, divide the browser's pixel limit by your row height. With the default row height of 23 px, Chrome stays reliable up to about 350,000 rows (8,000,000 / 23). To estimate the maximum number of columns, divide the pixel limit by your column width. With a column width of 50 px, that's about 160,000 columns (8,000,000 / 50).
+
+Taller rows or wider columns lower these limits proportionally. For example, with a row height of 100 px, Chrome's limit drops to about 80,000 rows (8,000,000 / 100).
+
+If your dataset can grow past these limits, load it in smaller chunks, for example with server-side or lazy data loading.
+
+Frozen rows and columns carry a separate limit: the frozen area must fit within the grid's width and height. Handsontable always draws that area in full, so when it needs more room than the grid has, it covers the whole grid and the rest can no longer be scrolled into view. Read more in [Column freezing](@/guides/columns/column-freezing/column-freezing.md) and [Row freezing](@/guides/rows/row-freezing/row-freezing.md).
+
+## Result
+
+Your grid now renders at the dimensions you specified, responding to container size or fixed pixel values as configured.
+
+## Related articles
+
+**Related guides**
+
+<div class="boxes-list">
+
+- [Column widths](@/guides/columns/column-width/column-width.md)
+- [Row heights](@/guides/rows/row-height/row-height.md)
+
+</div>
+
+**Configuration options**
+
+<div class="boxes-list">
+
+- [height](@/api/options.md#height)
+- [layoutDirection](@/api/options.md#layoutdirection)
+- [preventOverflow](@/api/options.md#preventoverflow)
+- [width](@/api/options.md#width)
+
+</div>
+
+**Core methods**
+
+<div class="boxes-list">
+
+- [refreshDimensions()](@/api/core.md#refreshdimensions)
+- [updateSettings()](@/api/core.md#updatesettings)
+
+</div>
+
+**Hooks**
+
+<div class="boxes-list">
+
+- [afterCellMetaReset](@/api/hooks.md#aftercellmetareset)
+- [afterRefreshDimensions](@/api/hooks.md#afterrefreshdimensions)
+- [afterUpdateSettings](@/api/hooks.md#afterupdatesettings)
+- [beforeRefreshDimensions](@/api/hooks.md#beforerefreshdimensions)
+
+</div>

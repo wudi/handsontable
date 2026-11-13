@@ -12,7 +12,7 @@ describe('MergeCells', () => {
     }
   });
 
-  it('should correctly calculate row height for merged cell (#dev-941)', () => {
+  it('should correctly calculate row height for merged cell (#dev-941)', async() => {
     const data = createSpreadsheetData(2, 9);
 
     data[0][0] = 'value value';
@@ -29,7 +29,7 @@ describe('MergeCells', () => {
       }],
     });
 
-    expect(getRowHeight(0)).toBe(23);
-    expect(getRowHeight(1)).toBe(23);
+    expect(getRowHeight(0)).toBe(getThemeLayout().firstRenderedRowDefaultHeight);
+    expect(getRowHeight(1)).toBe(getThemeLayout().defaultDataRowHeight);
   });
 });

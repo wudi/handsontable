@@ -10,6 +10,11 @@ import {
   displayConfirmationMessage,
   displayErrorMessage
 } from '../../scripts/utils/console.mjs';
+import {
+  ageCheckEnabled,
+  checkExamplesToBuild,
+  formatProblems
+} from '../../visual-tests/lib/local-builds.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT_DIR = __dirname.split('examples')[0];
@@ -17,7 +22,11 @@ const NEXT_EXAMPLES_DIR = path.join(REPO_ROOT_DIR, 'examples', 'next');
 const TMP_DIR_NAME = 'tmp';
 const TMP_DIR = path.join('examples', TMP_DIR_NAME);
 
-const HOT_WRAPPERS = ['@handsontable/react', '@handsontable/angular', '@handsontable/vue'];
+const HOT_WRAPPERS = [
+  '@handsontable/react-wrapper',
+  '@handsontable/angular-wrapper',
+  '@handsontable/vue3'
+];
 
 const [shellCommand, hotVersion] = process.argv.slice(2);
 
@@ -180,6 +189,25 @@ switch (shellCommand) {
 
     const examplesFolders = getExamplesFolders(versionedDir);
 
+    // Before the first build, each example under `next/` must resolve the Handsontable packages it declares to
+    // the local builds: the linker leaves a registry copy in place without a word when a local build is missing.
+    // This is the only check the documentation examples get, because their own `build` scripts must keep working
+    // in a copy outside the monorepo. See visual-tests/AGENTS.md (Local builds).
+    const { lines, problems } = checkExamplesToBuild({
+      repoRoot: REPO_ROOT_DIR,
+      exampleDirs: examplesFolders,
+      checkAge: ageCheckEnabled(process.env)
+    });
+
+    if (problems.length > 0) {
+      console.error(chalk.red(`Refusing to build the examples in examples/${hotVersion}:`));
+      formatProblems(problems, { highlight: chalk.red }).forEach(line => console.error(line));
+
+      process.exit(1);
+    }
+
+    lines.forEach(line => console.log(line));
+
     examplesFolders.forEach((exampleDir) => {
       rimraf.sync(path.join(exampleDir, 'dist'));
 
@@ -203,14 +231,12 @@ switch (shellCommand) {
 
     const examplesFolders = getExamplesFolders(versionedDir);
 
-    spawnProcess('http-server . - 8080');
+    spawnProcess('http-server . -p 8080');
 
     examplesFolders.forEach((exampleDir, i) => {
       if (i < examplesFolders.length) {
-        const split = exampleDir.split('handsontable');
-        const splitLength = split.length;
         // this env is used in each `Smoke.spec.js` file inside code example directory
-        process.env.TEST_URL = `http://127.0.0.1:8080${split[splitLength - 1]}/dist`;
+        process.env.TEST_URL = `http://127.0.0.1:8080/${path.relative(REPO_ROOT_DIR, exampleDir)}/dist`;
 
         runNpmCommandInExample(exampleDir, 'npm run test --if-present');
       }

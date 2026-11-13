@@ -1,0 +1,448 @@
+import { type Page, type Locator, expect } from '@playwright/test';
+
+/**
+ * The instants the license lifecycle is probed at. The trial key of the
+ * fixture runs to 2026-09-26 with a 45-day notice and a 15-day grace period,
+ * the subscription keys to 2027-08-12 with a 90-day one. A spec pins the clock
+ * to one of these before navigating, so the state under test never depends on
+ * the day the suite happens to run.
+ */
+export const INSTANT = {
+  duringTrial: '2026-09-16T00:00:00Z',
+  trialSoftStop: '2026-10-01T00:00:00Z',
+  trialHardStop: '2026-10-12T00:00:00Z',
+  subscriptionHardStop: '2027-12-01T00:00:00Z',
+} as const;
+
+type LicenseKeyName = 'trial' | 'trial-external' | 'subscription' |
+  'tampered' | 'legacy-expired' | 'legacy-expired-padded' | 'non-commercial' | 'missing' |
+  'edited-prose' | 'subscription-pasted' | 'subscription-wrapped' | 'subscription-padded' | 'trial-v1' |
+  'sponsored-badge' | 'sponsored-badge-external' | 'sponsored-no-badge';
+export interface PixelBox { minX: number; maxX: number; minY: number; maxY: number }
+
+type Variant = 'default' | 'no-row-headers' | 'no-headers-frozen' | 'narrow-corner' | 'dialog' |
+  'nested' | 'narrow';
+
+/**
+ * Page Object for the license branding fixture.
+ *
+ * The branding surface has three parts: the corner "H." badge (a
+ * screen-reader-only button plus a CSS glyph painted inside the corner header
+ * cell), its popover (a hover tooltip while a trial runs, an auto-opening
+ * dismissible one once it has expired), and the Core-owned lock screen that
+ * covers the grid after the grace period. The license key is read once, at
+ * initialization, so every scenario is one fresh page load at a pinned instant.
+ */
+export class LicenseBrandingPage {
+  readonly page: Page;
+  readonly theme: string;
+  readonly bundle: string;
+  readonly grid: Locator;
+  readonly badgeWrapper: Locator;
+  readonly badge: Locator;
+  readonly popover: Locator;
+  readonly popoverTitle: Locator;
+  readonly popoverClose: Locator;
+  readonly bar: Locator;
+  readonly poweredBy: Locator;
+  readonly poweredByLink: Locator;
+  readonly poweredByLogo: Locator;
+  readonly poweredByText: Locator;
+  readonly lock: Locator;
+  readonly outsideField: Locator;
+  readonly lockContactButton: Locator;
+  readonly lockSupportButton: Locator;
+  readonly lockDocsLink: Locator;
+  readonly corner: Locator;
+  readonly cornerHeaderCell: Locator;
+
+  constructor(page: Page, theme = 'main', bundle = 'umd') {
+    this.page = page;
+    this.theme = theme;
+    this.bundle = bundle;
+    this.grid = page.getByTestId('grid');
+    this.badgeWrapper = page.locator('.ht-license-badge-wrapper');
+    this.badge = page.locator('.ht-license-badge');
+    this.popover = page.locator('.ht-license-popover');
+    this.popoverTitle = page.locator('.ht-license-popover__title');
+    this.popoverClose = page.locator('.ht-license-popover__close');
+    this.bar = page.locator('.hot-display-license-info');
+    // DEV-3413: the "Powered by Handsontable DataGrid" bar, apart from the license warning bar above.
+    this.poweredBy = page.locator('.ht-license-powered-by');
+    this.poweredByLink = this.poweredBy.getByRole('link', { name: 'Powered by Handsontable DataGrid' });
+    this.poweredByLogo = this.poweredBy.locator('.ht-license-powered-by__logo');
+    this.poweredByText = this.poweredBy.locator('.ht-license-powered-by__text');
+    this.lock = page.locator('.ht-license-lock');
+    // Links, not buttons: a `mailto:` action must be a real anchor (see lockScreen.ts).
+    // A field the host page owns, above the grid, focused before the grid is
+    // constructed: the lock must not take the keyboard away from it.
+    this.outsideField = page.getByTestId('outside-field');
+    this.lockContactButton = this.lock.getByRole('link', { name: 'Contact Sales' });
+    this.lockSupportButton = this.lock.getByRole('link', { name: 'Contact Support' });
+    this.lockDocsLink = this.lock.getByRole('link', { name: 'Read more' });
+    // This grid's OWN corner clone, marked by the class the branding stamps on it. A nested grid
+    // (the `handsontable` cell type) renders a corner clone of its own inside the same root, and a
+    // structural `.ht_clone_top_inline_start_corner` selector would match that one too.
+    this.corner = page.locator('.ht-license-badge-corner');
+    this.cornerHeaderCell = this.corner.locator('thead tr:first-child th:first-child');
+  }
+
+  /**
+   * Pin the clock, then load the fixture with one license key and one grid
+   * shape. The clock is fixed BEFORE navigating, so the license state is
+   * resolved at the given instant during the grid's own initialization —
+   * which is the only moment the key is read.
+   */
+  async goto(
+    instant: string,
+    { key = 'trial', variant = 'default' }: { key?: LicenseKeyName; variant?: Variant } = {},
+  ): Promise<void> {
+    await this.page.clock.setFixedTime(new Date(instant));
+    await this.page.goto(
+      `/tests/fixtures/demo/license-branding.html?theme=${this.theme}&bundle=${this.bundle}` +
+      `&key=${key}&variant=${variant}`
+    );
+    await expect(this.grid.locator('.handsontable').first()).toBeVisible();
+  }
+
+  /**
+   * The mask image the CSS glyph is painted with, and its size next to the
+   * corner cell that has to contain it. `none` means no glyph is painted at
+   * all, which is what a grid that must NOT be branded reports.
+   */
+  async cornerGlyph(cell: Locator = this.cornerHeaderCell): Promise<{
+    maskImage: string; backgroundImage: string; backgroundSize: string; backgroundColor: string;
+    widthPx: number; heightPx: number; cellWidthPx: number; cellHeightPx: number;
+  }> {
+    return cell.evaluate((element) => {
+      const glyph = getComputedStyle(element, '::after');
+
+      return {
+        maskImage: glyph.maskImage,
+        backgroundImage: glyph.backgroundImage,
+        backgroundSize: glyph.backgroundSize,
+        backgroundColor: glyph.backgroundColor,
+        widthPx: parseFloat(glyph.width),
+        heightPx: parseFloat(glyph.height),
+        cellWidthPx: (element as HTMLElement).offsetWidth,
+        cellHeightPx: (element as HTMLElement).offsetHeight,
+      };
+    });
+  }
+
+  /**
+   * Clicks one part of the "Powered by" bar's link and returns the tab the click opened. The page
+   * answers handsontable.com itself, so the test needs no network.
+   */
+  async clickPoweredBy(part: 'logo' | 'text'): Promise<Page> {
+    const context = this.page.context();
+
+    await context.route('https://handsontable.com/**', route => route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: '<title>handsontable.com</title>',
+    }));
+
+    const [opened] = await Promise.all([
+      context.waitForEvent('page'),
+      (part === 'logo' ? this.poweredByLogo : this.poweredByText).click(),
+    ]);
+
+    return opened;
+  }
+
+  /**
+   * The geometry, the colors and the text style of the "Powered by" bar, read in one evaluation so
+   * every value describes the same frame. The bar is a bottom-slot item, which carries the grid
+   * frame's side and bottom borders, so the bar's height and the logomark's offsets are measured inside
+   * the border (the padding box), where the Figma frame's values apply. Sizes are rounded to a tenth of
+   * a pixel.
+   */
+  async poweredByGeometry(): Promise<{
+    barHeight: number; paddingTop: number; paddingInlineStart: number;
+    logoWidth: number; logoHeight: number; logoOffsetX: number; logoOffsetY: number;
+    textOffsetX: number; textOffsetY: number;
+    gap: number; fontSize: string; lineHeight: string; maskImage: string;
+    textColor: string; logoColor: string; barColor: string; barBackground: string;
+    isLastInSlot: boolean; slotClasses: string[];
+  }> {
+    return this.poweredBy.evaluate((bar) => {
+      const round = (value: number) => Math.round(value * 10) / 10;
+      const logo = bar.querySelector('.ht-license-powered-by__logo') as HTMLElement;
+      const text = bar.querySelector('.ht-license-powered-by__text') as HTMLElement;
+      const barBox = bar.getBoundingClientRect();
+      const logoBox = logo.getBoundingClientRect();
+      const textBox = text.getBoundingClientRect();
+      const barStyle = getComputedStyle(bar);
+      const textStyle = getComputedStyle(text);
+      const slot = bar.parentElement as HTMLElement;
+      const paddingBoxLeft = barBox.left + bar.clientLeft;
+      const paddingBoxTop = barBox.top + bar.clientTop;
+
+      return {
+        barHeight: round(bar.clientHeight),
+        paddingTop: round(parseFloat(barStyle.paddingTop)),
+        paddingInlineStart: round(parseFloat(barStyle.paddingInlineStart)),
+        logoWidth: round(logoBox.width),
+        logoHeight: round(logoBox.height),
+        logoOffsetX: round(logoBox.left - paddingBoxLeft),
+        logoOffsetY: round(logoBox.top - paddingBoxTop),
+        textOffsetX: round(textBox.left - paddingBoxLeft),
+        textOffsetY: round(textBox.top - paddingBoxTop),
+        gap: round(textBox.left - logoBox.right),
+        fontSize: textStyle.fontSize,
+        lineHeight: textStyle.lineHeight,
+        maskImage: getComputedStyle(logo).maskImage,
+        textColor: textStyle.color,
+        logoColor: getComputedStyle(logo).backgroundColor,
+        barColor: barStyle.color,
+        barBackground: barStyle.backgroundColor,
+        isLastInSlot: slot.lastElementChild === bar,
+        slotClasses: Array.from(slot.children).map(child => child.className),
+      };
+    });
+  }
+
+  /**
+   * The mask and the background layers of the logomark the lock screen paints in its header strip
+   * (the lock's own `::after`), and the size of its box.
+   */
+  async lockGlyph(): Promise<{ maskImage: string; backgroundImage: string; widthPx: number; heightPx: number }> {
+    return this.lock.evaluate((element) => {
+      const glyph = getComputedStyle(element, '::after');
+
+      return {
+        maskImage: glyph.maskImage,
+        backgroundImage: glyph.backgroundImage,
+        widthPx: parseFloat(glyph.width),
+        heightPx: parseFloat(glyph.height),
+      };
+    });
+  }
+
+  /**
+   * Bounding boxes, in CSS pixels from the cell's top-left, of the BLUE pixels and of the other "ink"
+   * pixels (neutral gray that differs from the cell background, i.e. the "H") the corner glyph really paints. Read from a
+   * screenshot, because computed styles cannot tell whether the dot landed on the mask or was clipped
+   * away. The cell's own 3px frame is skipped so its borders are not counted as ink.
+   */
+  async cornerGlyphPaint(cell: Locator = this.cornerHeaderCell): Promise<{
+    blue: PixelBox | null; ink: PixelBox | null;
+  }> {
+    return this.#paintBoxes(await cell.screenshot());
+  }
+
+  /**
+   * Where the "Powered by" bar's logomark paints its gray "H" and its blue dot. The logomark box is
+   * no larger than the mark, so the capture takes 4px of the bar around it: the pixel analysis reads
+   * the background from the capture's edge, which must lie outside the mark.
+   */
+  async poweredByLogoPaint(): Promise<{ blue: PixelBox | null; ink: PixelBox | null }> {
+    const box = await this.poweredByLogo.boundingBox();
+
+    if (!box) {
+      throw new Error('The "Powered by" logomark is not laid out.');
+    }
+
+    return this.#paintBoxes(await this.page.screenshot({
+      clip: { x: box.x - 4, y: box.y - 4, width: box.width + 8, height: box.height + 8 },
+    }));
+  }
+
+  /**
+   * The heights the fixture's `height: 200` is spent on, read in one evaluation: the root element (the
+   * grid's own box) and the bottom slot (the license bars).
+   */
+  async heightBudget(): Promise<{ root: number; bottomSlot: number }> {
+    return this.page.evaluate(() => {
+      const hot = (window as any).hot;
+
+      return { root: hot.rootElement.offsetHeight, bottomSlot: hot.rootSlotBottomElement.offsetHeight };
+    });
+  }
+
+  /**
+   * Select one cell through the grid's own API.
+   */
+  async selectCell(row: number, column: number): Promise<void> {
+    await this.page.evaluate(([r, c]) => (window as any).hot.selectCell(r, c), [row, column]);
+  }
+
+  /**
+   * Finds the blue and the neutral-gray pixels of a PNG capture, as boxes in its own pixels. The
+   * background is read 3px inside the capture's top-left corner.
+   */
+  async #paintBoxes(capture: Buffer): Promise<{ blue: PixelBox | null; ink: PixelBox | null }> {
+    const png = capture.toString('base64');
+
+    return this.page.evaluate(async (base64) => {
+      const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${base64}`)).blob());
+      const canvas = document.createElement('canvas');
+
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+
+      const context = canvas.getContext('2d')!;
+
+      context.drawImage(bitmap, 0, 0);
+
+      const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height);
+      const frame = 3;
+      const at = (x: number, y: number) => {
+        const i = (y * bitmap.width + x) * 4;
+
+        return [data[i], data[i + 1], data[i + 2]];
+      };
+      const background = at(frame, frame);
+      const blue: number[][] = [];
+      const ink: number[][] = [];
+
+      for (let y = frame; y < bitmap.height - frame; y++) {
+        for (let x = frame; x < bitmap.width - frame; x++) {
+          const [r, g, b] = at(x, y);
+
+          if (b - r > 100 && b > 150) {
+            blue.push([x, y]);
+          } else if (
+            Math.abs(r - background[0]) + Math.abs(g - background[1]) + Math.abs(b - background[2]) > 60 &&
+            Math.max(r, g, b) - Math.min(r, g, b) <= 20
+          ) {
+            // Neutral gray only: the antialiased edge of the dot is a blend of blue and gray and is not the "H".
+            ink.push([x, y]);
+          }
+        }
+      }
+
+      const box = (points: number[][]) => (points.length === 0 ? null : {
+        minX: Math.min(...points.map(p => p[0])),
+        maxX: Math.max(...points.map(p => p[0])) + 1,
+        minY: Math.min(...points.map(p => p[1])),
+        maxY: Math.max(...points.map(p => p[1])) + 1,
+      });
+
+      return { blue: box(blue), ink: box(ink) };
+    }, png);
+  }
+
+  /**
+   * Open the `handsontable` cell type editor over one cell, through the grid's own API and a real
+   * key press. The nested grid renders only once its editor is open.
+   */
+  async openNestedEditor(row: number, column: number): Promise<void> {
+    await this.page.evaluate(([r, c]) => (window as any).hot.selectCell(r, c), [row, column]);
+    await this.page.keyboard.press('Enter');
+    await expect(this.nestedCorner()).toBeVisible();
+  }
+
+  /**
+   * The corner clone of the grid rendered inside the `handsontable` cell type
+   * editor — a second corner living inside the branded root, which must stay
+   * unbranded.
+   */
+  nestedCorner(): Locator {
+    return this.page.locator('.handsontableInputHolder .ht_clone_top_inline_start_corner');
+  }
+
+  /**
+   * The custom property the badge wrapper carries so the popover can be
+   * anchored to the measured corner width.
+   */
+  async popoverAnchorWidthPx(): Promise<string> {
+    return this.badgeWrapper.evaluate(element =>
+      (element as HTMLElement).style.getPropertyValue('--ht-license-badge-area-width'));
+  }
+
+  /**
+   * The corner clone's own width, which the anchor above must track.
+   */
+  async cornerWidthPx(): Promise<number> {
+    return this.corner.evaluate(element => (element as HTMLElement).offsetWidth);
+  }
+
+  /**
+   * The element the browser hit-tests at the center of the badge. The badge is
+   * click-through, so this must never be the badge itself — the corner header
+   * underneath has to keep its native select-all.
+   */
+  async isBadgeClickThrough(): Promise<boolean> {
+    return this.badge.evaluate((element) => {
+      const { x, y, width, height } = element.getBoundingClientRect();
+      const hitTarget = document.elementFromPoint(x + (width / 2), y + (height / 2));
+
+      return hitTarget !== null && !element.contains(hitTarget);
+    });
+  }
+
+  /**
+   * Whether the popover is laid out flush with the grid's inline-start edge —
+   * where the cornerless variant re-anchors it, having no corner to point at.
+   * The edge is the ROOT WRAPPER's (`.ht-root-wrapper`, `hot.rootWrapperElement`): the badge lives
+   * in the overlays layer under it, and that box — not the inner table element — is what the
+   * popover aligns to.
+   */
+  async isPopoverFlushWithGridStart(): Promise<boolean> {
+    return this.page.evaluate(() => {
+      const popover = document.querySelector('.ht-license-popover');
+      const rootWrapper = document.querySelector('.ht-root-wrapper');
+
+      if (!popover || !rootWrapper) {
+        return false;
+      }
+
+      return Math.abs(popover.getBoundingClientRect().left - rootWrapper.getBoundingClientRect().left) < 1;
+    });
+  }
+
+  /**
+   * Drive the grid's own API: the license key is read once at init, so these
+   * exist to prove the branding survives (or is torn down with) the instance.
+   */
+  async updateSettings(settings: Record<string, unknown>): Promise<void> {
+    await this.page.evaluate(options => (window as any).hot.updateSettings(options), settings);
+  }
+
+  async destroyGrid(): Promise<void> {
+    await this.page.evaluate(() => (window as any).hot.destroy());
+  }
+
+  async showAndHideAppDialog(): Promise<void> {
+    await this.page.evaluate(() => {
+      const dialog = (window as any).hot.getPlugin('dialog');
+
+      dialog.show({ content: 'An app dialog' });
+      dialog.hide();
+    });
+  }
+
+  async isAppDialogVisible(): Promise<boolean> {
+    return this.page.evaluate(() => (window as any).hot.getPlugin('dialog').isVisible());
+  }
+
+  /**
+   * How far the lock's own content sticks out past the lock box, in pixels. The sentences moved here
+   * from the bottom bar, which needed a minimum width and a scrolling slot for exactly this reason
+   * (DEV-2192): they hold unbreakable tokens (e-mail addresses) and
+   * the lock is only as wide as the grid, so on a narrow grid they used to push straight out of it.
+   */
+  async lockContentOverflowPx(): Promise<number> {
+    return this.lock.evaluate((element) => {
+      const limit = element.getBoundingClientRect().right;
+      const parts = Array.from(element.querySelectorAll<HTMLElement>(
+        '.ht-dialog__title, .ht-dialog__description, .ht-button'
+      ));
+
+      return Math.round(Math.max(0, ...parts.map(part => part.getBoundingClientRect().right - limit)));
+    });
+  }
+
+  async selectedRanges(): Promise<number[][]> {
+    return this.page.evaluate(() => (window as any).hot.getSelected() ?? []);
+  }
+
+  async gridSize(): Promise<{ rows: number; columns: number }> {
+    return this.page.evaluate(() => ({
+      rows: (window as any).hot.countRows(),
+      columns: (window as any).hot.countCols(),
+    }));
+  }
+}

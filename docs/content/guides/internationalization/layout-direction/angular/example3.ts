@@ -1,0 +1,55 @@
+/* file: app.component.ts */
+import { Component } from '@angular/core';
+import { GridSettings, HotTableModule} from '@handsontable/angular-wrapper';
+
+@Component({
+  selector: 'example3-layout-direction',
+  standalone: true,
+  imports: [HotTableModule],
+  template: ` <div>
+    <hot-table [data]="data" [settings]="gridSettings"></hot-table>
+  </div>`,
+})
+export class AppComponent {
+
+  data = [
+    ['Hydrogen', 'H', 1, 1.008, 7],
+    ['Helium', 'He', 2, 4.003, 9],
+    ['Lithium', 'Li', 3, 6.94, 9],
+    ['Beryllium', 'Be', 4, 9.012, 11],
+    ['Boron', 'B', 5, 10.81, 15],
+  ];
+
+  readonly gridSettings: GridSettings = {
+    autoWrapRow: true,
+    autoWrapCol: true,
+    colHeaders: ['Name', 'Symbol', 'Atomic number', 'Atomic mass', 'Known isotopes'],
+    rowHeaders: true,
+    height: 'auto',
+    layoutDirection: 'rtl'
+  };
+}
+/* end-file */
+
+
+
+/* file: app.config.ts */
+import { ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
+import { registerAllModules } from 'handsontable/registry';
+import { HOT_GLOBAL_CONFIG, HotGlobalConfig } from '@handsontable/angular-wrapper';
+
+// register Handsontable's modules
+registerAllModules();
+
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideZoneChangeDetection({ eventCoalescing: true }),
+    {
+      provide: HOT_GLOBAL_CONFIG,
+      useValue: {
+        // license: 'your-license-key', // get a key at https://handsontable.com/pricing/
+      } as HotGlobalConfig,
+    },
+  ],
+};
+/* end-file */

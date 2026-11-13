@@ -1,5 +1,17 @@
 describe('Walkontable.Renderer.RowsRenderer', () => {
   class TableRendererMock {
+    shouldPaintCell() {
+      return true;
+    }
+
+    isRowRecyclingAllowed() {
+      return false;
+    }
+
+    hasStableCellIdentity() {
+      return false;
+    }
+
     constructor() {
       this.rootDocument = document;
     }
@@ -9,6 +21,18 @@ describe('Walkontable.Renderer.RowsRenderer', () => {
 
     isAriaEnabled() {
       return true;
+    }
+
+    hasColumnHeaders() {
+      return false;
+    }
+
+    ownsAriaColumnHeaderId() {
+      return false;
+    }
+
+    getAriaColumnHeaderIdPrefix() {
+      return '';
     }
   }
 
@@ -22,12 +46,11 @@ describe('Walkontable.Renderer.RowsRenderer', () => {
     return { renderer, tableMock, rootNode };
   }
 
-  it('should generate as many rows as the `rowsToRender` is set', () => {
+  it('should generate as many rows as the `rowsToRender` is set', async() => {
     const { renderer, tableMock, rootNode } = createRenderer();
 
     tableMock.rowsToRender = 5;
 
-    renderer.adjust();
     renderer.render();
 
     expect(rootNode.outerHTML).toMatchHTML(`
@@ -42,7 +65,6 @@ describe('Walkontable.Renderer.RowsRenderer', () => {
 
     tableMock.rowsToRender = 3;
 
-    renderer.adjust();
     renderer.render();
 
     expect(rootNode.outerHTML).toMatchHTML(`
@@ -55,7 +77,6 @@ describe('Walkontable.Renderer.RowsRenderer', () => {
 
     tableMock.rowsToRender = 0;
 
-    renderer.adjust();
     renderer.render();
 
     expect(rootNode.outerHTML).toMatchHTML(`
@@ -64,7 +85,6 @@ describe('Walkontable.Renderer.RowsRenderer', () => {
 
     tableMock.rowsToRender = 1;
 
-    renderer.adjust();
     renderer.render();
 
     expect(rootNode.outerHTML).toMatchHTML(`
@@ -74,12 +94,35 @@ describe('Walkontable.Renderer.RowsRenderer', () => {
       `);
   });
 
-  it('should reuse previously created elements on next render cycle', () => {
+  it('should add the `ht__rows_odd` and `ht__rows_even` classes to the appropriate rows', async() => {
+    const { renderer, tableMock, rootNode } = createRenderer();
+
+    spec().matchersConfig = {
+      toMatchHTML: {
+        keepAttributes: ['class']
+      }
+    };
+
+    tableMock.rowsToRender = 5;
+
+    renderer.render();
+
+    expect(rootNode.outerHTML).toMatchHTML(`
+      <tbody>
+        <tr class="ht__row_odd"></tr>
+        <tr class="ht__row_even"></tr>
+        <tr class="ht__row_odd"></tr>
+        <tr class="ht__row_even"></tr>
+        <tr class="ht__row_odd"></tr>
+      </tbody>
+      `);
+  });
+
+  it('should reuse previously created elements on next render cycle', async() => {
     const { renderer, tableMock, rootNode } = createRenderer();
 
     tableMock.rowsToRender = 3;
 
-    renderer.adjust();
     renderer.render();
 
     expect(rootNode.outerHTML).toMatchHTML(`
@@ -94,7 +137,6 @@ describe('Walkontable.Renderer.RowsRenderer', () => {
 
     tableMock.rowsToRender = 5;
 
-    renderer.adjust();
     renderer.render();
 
     expect(rootNode.children[0]).toBe(prevChildren[0]);
@@ -102,12 +144,11 @@ describe('Walkontable.Renderer.RowsRenderer', () => {
     expect(rootNode.children[2]).toBe(prevChildren[2]);
   });
 
-  it('should reuse previously created elements when offset is changed', () => {
+  it('should reuse previously created elements when offset is changed', async() => {
     const { renderer, tableMock, rootNode } = createRenderer();
 
     tableMock.rowsToRender = 3;
 
-    renderer.adjust();
     renderer.render();
 
     expect(rootNode.outerHTML).toMatchHTML(`
@@ -124,7 +165,6 @@ describe('Walkontable.Renderer.RowsRenderer', () => {
       return index + 10;
     });
 
-    renderer.adjust();
     renderer.render();
 
     expect(rootNode.children[0]).toBe(prevChildren[0]);
@@ -132,12 +172,11 @@ describe('Walkontable.Renderer.RowsRenderer', () => {
     expect(rootNode.children[2]).toBe(prevChildren[2]);
   });
 
-  it('should return all rendered nodes using `getRenderedNode` method', () => {
+  it('should return all rendered nodes using `getRenderedNode` method', async() => {
     const { renderer, tableMock, rootNode } = createRenderer();
 
     tableMock.rowsToRender = 3;
 
-    renderer.adjust();
     renderer.render();
 
     const children = rootNode.children;

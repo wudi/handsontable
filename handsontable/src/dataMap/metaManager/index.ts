@@ -1,0 +1,720 @@
+import GlobalMeta from './metaLayers/globalMeta';
+import TableMeta from './metaLayers/tableMeta';
+import ColumnMeta from './metaLayers/columnMeta';
+import CellMeta, {
+  type CellMetaAtRowEntry,
+  type CellMetaKeyState,
+  type CellMetaKeyStateEntry,
+} from './metaLayers/cellMeta';
+import localHooks from '../../mixins/localHooks';
+import { hasOwnProperty, mixin } from '../../helpers/object';
+import { throwWithCause } from '../../helpers/errors';
+import { throwInitOnlyUpdateError } from './mods/extendMetaProperties';
+import type { CellProperties } from '../../settings';
+
+/**
+ * The local hooks fired by `MetaManager`, mapped to their callback signatures. The `addLocalHook`,
+ * `removeLocalHook`, and `runLocalHooks` methods are typed against this map so callers get the cell
+ * meta argument inferred automatically instead of `unknown`.
+ */
+interface MetaManagerLocalHooks {
+  afterGetCellMeta: (cellMeta: CellProperties) => void;
+  extendTransientCellMeta: (cellMeta: CellProperties) => void;
+  invalidateMetaExtensions: () => void;
+}
+
+/**
+ * With the Meta Manager class, it can be possible to manage with meta objects for different layers in
+ * one place. All coordinates used to fetch, updating, removing, or creating rows or columns have to
+ * be passed as physical values.
+ *
+ * The diagram of the meta layers:
+ * +-------------+.
+ * │ GlobalMeta  │
+ * │ (prototype) │
+ * +-------------+\
+ *       │         \
+ *       │          \
+ *      \│/         _\|
+ * +-------------+    +-------------+.
+ * │ TableMeta   │    │ ColumnMeta  │
+ * │ (instance)  │    │ (prototype) │
+ * +-------------+    +-------------+.
+ *                         │
+ *                         │
+ *                        \│/
+ *                    +-------------+.
+ *                    │  CellMeta   │
+ *                    │ (instance)  │
+ *                    +-------------+.
+ *
+ * A more detailed description of the specific layers can be found in the "metaLayers/" modules description.
+ */
+export default class MetaManager {
+  /**
+   * Counts structural changes (row and column inserts and removes). Read through
+   * `getStructureVersion()`.
+   */
+  #structureVersion = 0;
+
+  /**
+   * Becomes `true` when `finishInitialization()` is called. Read through `isInitialized()`.
+   */
+  #isInitialized = false;
+
+  /**
+   * The Handsontable instance passed to this manager on construction.
+   */
+  declare hot: unknown;
+  /**
+   * The global meta layer that holds default settings shared across the entire grid.
+   */
+  declare globalMeta: GlobalMeta;
+  /**
+   * The table meta layer that holds instance-level settings applied to the whole table.
+   */
+  declare tableMeta: TableMeta;
+  /**
+   * The column meta layer that holds per-column settings keyed by physical column index.
+   */
+  declare columnMeta: ColumnMeta;
+  /**
+   * The cell meta layer that holds per-cell settings keyed by physical row and column index.
+   */
+  declare cellMeta: CellMeta;
+
+  // Mixin-injected properties/methods (added by `mixin(MetaManager, localHooks)`)
+  /**
+   * Registry of local hook callbacks, keyed by hook name and injected by the `localHooks` mixin.
+   */
+  declare _localHooks: Record<string, Function[]>;
+  /**
+   * Registers a callback for the given local hook name; returns this instance for chaining.
+   */
+  declare addLocalHook: <K extends keyof MetaManagerLocalHooks>(
+    key: K, callback: MetaManagerLocalHooks[K]
+  ) => this;
+  /**
+   * Unregisters a previously added callback from the given local hook name; returns this instance for chaining.
+   */
+  declare removeLocalHook: <K extends keyof MetaManagerLocalHooks>(
+    key: K, callback: MetaManagerLocalHooks[K]
+  ) => this;
+  /**
+   * Executes all callbacks registered under the given local hook name, passing any extra arguments.
+   */
+  declare runLocalHooks: <K extends keyof MetaManagerLocalHooks>(
+    key: K, ...args: Parameters<MetaManagerLocalHooks[K]>
+  ) => void;
+  /**
+   * Removes all registered local hook callbacks and returns this instance for chaining.
+   */
+  declare clearLocalHooks: () => this;
+
+  /**
+   * Initializes all meta layers, applies custom settings to global meta, and instantiates any meta modifier classes.
+   */
+  constructor(hot: unknown, customSettings: Record<string, unknown> = {}, metaMods: unknown[] = []) {
+    this.hot = hot;
+    this.globalMeta = new GlobalMeta(hot);
+    this.tableMeta = new TableMeta(this.globalMeta);
+    this.columnMeta = new ColumnMeta(this.globalMeta);
+    this.cellMeta = new CellMeta(this.columnMeta);
+
+    (metaMods as Array<new (metaManager: MetaManager) => unknown>).forEach(ModifierClass => new ModifierClass(this));
+
+    this.globalMeta.updateMeta(customSettings);
+  }
+
+  /**
+   * Tells the manager that the grid has finished initializing. From then on, a write to an init-only option
+   * is an update, including the first write of an option the initial settings did not define. Before it, the
+   * grid is still being built and its own steps (the column meta pass, the `cell` option, a `beforeInit`
+   * listener) may write those options once.
+   */
+  finishInitialization() {
+    this.#isInitialized = true;
+  }
+
+  /**
+   * Checks whether the grid has finished initializing (see `finishInitialization()`).
+   *
+   * @returns {boolean}
+   */
+  isInitialized(): boolean {
+    return this.#isInitialized;
+  }
+
+  /**
+   * Refuses a settings payload that names an init-only option, before any option of the payload is written,
+   * so a refused payload changes nothing. Does nothing while the grid initializes.
+   *
+   * @param {object} settings An `updateSettings()` payload.
+   */
+  assertNoInitOnlyUpdates(settings: Record<string, unknown>) {
+    if (!this.#isInitialized) {
+      return;
+    }
+
+    const initOnlyOptions = (this.globalMeta.getMeta()._initOnlySettings ?? []) as string[];
+
+    initOnlyOptions.forEach((option) => {
+      if (hasOwnProperty(settings, option)) {
+        throwInitOnlyUpdateError(option);
+      }
+    });
+  }
+
+  /**
+   * Gets the global meta object that is a root of all default settings, which are recognizable by Handsontable.
+   * Other layers inherites all properties from this. Adding, removing, or changing property in that
+   * object has a direct reflection to all layers.
+   *
+   * @returns {object}
+   */
+  getGlobalMeta() {
+    return this.globalMeta.getMeta();
+  }
+
+  /**
+   * Updates global settings object by merging settings with the current state.
+   *
+   * @param {object} settings An object to merge with.
+   */
+  updateGlobalMeta(settings: Record<string, unknown>) {
+    this.globalMeta.updateMeta(settings);
+  }
+
+  /**
+   * Expands the grid-level `type` again after an `updateSettings()` payload was written onto the global meta.
+   * Options the user set at grid level keep winning over the type.
+   *
+   * @param {object} settings The `updateSettings()` payload.
+   * @returns {boolean} `true` when the grid-level type changed to another one.
+   */
+  updateGlobalTypeFromSettings(settings: Record<string, unknown>): boolean {
+    return this.globalMeta.updateTypeFromSettings(settings);
+  }
+
+  /**
+   * Gets settings object that was passed in the Handsontable constructor. That layer contains all
+   * default settings inherited from the GlobalMeta layer merged with settings passed by the developer.
+   * Adding, removing, or changing property in that object has no direct reflection on any other layers.
+   *
+   * @returns {TableMeta}
+   */
+  getTableMeta() {
+    return this.tableMeta.getMeta();
+  }
+
+  /**
+   * Updates table settings object by merging settings with the current state.
+   *
+   * @param {object} settings An object to merge with.
+   */
+  updateTableMeta(settings: Record<string, unknown>) {
+    this.tableMeta.updateMeta(settings);
+  }
+
+  /**
+   * Gets column meta object that is a root of all settings defined in the column property of the Handsontable
+   * settings. Each column in the Handsontable is associated with a unique meta object which identified by
+   * the physical column index. Adding, removing, or changing property in that object has a direct reflection
+   * only for the CellMeta layer. The reflection will be visible only if the property doesn't exist in the lower
+   * layers (prototype lookup).
+   *
+   * @param {number} physicalColumn The physical column index.
+   * @returns {object}
+   */
+  getColumnMeta(physicalColumn: number) {
+    return this.columnMeta.getMeta(physicalColumn);
+  }
+
+  /**
+   * Updates column meta object by merging settings with the current state.
+   *
+   * @param {number} physicalColumn The physical column index which points what column meta object is updated.
+   * @param {object} settings An object to merge with.
+   */
+  updateColumnMeta(physicalColumn: number, settings: Record<string, unknown>) {
+    this.columnMeta.updateMeta(physicalColumn, settings);
+  }
+
+  /**
+   * Gets the cell meta object that is a root of all settings defined for the specific cell rendered by
+   * the Handsontable. Each cell meta inherits settings from higher layers. When a property doesn't
+   * exist in that layer, it is looked up through a prototype to the highest layer. Starting
+   * from CellMeta -> ColumnMeta and ending to GlobalMeta, which stores default settings. Adding,
+   * removing, or changing property in that object has no direct reflection on any other layers.
+   *
+   * @param {number} physicalRow The physical row index.
+   * @param {number} physicalColumn The physical column index.
+   * @param {object} options Options for the `getCellMeta` method.
+   * @param {number} options.visualRow The visual row index of the currently requested cell meta object.
+   * @param {number} options.visualColumn The visual column index of the currently requested cell meta object.
+   * @param {boolean} [options.skipMetaExtension=false] If `true`, omits the `afterGetCellMeta` hook which calls the `extendCellMeta` method.
+   * @returns {object}
+   */
+  getCellMeta(
+    physicalRow: number, physicalColumn: number,
+    options: { visualRow: number; visualColumn: number; skipMetaExtension?: boolean }
+  ) {
+    const cellMeta = this.cellMeta.getMeta(physicalRow, physicalColumn);
+
+    cellMeta.visualRow = options.visualRow;
+    cellMeta.visualCol = options.visualColumn;
+    cellMeta.row = physicalRow;
+    cellMeta.col = physicalColumn;
+
+    if (!options.skipMetaExtension) {
+      this.runLocalHooks('afterGetCellMeta', cellMeta);
+    }
+
+    return cellMeta;
+  }
+
+  /**
+   * Gets a cell meta object for read-only access without retaining it. When the cell already has a
+   * stored meta object (because it carries user-defined or declarative `cell` overrides) that object
+   * is returned; otherwise a transient object inheriting from the column layer is created and NOT
+   * stored. This avoids permanently materializing one cell meta object per scanned cell when iterating
+   * the whole dataset (for example, a column read), where the eager `getCellMeta` would otherwise grow the
+   * meta cache to O(rows × columns). The `afterGetCellMeta` extension is intentionally not run.
+   *
+   * @param {number} physicalRow The physical row index.
+   * @param {number} physicalColumn The physical column index.
+   * @param {object} options Options for the method.
+   * @param {number} options.visualRow The visual row index of the currently requested cell meta object.
+   * @param {number} options.visualColumn The visual column index of the currently requested cell meta object.
+   * @returns {object}
+   */
+  getCellMetaUncached(
+    physicalRow: number, physicalColumn: number,
+    options: { visualRow: number; visualColumn: number }
+  ): CellProperties {
+    // Two map lookups on the warm path (vs five for `hasMeta` + `getMeta`), and the miss
+    // fallback stays inline - extracting this expression into a helper regresses the read
+    // through V8 inline-cache pollution.
+    const cellMeta = this.cellMeta.getMetaIfExists(physicalRow, physicalColumn) ??
+      this.cellMeta.createTransientMeta(physicalColumn);
+
+    cellMeta.visualRow = options.visualRow;
+    cellMeta.visualCol = options.visualColumn;
+    cellMeta.row = physicalRow;
+    cellMeta.col = physicalColumn;
+
+    return cellMeta;
+  }
+
+  /**
+   * Creates a cell meta object that inherits from the column layer and is not stored anywhere. It
+   * carries no per-cell overrides and no coordinate stamps, so it stands for "any cell of this
+   * column" until a caller stamps it.
+   *
+   * A bulk read that has already established the cell stores no meta of its own uses this instead
+   * of `getCellMetaUncached`, which would repeat the stored-meta lookup the read just did.
+   *
+   * @param {number} physicalColumn The physical column index.
+   * @returns {object}
+   */
+  createTransientColumnMeta(physicalColumn: number): CellProperties {
+    return this.cellMeta.createTransientMeta(physicalColumn);
+  }
+
+  /**
+   * Gets a fully-extended cell meta object without retaining it. Unlike `getCellMetaUncached`, the
+   * dynamic extension DOES run - the `beforeGetCellMeta`/`afterGetCellMeta` hooks and the `cells`
+   * function are applied (through the `extendTransientCellMeta` local hook), so hook-driven
+   * properties such as `readOnly`, `hidden`, or `spanned` resolve correctly. Unlike `getCellMeta`,
+   * nothing is stored: when the cell has no persisted meta, the extension runs on a transient object
+   * that is thrown away, so a bulk scan (for example, column-width sampling over the whole row
+   * range) does not permanently materialize one meta object per visited cell. Cells that already
+   * carry stored meta go through the regular memoized `getCellMeta` path. Hook mutations made on a
+   * transient object do not persist - callers that need to write meta must use `setCellMeta`.
+   *
+   * @param {number} physicalRow The physical row index.
+   * @param {number} physicalColumn The physical column index.
+   * @param {object} options Options for the method.
+   * @param {number} options.visualRow The visual row index of the currently requested cell meta object.
+   * @param {number} options.visualColumn The visual column index of the currently requested cell meta object.
+   * @returns {object}
+   */
+  getCellMetaTransient(
+    physicalRow: number, physicalColumn: number,
+    options: { visualRow: number; visualColumn: number }
+  ): CellProperties {
+    const storedMeta = this.cellMeta.getMetaIfExists(physicalRow, physicalColumn);
+
+    // The stored path mirrors `getCellMeta` on the already-resolved object instead of delegating
+    // to it - delegation would re-resolve the same cell (two more map lookups per stored cell on
+    // every bulk validate/copy/export scan), and widening `getCellMeta` itself with a pre-resolved
+    // parameter would add a branch to the hottest read path in the grid.
+    if (storedMeta !== undefined) {
+      storedMeta.visualRow = options.visualRow;
+      storedMeta.visualCol = options.visualColumn;
+      storedMeta.row = physicalRow;
+      storedMeta.col = physicalColumn;
+
+      this.runLocalHooks('afterGetCellMeta', storedMeta);
+
+      return storedMeta;
+    }
+
+    const cellMeta = this.cellMeta.createTransientMeta(physicalColumn);
+
+    cellMeta.visualRow = options.visualRow;
+    cellMeta.visualCol = options.visualColumn;
+    cellMeta.row = physicalRow;
+    cellMeta.col = physicalColumn;
+
+    this.runLocalHooks('extendTransientCellMeta', cellMeta);
+
+    return cellMeta;
+  }
+
+  /**
+   * Gets a value (defined by the `key` property) from the cell meta object.
+   *
+   * @param {number} physicalRow The physical row index.
+   * @param {number} physicalColumn The physical column index.
+   * @param {string} key Defines the value that will be returned from the cell meta object.
+   * @returns {*}
+   */
+  getCellMetaKeyValue(physicalRow: number, physicalColumn: number, key: string) {
+    if (typeof key !== 'string') {
+      throwWithCause('The passed cell meta object key is not a string');
+    }
+
+    return this.cellMeta.getMeta(physicalRow, physicalColumn, key);
+  }
+
+  /**
+   * Sets settings object for cell meta object defined by "key" property.
+   *
+   * @param {number} physicalRow The physical row index.
+   * @param {number} physicalColumn The physical column index.
+   * @param {string} key The property name to set.
+   * @param {*} value Value to save.
+   */
+  setCellMeta(physicalRow: number, physicalColumn: number, key: string, value: unknown) {
+    this.cellMeta.setMeta(physicalRow, physicalColumn, key, value);
+  }
+
+  /**
+   * Updates cell meta object by merging settings with the current state.
+   *
+   * @param {number} physicalRow The physical row index which points what cell meta object is updated.
+   * @param {number} physicalColumn The physical column index which points what cell meta object is updated.
+   * @param {object} settings An object to merge with.
+   */
+  updateCellMeta(physicalRow: number, physicalColumn: number, settings: Record<string, unknown>) {
+    this.cellMeta.updateMeta(physicalRow, physicalColumn, settings);
+  }
+
+  /**
+   * Merges the per-render dynamic extension into the cell meta object without marking the cell as
+   * changed (see `CellMeta#extendMeta`).
+   *
+   * @param {number} physicalRow The physical row index which points what cell meta object is updated.
+   * @param {number} physicalColumn The physical column index which points what cell meta object is updated.
+   * @param {object} settings An object to merge with.
+   */
+  extendCellMeta(physicalRow: number, physicalColumn: number, settings: Record<string, unknown>) {
+    this.cellMeta.extendMeta(physicalRow, physicalColumn, settings);
+  }
+
+  /**
+   * Removes a property defined by the "key" argument from the cell meta object.
+   *
+   * @param {number} physicalRow The physical row index.
+   * @param {number} physicalColumn The physical column index.
+   * @param {string} key The property name to remove.
+   */
+  removeCellMeta(physicalRow: number, physicalColumn: number, key: string) {
+    this.cellMeta.removeMeta(physicalRow, physicalColumn, key);
+  }
+
+  /**
+   * Returns what one key of a cell's meta holds – whether it is stored, its value and its origin
+   * bucket – without creating the meta object. See `CellMeta#getMetaKeyState`.
+   *
+   * @param {number} physicalRow The physical row index.
+   * @param {number} physicalColumn The physical column index.
+   * @param {string} key The key.
+   * @returns {CellMetaKeyState}
+   */
+  getCellMetaKeyState(physicalRow: number, physicalColumn: number, key: string): CellMetaKeyState {
+    return this.cellMeta.getMetaKeyState(physicalRow, physicalColumn, key);
+  }
+
+  /**
+   * Puts one key of a cell's meta into a state captured by `getCellMetaKeyState()`, filing it in the
+   * origin bucket it came from. See `CellMeta#applyMetaKeyState`.
+   *
+   * @param {number} physicalRow The physical row index.
+   * @param {number} physicalColumn The physical column index.
+   * @param {string} key The key.
+   * @param {CellMetaKeyState} state The state to apply.
+   */
+  applyCellMetaKeyState(physicalRow: number, physicalColumn: number, key: string, state: CellMetaKeyState) {
+    this.cellMeta.applyMetaKeyState(physicalRow, physicalColumn, key, state);
+  }
+
+  /**
+   * Tells whether a cell meta write made now would be filed as a user-defined one.
+   *
+   * @returns {boolean}
+   */
+  isUserDefinedMetaRecording(): boolean {
+    return this.cellMeta.isUserDefinedMetaRecording();
+  }
+
+  /**
+   * Appends the state of every user-defined and `cell`-option key stored in one row to `target`.
+   *
+   * @param {number} physicalRow The physical row index.
+   * @param {CellMetaKeyStateEntry[]} target The list to append to.
+   */
+  captureRowMetaKeyStates(physicalRow: number, target: CellMetaKeyStateEntry[]) {
+    this.cellMeta.captureRowMetaKeyStates(physicalRow, target);
+  }
+
+  /**
+   * Appends the state of every user-defined and `cell`-option key stored in one column to `target`.
+   *
+   * @param {number} physicalColumn The physical column index.
+   * @param {CellMetaKeyStateEntry[]} target The list to append to.
+   */
+  captureColumnMetaKeyStates(physicalColumn: number, target: CellMetaKeyStateEntry[]) {
+    this.cellMeta.captureColumnMetaKeyStates(physicalColumn, target);
+  }
+
+  /**
+   * Returns all cell meta objects that were created during the Handsontable operation. As cell meta
+   * objects are created lazy, the length of the returned collection depends on how and when the
+   * table has asked for access to that meta objects.
+   *
+   * @returns {object[]}
+   */
+  getCellsMeta() {
+    return this.cellMeta.getMetas();
+  }
+
+  /**
+   * Returns all cell meta objects that were created during the Handsontable operation but for
+   * specific row index.
+   *
+   * @param {number} physicalRow The physical row index.
+   * @returns {object[]}
+   */
+  getCellsMetaAtRow(physicalRow: number) {
+    return this.cellMeta.getMetasAtRow(physicalRow);
+  }
+
+  /**
+   * Returns all materialized cell meta objects for a physical row together with their physical
+   * column keys.
+   *
+   * @param {number} physicalRow The physical row index.
+   * @returns {{physicalColumn: number, meta: object}[]}
+   */
+  getCellsMetaAtRowWithPhysicalColumns(physicalRow: number): CellMetaAtRowEntry[] {
+    return this.cellMeta.getMetasAtRowWithPhysicalColumns(physicalRow);
+  }
+
+  /**
+   * Returns a flat snapshot of all cell meta properties that were set imperatively through
+   * `setCellMeta` (for example, by the user or by the context menu), keyed by physical coordinates.
+   * Used to preserve user-defined meta across a `clearCache` call during `updateSettings`.
+   *
+   * @returns {{physicalRow: number, physicalColumn: number, key: string, value: *}[]}
+   */
+  getUserDefinedCellMetas() {
+    return this.cellMeta.getUserDefinedMetas();
+  }
+
+  /**
+   * Returns the cell meta object only when one is already stored for that cell, and `undefined`
+   * otherwise. Nothing is created, so this is safe on a path that must not materialize meta - the
+   * validation flow uses it to find the cell's *current* meta object without turning a passing
+   * result into a retained object.
+   *
+   * @param {number} physicalRow The physical row index.
+   * @param {number} physicalColumn The physical column index.
+   * @returns {object|undefined}
+   */
+  getCellMetaIfExists(physicalRow: number, physicalColumn: number) {
+    return this.cellMeta.getMetaIfExists(physicalRow, physicalColumn);
+  }
+
+  /**
+   * Returns a counter that changes whenever a captured cell coordinate pair stops meaning what it
+   * meant. Two things do that: a row or column insert or remove, because `LazyFactoryMap` re-keys the
+   * stored meta objects while the `row`/`col` fields stamped on them are not rewritten; and
+   * `clearCellsCache()`, because `loadData` replaces the whole dataset behind those coordinates and
+   * is documented to reset cell state.
+   *
+   * An async validation flow captures this at the start and compares it when the result arrives, so
+   * that a result whose coordinates can no longer be trusted is dropped rather than written onto the
+   * wrong cell - or onto data that has since been replaced.
+   *
+   * `clearCache()` deliberately does NOT bump it. That is the `updateSettings` path, where the rows
+   * and the data stay put and `restoreInvalidCellMetas()` puts the marks back, so an in-flight result
+   * still belongs to the cell it was started for.
+   *
+   * @returns {number}
+   */
+  getStructureVersion() {
+    return this.#structureVersion;
+  }
+
+  /**
+   * Returns the physical coordinates of every cell whose last validation failed. The validation flow
+   * writes `valid` directly onto the meta object, so `getUserDefinedCellMetas` does not cover it.
+   * Used to preserve the invalid-cell highlight across a `clearCache` call during `updateSettings`.
+   *
+   * @returns {{physicalRow: number, physicalColumn: number}[]}
+   */
+  getInvalidCellMetas() {
+    return this.cellMeta.getInvalidMetas();
+  }
+
+  /**
+   * Re-applies the failed validation results captured by `getInvalidCellMetas`.
+   *
+   * @param {{physicalRow: number, physicalColumn: number}[]} invalidCellMetas Coordinates to flag as invalid.
+   */
+  restoreInvalidCellMetas(invalidCellMetas: { physicalRow: number, physicalColumn: number }[]) {
+    this.cellMeta.restoreInvalidMetas(invalidCellMetas);
+  }
+
+  /**
+   * Returns a flat snapshot of all cell meta properties applied from the declarative `cell` option, keyed by
+   * physical coordinates. Used to replay the option across a `clearCache` call during `updateSettings`, so
+   * it survives a call that changes `columns` or `cells` without restating `cell`.
+   *
+   * @returns {{physicalRow: number, physicalColumn: number, key: string, value: *}[]}
+   */
+  getCellOptionCellMetas() {
+    return this.cellMeta.getCellOptionMetas();
+  }
+
+  /**
+   * Enables tracking of user-defined cell meta properties set through `setCellMeta`.
+   */
+  enableUserDefinedMetaRecording() {
+    this.cellMeta.enableUserDefinedMetaRecording();
+  }
+
+  /**
+   * Disables tracking of user-defined cell meta properties. Writes made while disabled are treated
+   * as declarative and belong to no origin bucket, so a `clearCache` call drops them (for example, the
+   * cell meta ColumnSummary derives from its endpoints).
+   */
+  disableUserDefinedMetaRecording() {
+    this.cellMeta.disableUserDefinedMetaRecording();
+  }
+
+  /**
+   * Opens a `cell`-option recording scope, so writes made inside it are filed as applied from the
+   * declarative `cell` option and can be replayed across a `clearCache` call. Also suspends user-defined
+   * recording. Scopes nest; each call must be matched by an `endCellOptionMetaRecording` call.
+   */
+  startCellOptionMetaRecording() {
+    this.cellMeta.startCellOptionMetaRecording();
+  }
+
+  /**
+   * Closes one `cell`-option recording scope, and the user-defined recording suspension that came with it.
+   */
+  endCellOptionMetaRecording() {
+    this.cellMeta.endCellOptionMetaRecording();
+  }
+
+  /**
+   * Whether a `cell`-option recording scope is open, so the cell meta being written comes from the
+   * declarative `cell` option rather than from a `setCellMeta` call.
+   *
+   * @returns {boolean}
+   */
+  isRecordingCellOptionMeta(): boolean {
+    return this.cellMeta.isRecordingCellOptionMeta();
+  }
+
+  /**
+   * Creates one or more rows at specific position.
+   *
+   * @param {number} physicalRow The physical row index which points from what position the row is added.
+   *   Pass `null` to append at the end.
+   * @param {number} [amount=1] An amount of rows to add.
+   */
+  createRow(physicalRow: number | null, amount = 1) {
+    this.#structureVersion += 1;
+    this.cellMeta.createRow(physicalRow, amount);
+  }
+
+  /**
+   * Removes one or more rows from the collection.
+   *
+   * @param {number} physicalRow The physical row index which points from what position the row is removed.
+   * @param {number} [amount=1] An amount rows to remove.
+   */
+  removeRow(physicalRow: number, amount = 1) {
+    this.#structureVersion += 1;
+    this.cellMeta.removeRow(physicalRow, amount);
+  }
+
+  /**
+   * Creates one or more columns at specific position.
+   *
+   * @param {number} physicalColumn The physical column index which points from what position the column is added.
+   *   Pass `null` to append at the end.
+   * @param {number} [amount=1] An amount of columns to add.
+   */
+  createColumn(physicalColumn: number | null, amount = 1) {
+    this.#structureVersion += 1;
+    this.cellMeta.createColumn(physicalColumn, amount);
+    this.columnMeta.createColumn(physicalColumn, amount);
+  }
+
+  /**
+   * Removes one or more columns from the collection.
+   *
+   * @param {number} physicalColumn The physical column index which points from what position the column is removed.
+   * @param {number} [amount=1] An amount of columns to remove.
+   */
+  removeColumn(physicalColumn: number, amount = 1) {
+    this.#structureVersion += 1;
+    this.cellMeta.removeColumn(physicalColumn, amount);
+    this.columnMeta.removeColumn(physicalColumn, amount);
+  }
+
+  /**
+   * Makes the next read of each stored cell meta object run the dynamic extension again (the `cells`
+   * function and the `beforeGetCellMeta`/`afterGetCellMeta` hooks). The extension runs once per cell per
+   * full render, and a full render forgets that at its start; core calls this where it held such a render.
+   */
+  invalidateMetaExtensions() {
+    this.runLocalHooks('invalidateMetaExtensions');
+  }
+
+  /**
+   * Clears all saved cell meta objects. It keeps column meta, table meta, and global meta intact.
+   */
+  clearCellsCache() {
+    // `loadData` replaces the dataset behind every cell, so a coordinate pair captured before this
+    // no longer names the same data - see `getStructureVersion()`.
+    this.#structureVersion += 1;
+    this.cellMeta.clearCache();
+  }
+
+  /**
+   * Clears all saved cell and columns meta objects.
+   */
+  clearCache() {
+    this.cellMeta.clearCache();
+    this.columnMeta.clearCache();
+  }
+}
+
+mixin(MetaManager, localHooks);

@@ -1,0 +1,1204 @@
+# MergeCells plugin — spanning cells across rows and columns
+
+The `mergeCells` plugin merges a rectangular range into one visible cell. Read this before touching
+`mergeCells.ts`, `cellsCollection.ts`, `cellCoords.ts`, `renderer.ts`,
+`utils.ts` or anything in `calculations/` and `contextMenuItem/`.
+
+## Read `colspan` / `rowspan` from cell meta, never from the DOM
+
+```js
+const { colspan, rowspan } = hot.getCellMeta(row, col);   // authoritative
+```
+
+The DOM attributes only describe cells that are currently rendered. The meta is authoritative regardless of
+viewport state. This is the single most repeated rule about this plugin, and it is in the root
+`../../../AGENTS.md` for that reason.
+
+The one reader that may use the DOM is Walkontable's pointer-to-cell measurer
+(`3rdparty/walkontable/src/utils/pointerToCoords.ts`). It walks the rendered cells only, and Walkontable has no cell
+meta, so it reads the rendered cell's `rowSpan` and `colSpan`. The shared scans in `helpers/dom/cellMeasure.ts` read no
+DOM, and the core side takes the span from the cell meta. Both sides follow one contract: a span above 1 is a hint
+that the cell is part of a merge (a slave need not report it), and the real signal is that every slave resolves to the
+anchor's element. So the walks skip a cell that resolves to the element they just measured, and never measure a merged
+band once per slave. The reference scans measure against a column or row that no merge spans
+(`findRowReferenceColumn`, `findColumnReferenceRow`).
+
+## The lookup matrix is the authority on visibility — not the merge list
+
+`cellsCollection.ts` keeps two structures, and they can disagree on purpose:
+
+- **`mergedCells`** — the list of declared merges. It keeps entries whose whole visible span is hidden, and
+  **their visual coordinates may be stale.**
+- **the lookup matrix** — purged of merges that are fully hidden. **This is what you query for visibility**
+  (`getWithinRange`, and the two other sites that repeat the comment).
+
+Reading visibility off `mergedCells` is the bug this split exists to prevent.
+
+The Shift+Arrow line scan, `findNonIntersectingIndex()` in `../../selection/cellBlocks.ts`, encodes the rest
+of that logic, over the merges that are not trimmed away (`getVisibleMergedCells()`): the first merge-touched line (in scan order) whose
+cells all agree on a single index at or past `visualIndex`, and the first merge-**free** line at or past it
+(which always emits its own index — cells covered by no merge contribute their line's own index).
+
+## The anchor is the merge; its visual coordinates are derived
+
+Every merge carries an **anchor** (`#mergeAnchors` in `mergeCells.ts`): the list of **physical rows** it
+covers plus its physical left column. That is the authoritative description — physical indexes survive
+trimming and reordering. The merge's own `row`/`col`/`rowspan` are re-derived from it on every
+`rowIndexMapper` `cacheUpdated`, so treat them as a snapshot of how the merge currently *draws*, not as
+what it owns.
+
+**`mergeSelection()` is one operation, and so one undo step.** It unmerges the merges inside the range
+(`unmergeRange(…, true)`) before it merges the range, and each of those opens its own operation. Left
+unwrapped, the two became two steps: one `Ctrl`+`M` over existing merges took two undos (DEV-160,
+DEV-514). A nested operation's `describe()` is ignored, so the outer operation describes the step
+itself through `#describeMerge()` - the same `cellRange` and `data` fields `mergeRange()` attaches.
+Any new method that calls two mutators must wrap them the same way.
+
+**A refused merge must be refused before `#mergeRange` writes anything.** The method writes `hidden` on
+every covered cell and `spanned` on the top-left through `setCellMeta`, and each write is an operation
+UndoRedo records. `MergedCellsCollection#add()` refuses a merge that overlaps another one or whose anchor
+is taken, but it runs after those writes: a refused merge left the flags on unmerged cells, fired
+`beforeMergeCells` with no `afterMergeCells`, and became an undo step that changed no merge (DEV-159 — a
+row-header selection across an existing merge, or `merge()` through the API). So `#mergeRange` asks
+`MergedCellsCollection#canAdd()` right after `canMergeRange()`. A new precondition belongs there too,
+never after the first write. `canAdd()` and `add()` decide through one private method (`#accepts`), so a
+rule added there reaches both. A cell-range selection never reaches this: it grows to cover the merges it
+touches, so its merge is not refused.
+
+`mergeSelection()` must ask **before its own unmerge**, not only in `#mergeRange`: the unmerge dissolves
+every merge anchored inside the range, and a merge refused after it left those merges dissolved and the
+unmerge as an undo step (merge A2:A3 and C1:C5, then `Ctrl`+`M` on row headers 2-3). `#canMergeSelection`
+passes the merges `unmergeRange()` will remove (`getWithinRange(range)`) as `canAdd()`'s ignored list.
+
+The check runs before `beforeMergeCells`, so a listener of that hook cannot make room for an overlapping
+merge any more (it could before DEV-159; the changelog names it). A listener can still ADD a merge over the
+range from that hook or from `afterSetCellMeta`: `add()` re-checks for that, and on refusal
+`#removeRefusedMergeMeta` takes back the `hidden`/`spanned` flags the merge wrote, except on the cells the
+new merge owns. That second check is deliberate, not duplication.
+
+`isOverlapping()` reads the lookup matrix like `getWithinRange()` does: a merge purged because all of its
+rows are trimmed covers no cell on screen, so it does not refuse a merge over its stale coordinates.
+
+Pinned by `tests/e2e/merge-cells-rejected-merge-undo.spec.ts` and the `canAdd` block of
+`__tests__/cellsCollection.unit.ts`.
+
+**The check costs `min(cells of the new merge, merges in the collection)`, never their product (DEV-3657).**
+`isOverlapping()` and the restore's `#restoreAnchoredArea` both go through
+`MergedCellsCollection#overlapsLiveMerge()`. Scanning every merge per add made `n` merges cost `n²/2`
+range checks, twice per merge (`canAdd()` and `add()`), each allocating `CellCoords` through
+`CellRange#overlaps`: 8,000 merges in one `batch()` took 17.6 s in a browser. Three rules keep it linear
+without changing an answer:
+
+- **A merge with no more cells than there are merges reads its own cells from the matrix.** A cell's owner
+  refuses the merge when the matrix holds it at its own top-left (`get(owner.row, owner.col) === owner`) and
+  it is not ignored, which is the filter the scan applies.
+- **Once a merge was written over another one's cell, every check scans the list.** A sort can draw two
+  merges over each other (`relocateInMatrix` has no overlap guard), and so can `add(…, true)`. The matrix then
+  names one merge per cell, and removing the one on top leaves a hole in the one under it, so the cells no
+  longer show every merge an area meets. `#addMergedCellToMatrix` sets `#hasDrawnOver` when it overwrites
+  another merge's entry, and only a full rebuild (`clear()`, `shiftCollections()`,
+  `translateAfterAxisMove()`) resets it. A grid that never had such an overlap never scans.
+- **A merge with more cells than there are merges scans the list with plain arithmetic**
+  (`areMergesOverlapping`, `utils.ts`), not `CellRange#overlaps`. Do not drop this branch: walking every cell
+  of one large merge against a few others undoes #13083 (MergeCells scales with merge count, not grid size).
+
+**Row trimming is not covered.** With a trimmed row between the rows a new merge covers,
+`#fillTrimmedGaps` still reads the anchors of every other merge (`#getRowsOwnedBesides`), so a batch on a
+filtered sheet stays quadratic there.
+
+Pinned by `__tests__/mergeCountScaling.unit.js` (it counts lookups and scan comparisons, not time) and the
+`the overlap check` block of `__tests__/cellsCollection.unit.ts`: the scan pin with one large merge, the reset
+after a rebuild, and the ignored, purged, drawn-over and drawn-over-then-removed cases on both branches.
+
+Undo and redo carry the anchors too: `captureState()` returns every merge with its anchor, and
+`restoreState(state, context)` applies only what the step changed: it removes the live merges listed on
+the other side of the step but not in `state`, adds the ones `state` lists that the other side did not,
+and sorts the list back into the order `state` gives it. A merge made outside any step - for example by
+`updateSettings({ mergeCells })` after the step - therefore survives the undo. It falls back to
+rebuilding the whole collection from `state` when there is no `context.other`, when the replay reset the
+row order (`context.reordered`), when a merge to remove is not the one the lookup finds at its
+coordinates, or when a merge to put back overlaps a live merge the step did not make - `add(…, true)`
+skips the overlap check, so the diff path would stack a recorded merge on top of one a settings update
+made on the same cells. Either way it re-attaches the anchors, re-anchors onto the visible rows and marks every
+cell changed. Each captured merge also carries `physicalColumns`, the physical column of every column
+it spans at capture time, for `getStateColumns()`: the UndoRedo check of a `columns` settings update
+drops a merge step only when a column one of its changed merges covers shows another field. Without
+it the step (and every older one) dropped on any field change. The anchor cannot answer that: it
+holds the first column only, and the column order may have changed since. Match a merge to its own anchor by the merge object, never
+through `mergedCellsCollection.get()` - that answers for every covered cell, so after a removal has slid
+another merge onto those coords the lookup hands back the wrong object.
+
+A merge whose rows are all trimmed is restored with `addOutsideMatrix()`, not `add()`: its coordinates
+are stale, a visible merge can be drawn there now, and `add()` turns away a merge whose top-left is
+taken - so a purged merge that came first in the list dropped the visible one for good. For the same
+reason the matrix footprint removal (`#removeMergedCellFromMatrix`) deletes only entries that point to
+the merge being removed: purging a merge at its stale coordinates used to erase the entries of the
+merge drawn over them. Both halves are pinned by one spec in `../undoRedo/__tests__/undoRedo.unit.js`
+(`merges restored while rows are trimmed`), and dropping either turns it red.
+
+`captureState()` runs on every operation, the internal `batchExecution()` calls of the render path
+included, so it first compares the live merges with the list it returned last time, in place, and
+allocates a new list only when one differs. Do not replace that with a version counter: the merge objects
+are shifted in place from many sites, and one missed bump records a stale list with no error.
+
+The rows are an explicit list, not a `{ start, length }` range: merging on a sorted grid, or over a row a
+filter has hidden, gives a merge whose physical rows are not consecutive.
+
+## Trimming re-anchors a merge, and clips it
+
+The plugin listens for the **row trimming map** changing — Filters, `trimRows`, a NestedRows collapse — so
+a merge whose rows get trimmed follows the rows that stay visible. Two things happen, and the second one
+is the part that is easy to get wrong:
+
+- the merge moves to the visual position of the first of its rows that is still visible, and
+- its `rowspan` shrinks to the **number of its rows that are still visible**.
+
+**The anchor's row list is ordered by visual position, and every structural edit must preserve that.**
+That invariant is what makes "first in the list" mean "the top-left". The list is captured in visual
+order, so on a descending sort it runs the other way to the physical indexes — and `#remapRowAnchorsAfterInsert`
+therefore *splices* the rows an insert grew a merge by into their visual place rather than appending them.
+Appending was a real defect: a grown row that sits visually above the ones already listed ended up last,
+and once the head was trimmed away the merge re-anchored onto the wrong row.
+
+Do **not** "simplify" the derivation to take the smallest visual index instead. It looks equivalent and is
+not: it also re-anchors merges on a *sorted* grid, where the head of the list is the row that was the
+top-left when the merge was made. Pulling every merge up to its highest visible row lets two merges whose
+rows a sort interleaves collide in the lookup matrix — measured on the merged-cells demo, and pinned by
+`should not let a sort pull two merges onto the same rows in the lookup matrix`. `relocateInMatrix` has no
+overlap guard (unlike `add`, which runs `isOverlapping`), so the second footprint silently wins.
+
+The span is one continuous block downwards from that top-left, so a merge whose visible rows are
+non-contiguous in the visual order (sorting or a row move) can still cover foreign rows. That is
+pre-existing and unchanged. Trimming alone must never produce it, and a merge made while a row is trimmed
+did (DEV-507): the anchor was captured from the rows the merge covered on screen, so it left out a trimmed
+row sitting between them. Once the rows came back the merge drew its block over that row, hiding its
+values, and stopped one row short, which exposed its own last row empty (the merge cleared it when it was
+made). `#captureAnchorOf` therefore takes, for a merge with no anchor yet that comes through
+`afterMergeCells`, the whole stretch of the row index sequence between the first
+and the last row the merge covers (`#fillTrimmedGaps`). The covered rows are consecutive in the visual
+order, which is the sequence without its trimmed rows, so everything in that stretch is covered or
+trimmed, and the anchor is what create-then-trim produces. Four things to keep:
+
+- **A merge declared in the settings (`auto: true`) takes the gap too (DEV-3610).**
+  The area's `row` and `rowspan` describe the rows on screen when it is applied for the first time, and
+  the trimmed rows between them come back under the merge, so `{ row: 2, rowspan: 3 }` over a trimmed row
+  reads `rowspan: 4` after the untrim. An area that was applied before (`#isReapplyingArea`, set around
+  its `mergeRange()` in `generateFromSettings()`) does NOT take the gap: filling it grew a merge made
+  while nothing was trimmed over every row a filter hid between its visible rows (a 2-row area became 51
+  rows, and every later re-send kept that). Taking the gap is not enough on its own: a re-send of the same areas
+  (every React and Angular commit) would rebuild the merge from the declared `rowspan` and flip it back,
+  clearing the cells of the row it just lost. `#takeKeptMerges` therefore also keeps, trimming active or
+  not, the merge of an area that was applied before, is still declared, still sits on its anchor
+  (`footprint`) and whose anchor holds more rows than the area's `rowspan` (`#hasGrownPastArea`, the
+  `rowspan` is stored in `#mergeAreas`). The bulk captures (`#captureMergeAnchors`,
+  `#captureMissingMergeAnchors`) never fill, which keeps a row move's fragments as they were. A sheet
+  switch (`restoreMergedAreas()`) fills for the same reason as before: it rebuilds merges that were on
+  screen. Changing the settings to a different area still rebuilds it from the rows on screen.
+- **The trimmed row's values stay in the source and sit hidden under the merge.** A normal merge empties
+  the cells it covers, and `mergeRange` clears only the cells that are on screen, so the row that was
+  trimmed keeps its values. `getData()` and an export still return them.
+- **The merge does not grow over a trimmed row above its first covered row or below its last one.** Only
+  the stretch between them counts. `trimmedMergeAnchorCapture.unit.js` pins both edges.
+- **The stretch is taken only when every row in it is covered, or trimmed and owned by no other merge in the same columns.**
+  A merge whose rows are all trimmed is purged from the lookup matrix, so `isOverlapping` lets a new merge
+  be made over its rows, and filling them would put one row in two anchors that no later trim can pull
+  apart. A merge in other columns owns the same rows without conflict, so ownership is read per column span. A visible row that is not covered means the index cache and the sequence disagree (a row move
+  or sort inside `hot.batch()`, where the cache refreshes at the end), so the old anchor is kept.
+
+The clipping is not cosmetic. A trimmed row has no visual index at all, so the visual row space is
+compressed; a merge that kept its declared span would reach past its own rows and onto whatever sits
+below, and two merges would claim the same rows in the lookup matrix. Hidden rows are different — they
+keep their visual index, so they do not shrink the span here, and the renderer clips them out of the
+rendered `rowspan` instead.
+
+A merge is never dropped because its rows were trimmed. When none of them is visible it is purged from
+the matrix but kept in the list, and it comes back whole once its rows do. Removing the last *visible*
+row of a partly trimmed merge does not delete it either: `#onAfterRemoveRow` remaps the anchors first,
+then drops the merges whose anchor is now empty itself and forbids `shiftCollections` to drop any of the
+rest. The decision cannot be left to the shift: it reads the merge's *visual* coordinates, which for a
+merge purged while all of its rows were trimmed are stale, frozen at the moment it was purged.
+
+**Resetting a dropped merge's cell meta reads the anchor AND the drawn block, never `row`/`rowspan`
+alone.** `#resetMergedCellMeta` runs for every merge `clearCollections()` drops (every
+`updateSettings({ mergeCells })`, disabling the plugin, and SheetsBar's merge restore on a sheet switch)
+and for every merge `unmergeRange()` drops (the context menu, `Ctrl`+`M`, `unmerge()`, UndoRedo). A merge
+purged because all of its rows are trimmed keeps stale visual coordinates: with every row filtered out they
+address no row, so `removeCellMeta` threw `Expecting an unsigned number` (DEV-3135, a regression from
+#12798 in 18.1.0); with some rows filtered out they address whatever record the trim slid into place, and
+wiped that record's own `copyable: false`. The anchor alone is not enough either: after a sort, the block a
+merge draws covers other records' rows, and `afterGetCellMeta` stores `hidden`/`copyable` on those too. So
+the rows are `anchor.physicalRows` plus, while the merge is not purged, the rows under its drawn block.
+`hidden`/`copyable` are removed from every one of those cells. The span keys (`spanned`, `rowspan`,
+`colspan`) are removed from the current top-left cell unconditionally, as before, and from any other
+left-column cell only where its **stored** meta owns them (`getCellMetaIfExists`, never materialized) —
+`afterGetCellMeta` writes them on whichever cell is the visible top-left when it runs, which after a
+re-anchor is not the original one, but is always in that column. Removing them from every left-column row
+fired `afterRemoveCellMeta` 21 times for a 3x2 merge where `develop` fires 15; pinned at 15. A trimmed row
+has no visual index, so its meta is removed through `_getMetaManager().removeCellMeta()` by physical index,
+and the `before`/`afterRemoveCellMeta` hooks do not fire for it. SheetsBar does not keep
+`hidden`/`spanned` when the user leaves a sheet (its `UNKEPT_META_KEYS`): the switch restores the merges,
+which writes them again, and a kept copy would stay on the cells of a stored merge that no longer fits. Pinned by `__tests__/trimmedMergeMetaReset.unit.js`.
+
+**A record a merge stops drawing over is cleaned when the mapping changes, not when the merge is
+dropped.** The reset above cannot reach a record the merge drew over (after a sort) once a trim has purged
+the merge: a purged merge has no drawn block, and its stale coordinates may name another record by then.
+So `#onBeforeRowIndexCacheUpdate` records, while the mapping still describes the screen, the drawn rows
+each merge does not own (`#collectForeignDrawnRows`), and `#onRowIndexCacheUpdated` removes
+`hidden`/`copyable` from those the re-anchor moved the block off (`#clearRowsLeftBehind`, meta manager, no
+hooks). The recording is discarded when the physical row count changed — an insert or remove renumbers
+the physical rows it holds. It costs one pass over each merge's drawn rows per mapping change, next to the
+re-anchor's pass over its anchor rows. A nested `updateCache` overwrites the outer recording, so the outer
+update then cleans nothing: a missed cleanup, never a wrong one. **Known limit:** like the unmerge reset,
+the cleanup removes `copyable` outright rather than restoring what was there before. A value the user set
+on such a cell through `setCellMeta` (`copyable: false`, say) is therefore lost once a sort passes a merge
+over the cell and a later sort or `clearSort()` moves it off: `afterGetCellMeta` has already overwritten it
+while the merge covered the cell, and the cleanup then deletes the key, so the cell reads the column or grid
+value again. A value set through the `cells` or `columns` option survives, because the removal only drops
+the cell's own key. Restoring the user's value would mean remembering it before that overwrite, which runs
+on every meta read — not done.
+
+**The cell a merge is drawn from is cleaned of covered flags at every re-anchor.** `afterGetCellMeta` writes
+`hidden`/`copyable: false` on a covered cell and `rowspan`/`colspan`/`spanned` on the top-left, and it only ever
+sets. When a trim or a filter removes the first rows of a merge, the first row that stays visible was covered a
+moment ago, so its stored meta still holds `hidden` once it is the top-left. AutoRowSize skips every cell with
+`hidden`, so the text written into that cell was never measured and the row headers came out shorter than their
+rows (DEV-3971). `#reanchorMergesToVisibleRows` calls `#clearCoveredFlagsOfTopLeftCell` for every merge that has
+a visible top-left, and it removes `hidden` and `copyable` there through the meta manager (by physical index, no
+hooks). Six rules keep it narrow:
+
+- **It acts only where `hidden` is an own stored key.** `hidden` marks a cell a merge covered, and the hook wrote
+  `copyable` beside it. A top-left that was never covered keeps a `copyable: false` the user set, which matters
+  because a relocation also happens when only the span changes (the last row of the merge trimmed). On a cell that
+  was covered, `hidden` goes always (the merge stored it through `setCellMeta()`), and `copyable` goes only when the
+  meta manager has no record of it (`getCellMetaKeyState(…).hadOwn` is `false`): the hook writes `copyable` straight
+  onto the stored object, so a recorded one was set by the user through `setCellMeta()` or the `cell` option. Only a
+  recorded `false` survives as the user's value: while the merge covered the cell the hook overwrote a recorded `true`
+  with `false` (as on `develop`), and that stays too.
+- **It is not gated on a relocation.** A new top-left can leave the merge's derived geometry as it was: swap the
+  trimmed row in one cache update (the visual row and the span stay), or remove the merge's first row with
+  `alter('remove_row')` (the physical rows renumber). Neither queues a relocation, and both left `hidden` on the
+  new top-left while the gate was there. `alter('remove_col')` on the merge's first column reaches the re-anchor
+  too (through `#onAfterRemoveCol`) and makes the next column's cell the top-left, so it is cleaned the same way.
+- **A row move, a column move and a column freeze clean it too.** A move that splits a merge draws a fragment
+  from a cell the merge covered before, and no re-anchor sees the split anchors while no row is trimmed
+  (DEV-3987). `#settleMergesAfterAxisMove` ends `#onAfterRowMove`, `#onAfterColumnMove` and
+  `#onAfterColumnFreeze`: with a row trimmed it runs the re-anchor as before, and without one it calls
+  `#clearCoveredFlagsOfTopLeftCell` for the cell each merge is drawn from, resolved from the merge's visual
+  `row`/`col` (authoritative while nothing is trimmed). It does not call the re-anchor on the untrimmed path:
+  that pass is kept off it on purpose (see "`translateAfterAxisMove` re-adds purged merges"), and it can relocate
+  merges on a sorted grid.
+- **A move also releases cells from a merge, and those are cleaned too.** A merge a move breaks into single cells
+  (`translateAfterAxisMove` drops every 1x1 fragment) or a row or column that leaves a merge covers cells no merge
+  covers afterwards, and nothing else would ever clean their stored `hidden` and `copyable: false`.
+  `#cleanReleasedCells` walks the pre-move footprint of every merge the move split or dropped, built
+  from the move snapshot (the moved axis) and the merge's own span on the other axis, which a move does not
+  change, and cleans the cells the lookup matrix no longer holds a merge for. A merge replaced by one block of
+  the same size is skipped: it covers the same cells and its top-left is handled by the pass above. It runs only
+  while no row is trimmed. While a row is trimmed the footprint cannot be rebuilt from the visual coordinates,
+  so `#settleMergesAfterAxisMove` compares the cells every merge covers before and after the move
+  (`#coveredBeforeMove`, `#snapshotCoveredCells()`: the anchor's physical rows, trimmed ones too, in the
+  physical columns under the merge's visual columns) and removes `hidden` and `copyable` from the cells that
+  no merge covers any more (`#clearCoveredFlagsOfCellsNoLongerCovered()`). A merge whose rows are all trimmed
+  (purged) is in the set on a column move: its anchor rows and its columns still describe it, and the move
+  splits it like any other. The set is limited to the merges the move can reach (`MoveWindow`, the visual
+  indexes between the lowest of the moved and dropped indexes and the highest), because a move permutes only
+  those, so the cost follows the merges in the window and not every merge on the grid; a freeze has no window.
+  Undo and redo do not run it, because `restoreState()` runs after UndoRedo restored the index maps: the
+  visual columns of a live merge name the wrong physical columns, and a set built from them cannot see the
+  cell a redo takes out of a merge. They compare the two sides of the step by their recorded merges instead
+  (`#clearCoveredFlagsOfCellsReleasedByStep()`): each captured merge carries its anchor rows and its
+  `physicalColumns`, so the cells the other side covered and the restored side does not are known without
+  reading a live merge's columns. Only the merges the step changed are walked, and a cell the restored side's
+  changed merges cover is skipped. A cell an unchanged merge covers is not looked at, so it may be cleaned and
+  `afterGetCellMeta` stores the flags again on the next read. Never build the released set from the live
+  merges' visual columns. A guard that reads the live lookup was tried and dropped: no test needed it, and the
+  recorded sides already hold the answer. It does nothing
+  without a recorded other side (no `context.other`), for a merge captured with no `physicalColumns`, or when
+  the replay inserted or removed rows or columns (`context.reordered`): the recorded physical indexes are
+  numbered like the grid before that replay. A row move's redo was already clean, because dropping the live merge cleans it by the
+  anchor's physical rows. Pinned by the `after the undo and the redo` cases of
+  `__tests__/reanchoredTopLeftMeta.unit.js` and `tests/e2e/merge-cells-column-move-redo.spec.ts`.
+- **The cell a merge is no longer drawn from loses its span keys.** `afterGetCellMeta` stores `spanned`,
+  `rowspan` and `colspan` on whichever cell is the top-left, and nothing took them off when a move or a freeze
+  made another cell the top-left, so `getCellMeta()` reported a span nothing backs (DEV-3990). The same pass
+  (`#clearReleasedCell`) removes them from every cell of a split or dropped merge's footprint that no merge is
+  drawn from: uncovered, or covered as a non-top-left cell. A merge replaced by one block of the same size is
+  not walked, but a reorder inside the block can still change its top-left (column B moved before A in a
+  two-column merge), so the cell it was drawn from before the move is checked too: the first entry of the move
+  snapshot on the moved axis, and the merge's unchanged index on the other. `#clearSpanKeysOfCell` acts only
+  where `spanned` is an own stored key (the merge stored it through `setCellMeta()`, the way it stored
+  `hidden`), so a `rowspan` the user stored on a cell without it stays. Of `rowspan` and `colspan`, a recorded
+  one stays too, because the hook writes them without recording them. A span from the `columns` option is not
+  on the cell, and a `cells` function applies its own again on the next read. **Known limits:** a recorded
+  `rowspan` or `colspan` on a former top-left holds the merge's span, because the hook overwrote the user's
+  value while the merge was drawn there (the same trade-off as `copyable: true` above), so `getCellMeta()` still
+  reports it. And like the pass above, the move pass runs only while no row is trimmed. The three paths it does
+  not reach clean the span keys by another mechanism, below.
+- **A trim lifted, a move while a row is trimmed, and an undo clean the span keys by a before/after diff of cells
+  (DEV-3991).** The merge is drawn from another cell while a row is trimmed (the next visible one), and the
+  re-anchor, a move on a trimmed grid and `restoreState()` all change which cell it is drawn from without a
+  record of the old one. The fix compares two sets of physical cells, taken before and after the change, and calls
+  `#clearSpanKeysOfCell` on `before - after` (`#snapshotDrawnFromCells()`,
+  `#clearSpanKeysOfCellsNoLongerDrawnFrom()`). Never key it on the merge object: `translateAfterAxisMove` and the
+  full rebuild of `restoreState()` replace the merges and `#mergeAnchors`, so a per-merge record is lost on
+  exactly the paths that need it. Five rules keep it right:
+  - **The cell comes from the anchor, not from the merge's visual coordinates** (`#getDrawnFromCellKey()`): the
+    first anchor row with a visual index and the anchor column. `#getTopLeftPhysicalRow()` is the one rule for
+    it: the re-anchor, the purge (`#hasVisibleTopLeft()`) and this recording all call it, so a change to how the
+    top-left row is picked changes all three, and the diff cannot miss the real top-left. The visual coordinates of a purged merge are
+    stale, and `restoreState()` runs after UndoRedo restored the index maps but before the merges are, so the
+    live merges' visual coordinates name the wrong cell there. A merge with no anchor has only its visual
+    coordinates, and they are used.
+  - **The set after the change holds the cell of every merge**, so a cell another merge is drawn from now is
+    never cleaned. A merge with no visible cell (purged) has none, so the cell it was drawn from before is
+    cleaned: trim row 1, then rows 2 and 3, and the merge is purged while physical (2, 4) still holds the keys.
+  - **The recording is taken while the old state is valid and the diff runs after the new one is in place:** the
+    row index mapper's `beforeCacheUpdate` (only when `trimmedIndexesChanged`: a sort, a hidden row and a forced
+    update leave the first visible row of every anchor where it was) and `cacheUpdated` (skipped for the
+    `insert` and `remove` change sources), the move handlers' `before*` hooks and
+    `#settleMergesAfterAxisMove` (only while a row is trimmed), and the top and bottom of `restoreState()`. UndoRedo replays the cell meta journal before it restores plugin states, so the cleanup is
+    not overwritten by a replayed `spanned`.
+  - **It cleans only where `#clearSpanKeysOfCell` does** (an own `spanned`), so a cell that was never a top-left
+    is untouched whatever ends up in the diff, and a stale recording mostly misses a cleanup.
+  - **An intermediate diff can clean a cell the final state draws from, and the next read puts the keys back.**
+    UndoRedo restores the index maps, which fires the mapper diff against the merges that are not restored yet,
+    and a row move runs that diff before `translateAfterAxisMove` replaces the anchors. `afterGetCellMeta`
+    writes the span keys again on the next meta read, and every move handler and `restoreState()` ends with a
+    render, so the loss lasts until then. A recorded `rowspan` or `colspan` is kept in any case.
+  - **A nested `updateCache` overwrites the outer recording**, as for the foreign rows: the outer update then
+    cleans less.
+  - **An insert or a remove skips the diff, and the row count cannot tell.** `insertIndexes()` and
+    `removeIndexes()` change the sequence under `suspendOperations()`, so `getNumberOfIndexes()` already returns
+    the new count when `beforeCacheUpdate` fires, and a comparison of counts is always equal. The change source
+    of `cacheUpdated` (`insert`, `remove`) is what tells them apart. Without the skip the diff reads the anchors
+    before `#onAfterCreateRow` or `#onAfterRemoveRow` shifted them, and can clean the keys of a live top-left
+    until the next meta read (two specs pin it, with the render suspended so the hook cannot write them back).
+    The foreign-rows recording next to it still compares counts.
+- **It does not live in `afterGetCellMeta`.** That hook runs on every meta read; clearing there would delete a
+  user's `copyable` on every read and pay for the check on every cell.
+- **It costs one meta manager lookup per merge per re-anchor**, next to the pass over the merge's anchor rows
+  that the re-anchor makes already, and no lookup in the merge collection, so the counts pinned by
+  `__tests__/mergeCountScaling.unit.js` stay flat. An axis move adds one meta manager lookup and one collection
+  lookup per merge (the cell it was drawn from), plus the footprint of each merge it splits or drops. That file
+  pins the merge and restore paths, not the moves. The span-key diff (the bullet above) adds one anchor walk per merge
+  on each side of a trim or a filter change, of a move or a freeze while a row is trimmed, and of a restore.
+  Those walks are index translations, with no meta manager and no collection lookup. The meta manager is asked once
+  for each cell that stopped being a top-left. The covered-flag comparison of a trimmed move builds one set entry
+  per covered cell of each merge in the move's window, before and after it, which is the cost to watch on a grid
+  with many large merges and a filter on.
+
+Pinned by `__tests__/reanchoredTopLeftMeta.unit.js` (the move, freeze and released-cell cases are in its `after a move or a freeze that splits the merge` block, the span keys in `span keys after a move or a freeze`, and the trim, trimmed-move and undo cases in `span keys after a trim is lifted, a move while a row is trimmed, and an undo`) and `tests/e2e/auto-row-size-merged-reanchored-origin.spec.ts`.
+
+**While rows are trimmed, `updatePlugin()` keeps the merge of an area it cannot place.** Settings describe
+visual positions. An area that fits the rows on screen is applied to them, exactly as before and as the
+guide documents (values a filter brought under it are cleared) — an application that computes its merges
+from the rows on screen sends the same areas after filtering, and they must land there. An area whose rows
+reach past the visible rows (`row + rowspan > countRows()`, while it still fits the whole data) cannot be
+placed: validation used to drop it with an out-of-bounds warning — every merge, when every row is
+filtered out, and the React and Angular wrappers re-send unchanged settings on every commit. Such an area's
+merge is kept when the area was applied before AND the merge still sits on the rows it was created on.
+`#mergeAreas` records, per merge object, the area key and the anchor's footprint (`#getAnchorFootprint`)
+when `generateFromSettings()` created it; a row insert or remove remaps the anchor, the footprint no longer
+matches, and the area goes back through the settings like any other. `#takeKeptMerges` takes the kept
+merges out of the list **before** `disablePlugin()`, so their meta is not reset and nothing is written to
+their cells; `#restoreKeptMerges` puts the same objects back (`MergedCellsCollection#restoreMerges`, list
+only), flags them purged and re-anchors them **before** `generateFromSettings()` applies the other areas.
+`filterOverlappingMergeCells` reads what is occupied from the **lookup matrix**, not the list, so a kept
+merge whose rows are all trimmed (purged, stale coordinates) does not reject a new area on screen, and a
+partly visible one does. So one re-sent array can mix two readings — an area that fits is placed on the
+rows on screen, one that does not keeps its records — and the guide spells that out. A merge a row or
+column move replaced is a new object with no recorded area, so it goes back through the settings.
+
+**A settings merge that took a trimmed row (DEV-3610) is kept too, trimming active or not.** Its anchor
+holds more rows than the area's `rowspan` (`#hasGrownPastArea`; `#mergeAreas` stores the declared
+`rowspan`), so rebuilding it from the area would flip the span back and clear the returning row. The
+merge of every applied, still declared area whose declared position overlaps a kept merge is kept with it
+(`#keepAreasReachingKeptMerges`, repeated until nothing more is reached): rebuilt at its declared visual
+position, a sibling area below the grown merge lands on rows the grown block now covers,
+`filterOverlappingMergeCells` rejects it, and the merge is lost for good. An area that no kept merge
+reaches, in other columns for example, is applied to the rows on screen as before. The check returns early
+when no area is grown and no row is trimmed, so a re-send costs nothing there. Limits, all measured and
+not fixed:
+
+- A kept merge is not re-applied, so a re-send does not clear values that arrived under it since (the
+  guide's "the next re-apply clears them" holds for the other areas only).
+- It keeps its physical rows when the filter changes and the same area numbers are sent again, instead of
+  being rebuilt on the rows on screen. A different area (any of row, col, rowspan or colspan) is rebuilt.
+- The state lives in `#mergeAreas`, keyed by merge object. A merge that `restoreMergedAreas()` (a sheet
+  switch) or an undo of an unmerge creates anew is a new object with no entry. `#appliedAreas` (area key,
+  declared `rowspan` and `colspan`, footprint of the anchor and whether it grew, set for every area in
+  `generateFromSettings()`) lets `#adoptRecreatedMerges()` give it its entry back, so the re-send keeps it;
+  it runs only while some area is grown. The footprint and the `colspan` must both match, so a merge the
+  user made over the same rows with another width is not taken for the area. A row insert or remove changes
+  the footprint, and the next re-send then rebuilds the merge from the declared `rowspan`, clearing the
+  returning row. A column move that splits the merge hands no piece the area's identity (the `colspan`
+  differs).
+- An area applied before the filter, and sent again while a row between its rows is trimmed, lands on the
+  rows on screen without the gap, so once the row returns the merge draws over it without owning the last
+  row. That is the behavior before DEV-3610, kept so that a re-send never grows a merge.
+
+The row insert/remove hooks mirror the physical renumbering onto the anchors themselves rather than
+re-deriving them from the merges. They have to: the index mapper emits its cache update **before**
+`afterCreateRow`/`afterRemoveRow`, so by the time those hooks run a re-anchor has already gone round once
+against a grid whose row count changed while the merges had not been shifted yet.
+
+## A row move that splits a merge distributes its trimmed rows
+
+A row move can leave a merge's rows in more than one contiguous visual run, and `translateAfterAxisMove`
+then replaces the merge with one fragment per run. A trimmed row has no visual index, so it belongs to no
+run, and the rule that places it is: **it travels within its run of the row index sequence, and that run's
+trimmed rows go to the run's first visible row.** A run here is a maximal set of the merge's *own* rows
+with no other row between them in the sequence, cut by `#groupRowsBySequenceRuns`.
+
+The run, not the row, is what the answer turns on, and both halves of that matter.
+
+- **A trimmed row must never be paired across a row the merge does not own.** The span is one continuous
+  block from its top-left, so an anchor pairing rows across a foreign row cannot be drawn: once trimming is
+  lifted the block covers that foreign row and stops short of the merge's own row beyond it. Nearest-in-
+  sequence without this check shipped that defect — a 12-row grid, `{ row: 2, rowspan: 5 }`, `trimRows([3,
+  4, 5])`, `moveRow(6, 3)` produced a fragment covering physical 9 while leaving the merge's own physical 6
+  outside it. Pinned by `should not send a trimmed row across a row the merge does not own when a move
+  splits it`. A run with no visible row cannot be placed at all, and its rows are dropped.
+- **Distance inside a run is deliberately not measured.** A run contains no foreign row, so its visible
+  rows are visually adjacent and always land in the *same* fragment — a nearest-carrier rule would compute
+  a choice nothing can observe, and its tie-break would be a branch no test could pin. Do not add one back.
+
+The *sequence*, not the physical index, is what defines a run. `IndexMapper#moveIndexes` removes the moved
+rows from the full sequence and re-inserts them at a position computed among the rows that are **not**
+trimmed, so every row it did not move keeps its slot — which makes the sequence exactly the order the rows
+take once trimming is lifted. Physical distance answers nothing here: a trimmed row usually sits one
+physical index from two of its neighbors, so the distance ties, and it does not see the move at all.
+
+Three parts of `mergeCells.ts` carry this, and each has a reason that is easy to undo by accident.
+
+- **The attribution is computed in `#onAfterRowMove`, not `#onBeforeRowMove`.** It reads the sequence the
+  move produced. `#planRowMoveTranslation` runs before `translateAfterAxisMove` replaces the merge objects,
+  because it is keyed on the merges that still exist.
+- **The plan is skipped unless a merge exists and a row is trimmed.** `#buildRowSequencePositions` walks
+  the whole row sequence, which is real allocation per drop on a large grid, and with nothing trimmed the
+  answer is the one the old path already gave: a fragment draws exactly the rows it owns. `nestedRows` is
+  the reason to keep the guard cheap rather than clever — its `rowMoveController` reorders the source data
+  and fires `afterRowMove` by hand while its `beforeRowMove` returns `false`, so `moveIndexes` never runs
+  and the sequence the plan would read is the pre-move one. Nothing splits on that path today, so the plan
+  is never read there; do not start depending on it without a spec for that path.
+- **The split is read from the plan, never from how many fragments came back.** `#countVisualRuns` counts
+  the runs through `MergedCellsCollection.detectContiguousRuns`, the same helper the split uses, so the two
+  cannot disagree. Counting fragments is wrong for a merge broken into a real run plus a single cell: the
+  collection drops the single cell, one fragment comes back, and carrying the whole anchor onto that
+  survivor would hand it the dropped fragment's rows as well.
+- **`#reanchorFragmentsAfterSplit` sorts each fragment's rows by sequence slot, and that sort is
+  load-bearing.** When a trimmed row's nearest carrier sits *below* it, appending leaves the carrier at the
+  head of the list, and the re-anchor reads the head as the top-left — so the merge would come back one row
+  too low, over a row it does not own. Same defect `#remapRowAnchorsAfterInsert` avoids by splicing rather
+  than appending.
+
+**A merge whose rows a sort scattered is excluded from all of this, and `#describesOwnRows` is what
+excludes it.** The split cuts its fragments out of the merge's *drawn* block, and for a scattered merge that
+block reaches over rows it does not own — so a fragment can be made of foreign rows, and the sort above
+would then pull that fragment's head onto one, which is exactly the collision `#sortVisibleRowsByVisualOrder`
+refuses (and `relocateInMatrix` has no overlap guard to catch). The two inputs disagree only for this shape:
+`isSplit` is measured on the drawn block, the attribution on the owned rows. So such a merge is reported
+unsplit, falls through to the guarded single-fragment path, and keeps the behavior it had before any of
+this — re-anchored from what is visible, trimmed row lost. Pinned by `should leave a merge whose rows a sort
+scattered on the unsplit path when a row move breaks its block`; deleting the guard turns that spec red.
+
+## A fragment that draws one cell but owns trimmed rows is not a singleton
+
+`translateAfterAxisMove` drops a `1x1` fragment because a single cell is no longer a merge. That is wrong
+for a fragment whose other rows are merely trimmed: it is a merge again the moment they come back. So
+`#onAfterRowMove` passes `retainedIndexes` — **per merge**, `Map<MergedCellCoords, Set<number>>`, never one
+flat set: two merges in different columns can cover the same rows, and a shared set would keep the
+genuinely-single fragment of the merge that carries nothing, leaving a phantom `1x1` entry in both the list
+and the lookup matrix.
+
+**Both axes need the hatch, and the column axis needs it for a less obvious reason.** The trimming
+re-anchor shrinks a merge's own `rowspan` to its visible count, so a merge trimmed to one visible row *is*
+`rowspan: 1` — and a column translation copies that shrunk value onto every fragment. A `colspan: 1` merge
+in that state reaches the singleton guard already at `1x1`, so without retention any `manualColumnMove` or
+`manualColumnFreeze` deleted it, including one that touched none of its own columns, and
+`translateAfterAxisMove` had already cleared `mergedCells` by then, so the rows returning brought nothing
+back (DEV-2805). `#onAfterColumnMove` and `#onAfterColumnFreeze` therefore pass
+`#planColumnMoveRetention(snapshot)`: every physical column of every merge that owns **more than one**
+row, at least one of them trimmed. The floor matters: a `rowspan: 1` merge whose only row is trimmed has
+nothing to come back, so its one-column fragment is a genuine single cell and is dropped as on `develop`
+(pinned by `should drop the single-column fragment of a one-row merge whose row is trimmed when a column
+move splits it`). The column axis needs no attribution and no `#describesOwnRows` guard — a column reorder never changes which
+rows a merge covers, so `#transferAnchorsAfterAxisMove` hands every fragment the whole anchor either way,
+and a retained single cell is treated exactly like a wider fragment of the same merge. Pinned by the three
+column specs next to the row-move ones in the trimming describe (unrelated move, freeze, and a split that
+leaves a single-column fragment).
+
+**`translateAfterAxisMove` re-adds purged merges to the matrix, and the purged flag dies with the old
+object.** The collection rebuilds the lookup matrix from every replacement, so a merge whose rows are all
+trimmed comes back into the matrix at its stale visual coordinates, over whatever physical rows now sit
+there, and the replacement is a new object that `#purgedMerges` (a `WeakSet` keyed on identity) knows
+nothing about. On the row axis the mapper's `cacheUpdated` re-anchor ran *before* `afterRowMove`, so it
+could not see the replacements; on the column axis it never runs at all. Every axis-move handler therefore
+calls `#reanchorMergesToVisibleRows()` once more after `#captureMergeAnchors()`, through
+`#settleMergesAfterAxisMove()`, gated on `#isRowTrimmingActive()`: fully trimmed merges are purged and flagged again, and the visible ones are left
+alone because their replacements already sit where the re-anchor would put them. The gate keeps the pass
+off the untrimmed column-move path, where nothing can be purged. Two shapes reach this: a merge trimmed in
+one go keeps `rowspan >= 2` and drew a phantom multi-row merge over foreign rows (pre-existing on both
+axes), and a merge trimmed one row at a time is `rowspan: 1` when the last row goes, so the column
+retention above keeps its `1x1` fragment and it would have drawn a phantom single cell. Pinned by the
+three `should keep a ... merge out of the lookup matrix across a ... move` specs in the trimming describe.
+
+Retention is keyed on the carrier, so a split leaving two single cells where only one of them owns trimmed
+rows keeps that one and drops its sibling. That asymmetry is the rule working, not a wrinkle in it: the
+sibling is a genuine single cell and the survivor is a merge with its other rows away. Which one survives
+is therefore decided by where the trimmed rows are reachable from, never by anything about the drag.
+`should keep a single-column merge alive through a split when the surviving cell owns a trimmed row` pins
+exactly that pair.
+
+The retention is deliberately **not** gated on the merge having been split. A merge trimmed down to one
+visible cell already draws a single cell without any help from the move, so gating it there let any row
+move — even one that never touched the merge — delete it (both shapes are pinned in the trimming describe
+of `mergeCells.spec.js`, and the per-merge keying in `cellsCollection.unit.ts`).
+
+**It is gated on `#describesOwnRows`, though — the same guard the split uses, and for a sharper reason.**
+Retaining a *scattered* merge's single cell leaves one fragment, which reads as unsplit, which sends it
+down the path that copies the **whole** anchor onto it: the merge then draws its full span from a cell that
+is only one of the places its rows sit, over rows it does not own, and drops the ones it does. That is
+strictly worse than the singleton drop it replaced, so such a fragment is left to be dropped. Pinned by
+`should not retain a single-cell fragment of a merge whose rows a sort scattered`; the two guards have to
+move together, and removing either one turns a spec red.
+
+## A shrinking `loadData` leaves the collection addressing cells that are gone
+
+The plugin registers **no `afterLoadData` hook**, so `loadData` (and `updateSettings({ data })`,
+which routes to `updateData`) replaces the dataset while `mergedCellsCollection` keeps the previous
+grid's merges. Nothing draws them past the grid, but `#resetMergedCellMeta` walks every cell a
+dropped merge covers into `removeCellMeta` — `hidden` and `copyable` per cell, then `spanned`,
+`rowspan`, `colspan` on the master. On released 18.1.1 MergeCells did NOT throw there (0 of 18
+shape x `loadData`/`updateData`/`updateSettings({ data })` x emptying/replacing runs threw, measured
+on the merge base); it ORPHANED the merge meta. On 8x8 data merged at
+`{ row: 6, col: 6, rowspan: 2, colspan: 2 }`, an `updateData` to 3x3, `updateSettings({ mergeCells: [] })`
+and a regrow to 8x8 left `hidden`/`copyable` on the old block, so `getCopyableText(6, 6, 7, 7)`
+returned `"6-6\t\n\t"` instead of the four cell values. Only CustomBorders threw
+`Assertion failed: Expecting an unsigned number` on that path (its `#resetBorderModel`). The
+real-world path is `importFile`, which applies a result as `loadData` plus
+`updateSettings({ mergeCells, … })`: importing a smaller sheet over a previous import whose merge
+sat near the bottom or right edge.
+
+**The cause was a core asymmetry, and it is fixed in `Core#removeCellMeta`, not here.**
+`Core#setCellMeta` passes an index outside the current range through as the physical one;
+`removeCellMeta` used to translate unconditionally, so such an index became `null` and the meta
+manager's `assertUnsignedKey` threw. `removeCellMeta` now reads an out-of-range index the same way
+its sibling writes one, so `#resetMergedCellMeta` carries **no bounds guard**: it removes the meta
+by the raw coordinates the merge was recorded with, and a plugin-local guard here would be a second
+copy of a core-owned rule (it was one, for two commits).
+
+The removal is not cosmetic on the `updateData` path. Core drops the cell meta only in `loadData`
+(`metaManager.clearCellsCache()`); `updateData` — and therefore `updateSettings({ data })` — keeps
+it by physical row. So after a shrink through `updateData`, a reset, and a regrow, the old merge's
+`hidden` / `copyable` / `spanned` / `rowspan` / `colspan` are still on live cells unless the reset
+actually clears them; skipping the write left `getCopyableText()` blanking the old merge area.
+
+**`#resetMergedCellMeta` is the single funnel.** It is the plugin's only walk into `removeCellMeta`
+(the writing side, `mergeRange`, only ever addresses the live range the user selected, and
+`MergedCellsCollection#clear()` reaches the DOM through `getCell()`, which answers `null` out of
+range). Since DEV-3135 it resolves the merge's columns to PHYSICAL indexes before removing anything,
+and **a column past `countCols()` must resolve to itself**, not be skipped: `toPhysicalColumn()`
+answers `null` for it, and skipping it cleared nothing after a shrink (the `updateData` case below
+went red when DEV-3135 met this branch). The rows need no such rule — they come from the merge's
+recorded anchor, already physical, and a physical row with no visual index is removed through the
+meta manager directly. Every reset path funnels through it: `clearCollections()` (called by `disablePlugin()`, so by
+`updatePlugin()` and therefore by the whole `mergeCells` settings path, and by SheetsBar's
+`resetViewState`) and `unmergeRange()` (the context menu, `Ctrl`+`M`, `unmerge()`, the paste handler
+and every UndoRedo merge action).
+
+**The `afterLoadData` hook was deliberately NOT added**, for two reasons beyond the CustomBorders one
+(the core clears cell meta on `loadData` and keeps it on `updateData`, so a hook that cleared the
+collection would drop merges the user still sees after a same-size `loadData`; CustomBorders has since
+added a hook that restores its meta from the model and clears nothing, see its `AGENTS.md`). First, a hook that
+pruned only *out-of-range* merges would have to read the bound off `mergedCells` — the list this
+file's second section says is **not** the authority on visibility, whose entries are deliberately
+kept with stale visual coordinates while their rows are trimmed, and which is restored whole once
+those rows come back. A bounds test there cannot tell "the dataset shrank" from "these coordinates
+are frozen from the moment the merge was purged". Second, `sheetsBar`'s `resetViewState` documents
+that it *relies* on the collection surviving `loadData` and clears it itself through
+`clearCollections()`. Pinned by `__tests__/shrinkingLoadData.unit.js`, which covers the bottom-only,
+right-only, corner and exact-boundary (`row === countRows()`) shapes, a same-size control proving an
+in-range merge still has its `spanned`/`rowspan`/`colspan`/`hidden` meta removed, and the
+`updateData` shrink → reset → regrow regression (the meta is gone and `getCopyableText()` returns
+the cell values). The core rule itself is pinned by
+`src/__tests__/core/removeCellMeta.unit.js`.
+
+## SheetsBar goes through members MergeCells owns, never the collection
+
+A sheet switch captures and restores merges around its `loadData()`. It calls
+`_exportMergedAreas()`, `clearCollections()`, `restoreMergedAreas()` and
+`runDeferredSettingsPass()` through the typed `getPlugin('mergeCells')`, so changing their
+names or signatures breaks the type check instead of the switch. Pinned by `__tests__/mergedAreasApi.unit.js`
+and `__tests__/anchoredMergedAreas.unit.js`.
+
+**The capture carries each merge's anchor, and the restore puts the merge back the way the grid held it.**
+`_exportMergedAreas()` lists every merge with an anchor, with `physicalRows` and `physicalColumn` (a
+`PhysicalRowMergeSnapshot`; a copy of the anchor), including one whose rows are all trimmed: the anchor still
+names its cells. A merge with no anchor is listed only while the lookup matrix holds it, by its visual geometry,
+since its stale coordinates would name unrelated rows. `restoreMergedAreas()` adds an anchored entry the way the
+undo path (`#addRecordedMerge`) does, never through `mergeRange()`: `add(geometry, true)` at the block the anchor
+draws under the index cache in force (`#placeAnchoredArea`: the first visible row, the count of visible rows, the
+column's visual index), or `addOutsideMatrix()` when no row is visible; then it sets the stored anchor and runs
+`#reanchorMergesToVisibleRows()` once. `mergeRange()` refused three shapes the live grid holds: a merge a sort drew
+past the last row (its row bounds), one a filter left with a single visible cell (the auto path's single-cell
+rule), and one with every row hidden (no top-left). Each was gone after a round trip. Setting the stored anchor
+matters for a merge whose rows a sort scattered too: its drawn block covers other records' rows, and an anchor
+captured from that block would hand it those rows for good. A drawn entry still fires
+`beforeMergeCells`/`afterMergeCells` with `auto: true` and writes no cell; one kept outside the matrix fires none.
+An anchor that names a row or column past the data, or a merge whose columns now run past the last one (the host
+shrank a sheet's data while it was away), is skipped, and so is a drawn entry that overlaps a merge that was in the
+matrix before the call or that a listener made during it. **Entries of the same call never block each other.** A
+sort draws each anchored merge from its first visible row, so two merges whose rows it interleaves are drawn over
+each other on the live grid (`relocateInMatrix` has no overlap guard) and both are exported; checked against each
+other, the second was refused and gone for good, even after the sort was cleared. An entry whose top-left a merge
+of the same call holds goes in with `addOutsideMatrix()` and a `#purgedMerges` flag (`add()` refuses a taken
+top-left even with `auto`), and the trailing re-anchor writes it over the shared cells as the live relocation did,
+so the lookup matrix matches the grid that never switched. Pinned by `brings back two merges a sort drew over each
+other after a round trip, as the grid without one does` (sheetsBar) and the overlap cases in
+`__tests__/anchoredMergedAreas.unit.js`.
+**The caller must run it with the restored order in the cache**, not inside a batch that wrote that order: the
+cache keeps the order from before the batch, and an area placed there, by visual coordinates or by anchor, lands
+on other cells (`../../utils/viewState/AGENTS.md`). An entry without an anchor (one a listener built) is merged by
+its visual geometry on the automatic path (`mergeRange(range, true, true)`), skipped when it does not fit the grid. `getVisibleMergedAreas()` keeps its plain shape for AutoColumnSize.
+
+AutoColumnSize is the second consumer of `getVisibleMergedAreas()`: it sizes the column a merge spanning
+several columns is drawn from (`../autoColumnSize/mergedCellsWidths.ts`), and it listens to
+`afterMergeCells`/`afterUnmergeCells` to re-measure the columns a merge covers. A change to what the method
+returns (leaving out hidden rows, for example), or a new path that adds or removes merges without those
+hooks, changes the column widths too. Two paths already do without them: `clearCollections()` (a
+`mergeCells` settings update, a disable) and `restoreState()` (undo and redo of a merge). AutoColumnSize
+compares the merges at every fit and rescans the columns of any that changed, so a new hook-less path is
+caught there too, as long as something asks for a fit. See "Merged cells" in `../autoColumnSize/AGENTS.md`.
+
+AutoRowSize is the other reader, through `getBlockDrawnOn(row, column)`: it names the block a covered cell is drawn
+for when the block's top-left cell is in a hidden row or column, so the sampler can measure the block's text on the
+cell that carries it (see "A merged block whose first row or column is hidden" in `../autoRowSize/AGENTS.md`). The
+method answers with the same rule the renderer draws by, the nearest not-hidden row and column of the top-left cell,
+so a change to where the renderer draws a block changes the row heights too.
+
+## `disablePlugin()` clears the field, so copy first
+
+`generateFromSettings()` needs to tell a **re-applied** area from a **newly declared** one, so the previous
+areas are copied *before* `disablePlugin()` clears them.
+
+**The settings pass is held back while core applies settings ahead of their data.** While
+`isDataLoadPending()` answers `true` (core's `_applySettingsAndData()` before its load, see `../base/AGENTS.md`;
+an update made after that load, from an `afterLoadData` listener, builds its merges at once, because the bar
+would otherwise run the held pass with `apply: false` on a return and drop them),
+`updatePlugin()` rebuilds the plugin and puts the copied areas back into `#appliedMergeKeys`, but skips
+`generateFromSettings()` and leaves `#initialized` unset; `runDeferredSettingsPass(apply)` runs the pass
+later (`apply: false` builds nothing and writes no cell, but still sets `#initialized` and captures
+anchors). SheetsBar is the one caller: a pass run against the departing sheet's data validated the
+arriving areas against the departing size and wrote its clearing `null`s into the departing sheet's
+array. The plugin has no `onDataReady()` for this on purpose: only SheetsBar knows whether the sheet
+returns with a stored state, in which case it must build nothing. The hold is recorded only on a drawn
+grid (`deferDataWork()` returns whether it was); on a grid still being built the ready step runs the pass,
+and clears any pending one first, because it builds the merges itself.
+The pass has to run before anything calls `mergeRange()` — `afterMergeCells` captures an anchor only
+once `#initialized` is set.
+
+## Focus order is a scan, not a linked list
+
+The Enter/Tab focus order lives in Selection now (`../../selection/focusOrder.ts`, DEV-161), fed by the
+cell block provider. It replaced a linked-list implementation, and several methods keep a cast with the note *"with
+no current node the method returns `undefined` at runtime and the callers rely on that behavior."* The
+layer lookups (`#getNodeAt`, `#findNodeInLayer`) likewise keep "without a layer index no node can match",
+mirroring the old comparison against `undefined`.
+
+**Those casts are compatibility, not sloppiness.** Removing one changes the value callers receive.
+
+## Two rendering quirks
+
+- **Safari needs explicit heights on the cells next to a merged cell**, or their height is not proportional
+  to the merged cell's. Chrome and Firefox do this by default; the explicit write emulates it.
+- **The `TR` `background` property is modified so it can be changed asynchronously later.** Only the alpha
+  changes, so it is invisible — the TDs' own background covers it. Do not remove it as dead styling.
+
+## A bottom overlay never holds the origin of a block that crosses `fixedRowsBottom` (DEV-176)
+
+The bottom clone (and `bottom_inline_start_corner` and `bottom_inline_end_corner`) renders only the frozen bottom
+rows. For a block that starts above them, `renderer.ts` `after()` found `notHiddenRow !== row` for every covered cell and hid them
+all with `display: none`, so no TD in the clone carried the span and each row slid one column to the inline
+start, under the wrong header (the `TypeError` in `Border#appear` that the ticket reported was already gone:
+`isHTMLElement(fromTD)` guards it since the TS conversion). The clone's first rendered row now carries the
+span. Three sites agree on that rule, and a fourth lives in Walkontable:
+
+- `renderer.ts` `after()`: the carrier is `max(origin, firstRowOfBottomOverlay)` (`getFirstRowOfActiveBottomOverlay`,
+  `utils.ts`, valid while the overlay draws). **It answers for all three bottom overlays** (`BOTTOM_ROW_OVERLAYS`:
+  `bottom`, `bottom_inline_start_corner`, `bottom_inline_end_corner`). Leaving the end corner out made it fall back to
+  the master's first rendered row, so a block in the `fixedColumnsEnd` columns that crosses `fixedRowsBottom` had
+  every covered cell hidden there and the row slid out of its columns. A new bottom overlay name goes into that list.
+- `cellsCollection.ts` `isFirstRenderableMergedCell()` reads the same row, or the fully-selected-block class
+  (`fullySelectedMergedCell-N`) never reaches the clone's carrier and its fill is dropped.
+- Walkontable `Table#getCell` (`table/cellAccess.ts`): when the hook answers with a block extent that starts
+  before this CLONE's first rendered row but reaches into it, the lookup resolves to that first rendered row.
+  This is why the plugin's `modifyGetCellCoords` needs no bottom-overlay logic, and why it works outside a draw
+  (`hot.getCell(8, 1, true)`, `Event#parentCell` for a press on the clone's `.wtBorder.current`), which a rule
+  keyed on `getActiveOverlayName()` cannot do: that name is `'master'` again once `Overlay#refresh` ends.
+
+- **With `virtualized`, a clone lookup must still get the block's REAL last row.** The `'render'` answer clips
+  the extent to the master's rendered range, which on a long grid ends far above the bottom clone, so
+  `Table#getCell`'s rule (extent reaches the clone) never fired and `hot.getCell(98, 1, true)` found nothing.
+  The `topmost` lookup (only `getCell` asks it, and it reads the first row and column of the answer) returns
+  `bottomEndRow`; the border and master lookups stay clipped. A short fixture hides this, because the master
+  there reaches the frozen rows: the spec uses 100 rows for it.
+- **Never clamp the block's extent.** `Border#resolveMergedBlockEdges` asks the hook for the real extent to tell
+  which edges lie on a freeze line. Clamping it makes the clone draw a closed box with a selection edge on the
+  freeze line, through the block. Only the cell lookup (`getCell`) moves to the clone's first row.
+- **The carrier is emptied** (`empty(getCellContentRoot(TD))` in `after()`). It is painted with the covered
+  cell's own coordinates, so a renderer's output would act on the wrong cell (a checkbox calls
+  `setDataAtCell(8, ...)`, not the origin) and a long wrapped text would size the clone's rows, which are only
+  as tall as a plain row. The master draws the block's content.
+- `#onModifyRowHeightByOverlayName` still skips the bottom overlays on purpose (no height inflation there).
+- Covered by `tests/e2e/merge-cells-frozen-bottom.spec.ts`: the carrier, the corner overlay, hidden rows, area
+  selection and a press on the clone's outline in the default mode (the fixture's master renders every row, so
+  the `virtualized` clamp is the identity there), a long text in both modes, and a block the master renders none
+  of with `virtualized` on. Its page object reads the outline through
+  `mergedBlockSelection()`, so keep that block in column 1: a block in column 0 has its left edge under the
+  row-header clone's holder and that helper then reports an edge missing for a reason unrelated to this rule.
+- Not changed: a merge that crosses the line is still accepted, and `fixedRowsBottom` moving later (a settings
+  update, a row insert) is handled by the render path, not by validation.
+
+## A block in the frozen columns is one block in every pane
+
+The master and every frozen-column clone render their own copy of a merged block, and each copy has to agree
+with the others. Three things are derived per pane, and each has its own owner:
+
+- **The outline and the fill handle**: Walkontable `Border` (`3rdparty/walkontable/AGENTS.md`, DEV-143).
+- **The row heights.** Walkontable writes a row's height on the row's first cell, and without row headers that
+  cell can span several rows (`rowspan`) or be covered (`display: none`). Two halves keep the rows of a block
+  the same in every pane:
+  - `#onModifyRowHeightByOverlayName` gives the cell a row STARTS with, when that cell carries a block's span
+    on the row (`#getSpanCarrierRow`: the block's first not-hidden row, moved down to the overlay's first
+    rendered row under `virtualized`), the height of the rows it spans, clamped to the frozen top rows on the
+    top overlays. It counts that cell's own span only. It used to take the tallest span of every block in the
+    overlay's part of the row, so a one-row cell next to a two-row block got two rows' height and the top
+    clone drew the frozen rows taller than the master (DEV-299). The count runs from the carrier to the
+    block's end (a hidden leading row moves the carrier down and must not stretch the sum past the block),
+    except for a carrier the `virtualized` rendering moved down: that one counts the block's whole `rowspan`
+    from itself, because it still shows the block at its full height and the legacy virtualized specs pin it.
+  - Walkontable pins a row whose first cell cannot carry the height on the `tr`, at the row's own height or
+    the default one (`applyRowHeight`, `3rdparty/walkontable/AGENTS.md`). Without the pin the browser split
+    the span's height between the rows as it liked, differently in each pane and in the master as its band
+    moved, and a row a block covers entirely could collapse.
+
+  Both halves are needed. Pinning without the inflation collapsed rows that a block covers entirely and broke
+  seven legacy specs; the inflation without the pin is the pre-fix state. The hook still skips the bottom
+  overlays and the row-header grids. `getHeightNextToMergedBlock` (`rowHeights` and Safari) stays; it writes
+  the same height the engine does.
+- **The content.** A frozen-column clone holds only part of a block that crosses the freeze line, and the
+  browser cuts the clone's cell at the edge of the clone's table. The content was then aligned and wrapped
+  against the cut width: a right-aligned or centered value showed in the pane and again in the master, and a
+  long value wrapped in the narrow part and made the pane's row taller than the master's.
+  `layOutContentAtBlockWidth` (`renderer.ts`) wraps the content in `div.htMergedCellContentWindow`, as wide as
+  the whole block (`calc(100% + <columns outside the band>)`) and, in the inline-end band, pulled back by the
+  columns before the band (`margin-inline-start`). The content lands where the master draws it and the cell's
+  `overflow: hidden` clips it to the pane's part. The band comes from `getFrozenColumnBandOfOverlay` and the
+  widths from `sumBlockWidthsOutsideBand` (`utils.ts`), read through `hot.getColWidth`, so a stretched column
+  counts at its stretched width. The wrapper resets its own box in `_base.scss` (it matches
+  `$user-cell-content`, so a host `td div` rule would reach it).
+  - **The overhang is set with PHYSICAL margins, never `margin-inline-start`.** A renderer may give the cell its
+    own direction: the numeric and time renderers set `dir="ltr"` in a right-to-left grid, and an inline margin
+    then grows the wrapper toward the wrong side, so a right-aligned number shows in neither pane. The block's
+    remaining columns lie on the same side of the pane whatever the cell's direction is (`leftOutside` and
+    `rightOutside` come from `hot.isRtl()`), and the width is `100%` plus both.
+  - **No compensation for the end clone's freeze-line border.** The end clone's first column is rendered 1px
+    wider and its first cell carries the freeze line as a 1px border of its own (walkontable `AGENTS.md`, the end
+    freeze line), so the cell's content box starts where the master's copy of that column starts, at every scroll
+    offset, and the drift is 0 (pinned to the pixel by the end-of-scroll spec). Do not add the border to the
+    wrapper's overhang.
+  - **The renderer's `before()` (`beforeRenderer`) puts the content back before every paint**
+    (`releaseContentWindow`), and `after()` wraps it again. The wrapper of each cell is kept in a `WeakMap` keyed
+    by the cell, so it is found wherever it sits (a hook that wrapped the cell's whole content in a link after
+    the plugin ran put it under the link; looking only at the first child would have missed it and wrapped
+    again on every paint) and the element is reused by the next paint. Do not drop that step on the grounds that the
+    renderers replace the cell's content: a renderer that keeps its DOM (the Angular component renderer,
+    AutoLink's "a renderer may keep its previous DOM") would nest one more wrapper per paint, and a cell
+    element reused for a block that no longer crosses the line would keep a stale one. It runs in the
+    before-phase on purpose: the React wrapper checks that its portal container is still the cell's direct
+    child, and a wrapper in between made it rebuild the container on every paint.
+
+Known limits of the content rule:
+- Rows are not windowed. A block that crosses `fixedRowsTop` with `htMiddle` or `htBottom` still centers in each
+  pane's part: a cell cannot be shorter than its content, so a wrapper as tall as the block would grow the row.
+- With `virtualized: true` the master clamps the block's anchor to its rendered band, so the master moves its
+  copy of the content as the grid scrolls while the pane keeps it where the block starts.
+- With `virtualized: true` a carrier the band moved down is given the height of the block's WHOLE `rowspan`
+  from itself (`#onModifyRowHeightByOverlayName`), which runs past the block's last row: a block over rows 0-9 with
+  the band starting at row 8 draws rows 8-9 at 291px (measured, the same on 18.1.1). Three legacy virtualized
+  specs pin the viewport that results from it, and the row pins are minimums that cannot hold those rows back.
+  Pre-existing, left as it is.
+- Content positioned against the cell (the autocomplete and dropdown arrow, `position: absolute` on a
+  `position: relative` cell) still anchors to the cut cell, so the arrow shows at the freeze line and again at
+  the block's end.
+- A plugin that rewrites the cell after this one (Formulas in `showFormulas` mode, priority 260) drops the
+  wrapper, and that pane falls back to the cut width until the next paint without it.
+- Under `renderMode: 'onChange'` the wrapper's width is not part of the paint identity, so the plugin marks
+  the cells of the blocks that cross a freeze line as changed (`#onBeforeViewRender`) when the column widths
+  epoch (`TableView#getColumnWidthEpoch`, advanced by every `invalidateColumnWidthCache()` call: ManualColumnResize,
+  AutoColumnSize, StretchColumns, NestedHeaders' ghost table, an index mapper change) moved since the last draw. MergeCells (priority 150)
+  reads the epoch in `beforeViewRender` before NestedHeaders (280) bumps it there, so a ghost-table change lands one
+  draw later; nothing paints stale, because the triggers that rebuild the map already bump the epoch earlier. A
+  width that changes without dropping that cache (a per-column cell-meta `width`) is not seen, and the wrapper keeps its old
+  width until the block repaints.
+- A hook that runs AFTER the plugin and appends to the cell (a `hot.addHook('afterRenderer', …)` registered after
+  the grid was built, or the Formulas and AutoLink hooks) finds the content inside the block-level wrapper, so
+  `TD.appendChild(icon)` lands on a line of its own under it, and `TD.firstChild` is the wrapper (not in the
+  master). A settings-level `afterRenderer` is registered first and runs BEFORE the plugin, so what it adds is
+  moved into the wrapper with the rest.
+- A wrapped cell's content moves into and out of the wrapper on every paint. For a renderer that keeps its
+  DOM, a control focused inside such a cell in a frozen pane may lose the focus on a repaint, a custom element
+  gets `disconnectedCallback`/`connectedCallback`, and an `iframe` reloads (inferred from the DOM moves, not
+  measured).
+- Disabling the plugin unhooks `before()`, so a renderer that keeps its DOM keeps a wrapper it already had until
+  it rebuilds its content (the React wrapper does on the next paint).
+
+Pinned by `tests/e2e/merge-cells-frozen-columns-content.spec.ts`, `tests/e2e/walkontable/merged-rows-frozen-columns.spec.ts`
+and `__tests__/blockWidthsOutsideBand.unit.ts`.
+
+## The init pass runs in the ready step, and its draw is batched
+
+The settings pass of an enable that `updatePlugin()` did not run (at init, and after a direct
+`enablePlugin()` call) runs in the ready step (`onGridReady()`, `../base/AGENTS.md`). `#settingsPassOwed` is
+set by `enablePlugin()` and cleared by `updatePlugin()` when it runs the pass or hands it to the sheets bar.
+At init the step runs before the `init` hook, and core holds the draws the steps ask for, so the merges are
+on screen with the first draw and the grid draws once (it drew twice from the `afterInit` listener this
+replaced, and three times before #5687). A direct `enablePlugin()` on a live grid used to build nothing and
+left `#initialized` unset.
+
+The step applies the declared merges between a `suspendRender()` / `resumeRender()` pair (#5687).
+`generateFromSettings()` clears the cells each area covers through `setDataAtCell()`, which renders, and the
+step then renders again. Four rules come out of it, and each has a measured reason.
+
+- **Keep the explicit `this.hot.render()` inside the pair.** `resumeRender()` draws through
+  `TableView#render`, which picks fast-vs-full from `hot.forceFullRender`, and only `Core#render` sets that
+  flag. On the synchronous path the clearing write sets it for you, but with an async `validator` that
+  write lands *after* the step returns, so nothing has set the flag by the time `resumeRender()` draws —
+  without the explicit call that draw is a *fast* one, it skips the cell renderers, and the spans never
+  appear. At init the call also marks the first draw a full one.
+- **Never gate that render on "the clearing write already rendered."** Same async `validator`, seen from
+  the other side: its deferred draw lands after the merges are built, so the step's render is the one that
+  puts them on screen on a live grid. Gating on the write would leave such a grid unmerged until
+  validation resolves.
+- **Skip the work entirely when no area is declared.** `mergeCells: true` with no `cells` has nothing to
+  apply, and the initial render already shows the final grid, so a draw there repaints an identical table.
+  `resumeRender()` always draws once the pair is entered, so this has to be a check *around* it, not
+  inside.
+- **Do not collapse the pair back into `hot.batchRender()`.** That helper is `suspendRender(); fn();
+  resumeRender();` with **no `finally`** (`core.ts`), and the clearing write runs user code — a
+  `beforeChange` handler, a sync validator. A throw there would skip `resumeRender()` and leave
+  `renderSuspendedCounter` above zero for the rest of the instance's life, so every later `render()`
+  silently does nothing. The explicit `try`/`finally` here is that guard.
+
+Note what the guard does **not** do: the throw still propagates, so `#initialized` and the anchor capture
+are skipped either way. That is unchanged by #5687.
+
+Coverage: `tests/e2e/merge-cells-init-renders.spec.ts` pins the counts (one draw at init), both setting
+shapes (the array form and `{ cells: [...] }`, which reach the guard through different `getSetting()`
+branches) and the async-validator ordering; `__tests__/readyStep.unit.js` pins the owner of the pass.
+`updatePlugin()` is a separate path and is deliberately untouched — `updateSettings()` renders at the end
+regardless.
+
+## `cellCoords.ts` handles six structural cases
+
+Adding rows/columns, removing rows/columns, removing the whole merge, removing partially-including-the-start,
+removing the middle, removing the end. Each is a separate branch with its own comment. A structural bug here
+is almost always a missing branch rather than wrong arithmetic — check all six.
+
+## Fragile area: selection + merged cells
+
+`../../../.ai/CONCERNS.md` flags this. **Selection owns the selection geometry over merges; this plugin
+only tells it where the merges are.** It registers a cell block provider (`#cellBlockProvider`:
+`getBlocks()` returns the merges that are not trimmed away, `getBlockAt()` looks one up in the matrix) through
+`Selection#setCellBlockProvider()` on enable, and unregisters it on disable. The provider contract is in
+`../../selection/cellBlocks.ts`. Two steps move the highlight, and each owns one case: Selection moves it
+onto a merge's top-left (`Selection#applyCellBlocks`, right before `beforeSelectionHighlightSet`), then
+`VisualSelection#syncWith()` moves a highlight that sits on a hidden cell to the nearest visible one.
+`selection.clear()` has a TODO noting that `selectedByColumnHeader` / `selectedByRowHeader` should be
+cleared and are not.
+
+**What still lives here** is the drawing side (`modifyGetCellCoords`, `beforeDrawBorders`,
+`afterDrawSelection`, `modifyAutofillRange`, `beforeBeginEditing`). The plugin registers no hook that
+changes the selection (its range, highlight, focus, or active layer): Enter and Tab inside a range moved
+to Selection too.
+
+### The selection rules (DEV-161)
+
+These are the decided rules. A change that breaks one is a bug, whatever a spec says.
+
+- **R1. A cell range never cuts a merge.** A range that touches a merge grows to cover it whole. Covering
+  one merge can make the range touch another, so it keeps growing until it cuts none. The range is a
+  rectangle, so it may take in plain cells that no merge covers.
+- **R2. Only merges that are not trimmed away count.** A merge whose rows are all trimmed is purged from
+  the lookup matrix and keeps stale visual coordinates in the list; it takes no part in selection. A merge
+  whose rows are only hidden still counts, because hidden rows keep their visual index.
+- **R3. The highlight inside a merge sits on its top-left visible cell.**
+- **R4. A header selection is never grown.** A column, row or corner selection keeps its own extent and
+  may cut a merge (see below).
+- **R5. Arrows out of a merge:** a horizontal arrow lands on the merge's top row (DEV-102), a vertical
+  one keeps the entry column, and Tab keeps its row.
+- **R6. A range equal to one merge is one cell:** no area fill, and a double-click opens the editor.
+- **R7. Growing keeps the direction.** The corner the selection started from moves out to the edge of
+  the grown rectangle; it is never swapped to the other side.
+- **R8. Merge to merge:** a selection from one merge into another covers both whole, plus every merge
+  the rectangle between them cuts (R1).
+
+The rules live in Selection, fed by the provider, and the pure parts in `../../selection/cellBlocks.ts`:
+
+| Rule | Where |
+|---|---|
+| R1, R2, R3, R4, R7 | `Selection#applyCellBlocks` – grows the range being changed with `expandRangeToBlocks()` and snaps its highlight, right before `beforeSelectionHighlightSet` (in `setRangeEnd()`, and in `setRangeFocus()` outside a drag) |
+| R5 | `Selection#stepOverCellBlock` – changes an arrow-key step right before `modifyTransformStart` |
+| R1 for Shift+Arrow | `Selection#stepEndOverCellBlocks` – changes the step right before `modifyTransformEnd`, using `findNonIntersectingIndex()` and a grown scratch copy of the range (`changeDirection: true`) |
+| R6 | `Selection#isOneCellBlock` – one `getBlockAt()` lookup, inside `isMultiple()`, before `afterIsMultipleSelection` |
+| Enter and Tab inside a range | `Selection#transformFocus` – walks the focus order (`../../selection/focusOrder.ts`): one stop on each merge the layer covers whole, none on a cell a merge covers, and the focus on the merge's first visible cell, before `beforeSelectionFocusSet` |
+
+All of them run before the public hook, so a listener of `beforeSelectionHighlightSet`,
+`modifyTransformStart`, `modifyTransformEnd`, `beforeSelectionFocusSet` or `afterSelectionFocusSet`
+sees the range, the step or the focus already adjusted for merges. Before, only listeners that ran after
+this plugin did. `modifyTransformFocus` still gets the plain step, and the walk goes the way its listeners
+leave it. `isMultiple()` runs several times per selection, so R6 must stay a lookup,
+never a scan of `getBlocks()`. The growth repeats until a whole pass
+adds nothing. It used to be exactly two passes, so three merges in a staircase declared top-down were
+cut in half while the same merges declared bottom-up were not. And it used to read the `mergedCells`
+list, so a merge whose rows a filter hid pulled the selection onto the records that took its place:
+Delete on one plain cell emptied four. Pinned by `tests/e2e/merge-cells-selection-rules.spec.ts`,
+`../../selection/__tests__/cellBlocks.unit.ts`, the `cell block provider` block of
+`../../selection/__tests__/selection.unit.ts`, and the `getVisibleMergedCells` / `getByRange` /
+`findNonIntersectingIndex` blocks of `__tests__/cellsCollection.unit.ts` (the last one with a randomized
+check against a cell-by-cell reference); R7 also by the direction spec in `__tests__/mergeCells.spec.js`.
+
+**Enter and Tab place the focus themselves.** `VisualSelection#syncWith()` moves a hidden corner to the
+range's first visible cell, which can lie outside the merge. So the walk puts the focus on the merge's
+first visible cell, and `#applyCellBlocks` leaves it there (the `placedEntry` that only `transformFocus`
+passes through the private `#setRangeFocus`, so a selection a hook starts from inside is snapped as usual), in a header selection
+too. A click still snaps to the corner, and `syncWith()` picks the visible cell in the range's direction:
+`hiddenRows.spec.js` and `hiddenColumns.spec.js` pin both. The entry cell is the cell the cell-by-cell move
+reached when it lies in the merge, so an arrow key leaves the merge from the side the focus came from.
+When the walk skipped that cell, the entry is the focused cell: an arrow key after Tab passed a merge
+starts from the focus. A layer the focus leaves keeps its last focus stop, as it does without merges.
+Pinned by `keyboardShortcuts/{enter,shiftEnter,tab,shiftTab}.spec.js` and the Tab-then-arrow case of
+`tests/e2e/merge-cells-selection-rules.spec.ts`.
+
+E2E coverage is extensive; the unit-level highlight logic is under-tested.
+
+**When changing selection logic, test all combinations of: merged cells, hidden rows/columns, frozen
+rows/columns, and navigable headers.** Run both the `selectAll` and `selectCells` suites.
+
+**A header selection is never snapped to merged cells.** `Selection#applyCellBlocks` and
+`Selection#stepEndOverCellBlocks` return early when the layer was made from a column or row header.
+Without the early return in the second, the scratch range absorbed every merge that a full-length
+column (or row) range crosses, so Shift+Arrow on a header selection jumped to the far edge of the
+farthest merge instead of adding one line, in all four directions. The result must equal the
+`mergeCells: false` one, and the header flag still skips the hidden columns through the core's own
+delta. Pinned by `tests/e2e/header-range-merge-keyboard.spec.ts`.
+
+**Everything works on the active layer, the one the selection is changing.** Selection takes the range
+from `getActiveSelectedRange()` and the header flags from `getActiveSelectionLayerIndex()`
+(`Selection#isActiveLayerSelectedByHeader`). The active layer is the last one unless Enter or Tab moved
+the focus back to an earlier layer; Shift+Arrow then changes that earlier layer. Reading the last layer
+there made header, Ctrl+click a cell, Enter, Shift+ArrowRight jump to the merge edge, and grew the wrong
+layer, so the active one cut a merge: A2, Ctrl+click F6, Enter, Shift+ArrowRight left A2:B2 over the
+merge B1:B2 (DEV-161, pinned by `tests/e2e/merge-cells-selection-rules.spec.ts`). Known limits:
+`isSelectedByCorner()` inside the flag getters still looks at the last layer, and the flags follow
+`selection.clear()` and the `removeLayers` plus `refresh()` path in `mouseEventHandler.ts`, which can
+leave them on a layer index they no longer describe. A flag is set only when a header is rendered, so
+Ctrl+A on a grid with column headers but no row headers sets one flag and is skipped, while the same grid
+with no headers snaps.
+
+### `fullySelectedMergedCell-N` is an overlap count (DEV-542)
+
+`area-N` is how many selection ranges cover a plain cell, minus 1. That count includes a range that
+only partly overlaps the cell. `fullySelectedMergedCell-N` does not. The suffix is the 0-based rank
+of this range among the ranges that `includesRange` the merge, so a partial layer does not count.
+With layer 0 fully covering, layer 1 only partial, and layer 2 fully covering, the merge paints
+`fullySelectedMergedCell-1` while a plain cell under all three can paint `area-2`.
+`getSelectedMergedCellClassName` used to append the range's own index, so a merge that only a later
+layer covered painted one step darker than the plain cells of that layer. A rank past 7 has no rule
+of its own. The lower ranks are on the cell too, so the level-7 rule still wins, the same way
+`area-7` wins for a plain cell. `-multiple` stays the union that no single range covers. A partial
+layer still adds `-multiple` when some other range fully covers. The numbered rule is later in the
+stylesheet and wins.
+
+### `merge()` and `unmerge()` repaint the highlight without replaying the selection (DEV-741)
+
+The area fill is committed while the range is still several cells. `mergeRange()` only renders, so
+that fill stayed after the cells became one merge. `merge()` and `unmerge()` do not call
+`selection.refresh()`. A change to the merged-cell collection marks the highlight stale, and the
+next view render recomputes every layer's highlight from the current ranges. The recompute does
+not run the selection-change hooks. `afterIsMultipleSelection` still runs: that is how the plugin
+says a range that equals one merge is a single cell, and a plain render asks the same question.
+A header selection whose body equals one merge is a single cell, however it was reached.
+`hot.batch()` suspends render, so a loop of merges pays for one recompute
+on the render that follows. The same stale mark is set for merges added at init, by
+`updateSettings`, by undo and redo, and by `mergeSelection()`, so those repaint on the next render
+too. `mergeSelection()` still calls `selectCell` afterwards, and that call does fire the
+selection-change hooks when the range is a body range. `mergeRange()` and `unmergeRange()`
+themselves do not. A selection that does not meet the changed cells is left as it was, because the
+recompute reads the same ranges.
+
+### An arrow-key horizontal exit is addressed by the merge's top row (DEV-102)
+
+This lives in Selection now (DEV-161). `Selection#applyCellBlocks` snaps the highlight to the merge's
+top-left while stashing the entered cell in `#blockEntryFocus`, and `Selection#stepOverCellBlock`
+restores that focus before the next move — that entry-row/entry-column memory is what PR #10732's range
+navigation relies on. A **non-Tab horizontal** move that leaves the merge onto the adjacent cell is the
+one exception: it re-snaps the result to the merge's topmost
+**visible** row (`getNearestNotHiddenIndex(block.row, 1)`, bounded to the span — assigning a
+hidden top row throws `Renderable coords are not visible` from the transform). So a merge is always
+addressed by its top-left corner however it was entered; before this, entering B2:B4 from below (B5
+up) then leaving left landed on A4, from above (B1 down) on A2.
+
+The gate is `delta.row === 0 && landsOnAdjacentColumn && !isDuringTabNavigation()` — "any non-Tab
+horizontal `transformStart`", which is the Left/Right arrows, the editor's arrow-key exit, and a
+horizontally-configured `enterMoves`; it is not literally arrows-only. Mouse entry then a horizontal
+leave is the same path (the snap does not care how the merge was entered). Home/End do not reach it
+(they `setRangeStart` to a computed cell, never `transformStart`), and Shift+Arrow goes through
+`modifyTransformEnd`. A `transformStart(0, ±1)` called directly by other code (no Tab flag) also gets
+the snap, which is the reasonable default for a discrete horizontal move; only Tab's row-cycling is
+excluded.
+
+Three things this override must **not** catch, each behind a separate condition, each with a red spec
+if you drop it:
+
+- **A wrap to another row** (`autoWrapRow`, no adjacent cell) keeps the entry row, or the wrap loops
+  forever between the merge and the row below its top — gate on `landsOnAdjacentColumn` (the column
+  branch found a not-hidden neighbor), never on the mere presence of a merge.
+- **Vertical and diagonal moves** keep the entry column (the tested column memory) — gate on
+  `delta.row === 0`.
+- **Tab / Shift+Tab**, which cycles keeping the row it moves along, reaches this step through
+  `transformStart` with the **same `(0, ±1)` delta as an arrow** (single-range case; the multi-range
+  case goes through `Selection#transformFocus` and never reaches here). There is no delta or source that
+  tells them apart — both mark source `'keyboard'`. `inlineStart`/`inlineEnd` therefore call
+  `selection.markTabNavigation()` **after** `markSource()`, and the context-menu Tab shortcut calls
+  `markTabNavigation()` on its own (it never goes through those commands). The override reads
+  `selection.isDuringTabNavigation()`. `markSource()` itself clears the flag, so a throw during the
+  transform cannot leak into the next command; `markEndSource()` still clears it on the success
+  path. Do not expose `tabNavigation.ts`'s local `isTabOrShiftTabPressed` — that flag lives in a
+  shortcut-command closure, and the context-menu Tab path never goes through it. The Jasmine
+  `keyDownUp('tab')` helper drives the real command path, so it sets the flag; a `transformStart`
+  called directly in a unit test does not.
+
+Pinned by `__tests__/keyboardShortcuts/arrowLeft.spec.js` / `arrowRight.spec.js` (top-row landing,
+including hidden columns and the multi-merge chain), the unchanged `arrowUp`/`arrowDown` and
+`tab`/`shiftTab` specs (the three exclusions), and `tests/e2e/merge-cells-horizontal-exit.spec.ts`.
+
+## `fixedColumnsEnd`: the end clone draws the part of a merge that crosses the line
+
+The inline-end clone renders only the LAST `fixedColumnsEnd` columns, and the top/bottom end corners render the same
+columns. A merge is anchored at its top-left (lowest visual column, in LTR and RTL alike), so a merge that starts
+in the master and reaches into the band has its anchor OUTSIDE the clone. Every cell of the merge in the clone is a
+covered cell, and without help the renderer hides all of them: the band shows a hole. A merge inside the band, or
+starting on its first column, is anchored in the clone and needs nothing.
+
+- `utils.ts` owns the overlay-name lists. `getFirstRenderedColumnOfOverlay` answers 0 for the start overlays and the
+  first column of the end band (visual, not hidden) for `inline_end` and the two end corners; every other overlay
+  starts where the main table starts. `getFirstRenderedRowOfOverlay` is the row counterpart (the top overlays start at
+  0). `renderer.ts`, `mergeCells.ts` (`modifyGetCellCoords` virtualized clamp) and `cellsCollection.ts`
+  (`isFirstRenderableMergedCell`) all go through them. **Do not add another inline list of overlay names.**
+- **The `to` column of the `virtualized` clamp is per overlay too.** `getLastRenderedColumnOfOverlay` answers the
+  last column of the end band (visual) for the end overlays and the main table's last rendered column for the rest.
+  Reading `hot.getLastRenderedVisibleColumn()` for an end overlay returned a column BEFORE the band whenever the master
+  was scrolled to the start (a merge over 8..10 with a band of 9..11 came back as `[9..8]`: the selection border drew
+  a start edge on the freeze line and the fill handle went to column 8). Pinned by
+  `__tests__/overlayBounds.unit.ts` and `tests/e2e/fixed-columns-end-review3.spec.ts`.
+- `renderer.ts` clamps the merge's anchor column to the first end column on the end overlays EVEN WHEN `virtualized` is
+  off. The rows are clamped only when `virtualized` is on, as before. With `fixedColumnsEnd: 0` nothing changes.
+- The continuation cell is the covered cell of the FIRST end column of the merge's first row, with the `colspan` the
+  renderer already computes from that column (`min(origColspan, columns left)`), so it never reaches past the band.
+  Its text is the merge anchor's, because covered cells resolve to the anchor through `modifyGetCellCoords`.
+- **`Core#getCell(row, endColumn, true)` on a covered end column answers the continuation cell.** The topmost lookup
+  of an end column always goes to the end clone and never falls back to the master. The hook resolves the covered
+  coordinates to the anchor and reports the block's real last row and column for a topmost lookup (outside a draw the
+  active overlay is the master, so a clamped extent would end before the band), and the clone's `Table#getCell` maps a
+  block that starts before its band to its first rendered column (see the bullet on selection below). The cell is the
+  clone's FIRST rendered column, not necessarily the requested one. The call returns `null` when the clone does not
+  render the row. Editors and selection of such a merge still go through the anchor, as they do for every merge.
+- `#onModifyRowHeightByOverlayName` treats `top_inline_end_corner` like the top corners and
+  `bottom_inline_end_corner` like the bottom ones (no height inflation there).
+- **A block that crosses `fixedRowsBottom` inside the end columns works the same as on the start side.** The bottom end
+  corner's first row carries the span (`getFirstRowOfActiveBottomOverlay`), with the `colspan` clamped to the band, and
+  the continuation of the inline-end clone, the bottom clone and the master are unchanged. Supported, in LTR and RTL
+  and with `virtualized` on and off: a block anchored in the band that crosses the bottom line (outline and fill
+  handle included), and a block anchored in the master that reaches into the band and into the bottom rows (its cells
+  render correctly in every clone). Pinned by `tests/e2e/merge-cells-frozen-bottom-end.spec.ts`: the carrier and the
+  clone continuations in LTR with `virtualized` off (the carrier rule has no direction term, and the fixture's master
+  renders every row and column, so the clamp is the identity), and the outline and fill handle in both directions,
+  with `virtualized` on for the block that reaches in from the master.
+- **A block anchored in the master that reaches into the band is selected like any other block.** `Table#getCell`
+  resolves it to an END overlay's first rendered column, the column-side twin of the first-rendered-row rule. The gate
+  is the three end overlays: the start overlays hold the first columns and never miss a block's origin. The end clone
+  fills its part and draws the outline and the fill handle. With `virtualized` the hook clamps the block's first
+  column to the band, so `Border#resolveMergedBlockEdges` asks for the block's own first column (`'meta'` source) to
+  keep the start edge off the freeze line. Pinned by `tests/e2e/merge-cells-frozen-selection.spec.ts`: every block
+  shape in LTR, the corner and boundary shapes in RTL, and the one-row block with `virtualized` on, which stands for
+  the others because `Border#resolveMergedBlockEdges` looks the block up again for every inline-end clone.
+- **Still NOT supported (measured without `fixedRowsBottom` too, in the default mode, so the bottom rows do not cause them):**
+  - A block that covers EVERY column of an end clone (for example `fixedColumnsEnd: 2` and a block over both columns).
+    The rows below its first have no displayed cell in that clone, a table row with none has no height, and the
+    block's cell is one row tall (`rowspan="4"`, 29 px) in the inline-end clone and in the bottom end corner. The row
+    headers keep the rows tall in the master and in the start clones; the end clones have none. Keep one band column
+    that no block covers.
+- Pinned by `tests/e2e/fixed-columns-end-headers.spec.ts` (every case in LTR with `virtualized` on and off, and the
+  crossing case in RTL with `virtualized` off) and `__tests__/overlayBounds.unit.ts`.
+
+## `getSourceDataAtCell` takes a visual column
+
+`getSourceDataAtCell(row, column)` takes a **physical row** but a **visual column** — `core.ts`
+documents that split and carries a TODO. `colToProp()` translates the column again. Passing
+`toPhysicalColumn()` into it double-translates and reads a different cell whenever the two orders
+differ (`manualColumnMove`, a hiding map plus a move). `#getStoredValueAt` is the correct pattern.
+`mergeRange()` must match it when it copies the anchor value for `populateFromArray` (DEV-2669).
+Do not "fix" `#getStoredValueAt` back to a physical column.
+
+## Pagination cannot coexist with this plugin
+
+`registerConflict('pagination', ['mergeCells', …])` — Pagination is the plugin that stays disabled. See
+`../base/AGENTS.md`.
+
+## Viewport getter methods
+
+`mergeCells` changes what the viewport getters report (DEV-932). That is documented behavior, not a defect.
+
+## Where to look next
+
+- The rendering primitive and the overlay clones: `../../3rdparty/walkontable/AGENTS.md`.
+- Autofill and selection maths for merges: `calculations/autofill.ts`, `calculations/selection.ts`.
+- Plugins whose specs live in this directory because the interaction is delicate:
+  `../autofill/`, `../hiddenColumns/`, `../hiddenRows/`, `../undoRedo/`.
+- Cell meta storage: `../../dataMap/metaManager/AGENTS.md`.
+- Plugin contract, lifecycle, priorities: `../base/AGENTS.md`.
+
+## Testing
+
+- `npm run test:e2e --prefix handsontable -- --testPathPattern='mergeCells'`
+- `npm run test:unit --prefix handsontable -- --testPathPattern='mergeCells'`
+
+`__tests__/` is one of the largest in the repo — dedicated specs for `hiddenColumns`, `hiddenRows`,
+`autofill`, `undoRedo`, `scrolling`, `selection`, `openEditor`, `secondClickDeselects`,
+`pluginCompatibility`, plus `keyboardShortcuts/`, `methods/` and `rtl/`. Unit coverage exists for
+`cellCoords`, `cellsCollection`, `selection` and `autofillCalculations`; prefer adding there. The Enter/Tab
+focus order is tested in `../../selection/__tests__/focusOrder.unit.ts` and the `cell block provider` block of
+`../../selection/__tests__/selection.unit.ts`.
+
+## Rendering under `renderMode: 'onChange'`
+
+**A merged block's cells never take the stable paint identity.** The engine recycles its rows on a
+vertical scroll (`Viewport#allowsRowRecycling()`, which does NOT require single-pass layout) and offers
+the host the overlay name as a cell's paint identity, so a carried-over cell can be skipped. The
+`spanned` flag this plugin sets on a block's origin meta in `afterGetCellMeta` (covered cells resolve
+to the origin through `modifyGetCellCoords`) is what `CellPainter#bandIdentity` reads to keep the full
+band — offsets and sizes — for the block's cells instead: the renderer clamps the block's span to the
+rendered band, so those cells must repaint when the band moves, while every other cell of the grid
+skips. Keep `spanned` on the origin meta; removing it would let a clamped block keep a stale span
+across a scroll. The single-pass opt-out (`modifySinglePassLayout` → `false`) is about the layout
+model only (the height-versus-viewport circularity); it no longer switches the recycling or the stable
+identity off for the rest of the grid.
+
+Two writes of this plugin are invisible to the incremental render and are marked by hand:
+
+- **Collection changes** (`MergedCellsCollection#add`/`remove`/`clear`) call `hot.markAllCellsChanged()`. A merged block covers cells whose own value and meta never change, and autofill creates blocks with no meta write at all; only an epoch bump repaints them (and drops the selection scan cache, which holds the `fullySelectedMergedCell-N` extra class).
+- **The neighbor height** (`renderer.ts`, `getHeightNextToMergedBlock`, `rowHeaders: false` only) is written on the cell right after a block that starts at column 0, and it is DERIVED from the merged collection inside that cell's own paint — never handed over from the origin's paint. A one-shot map filled by the origin broke under `renderMode: 'onChange'`: the neighbor repainted for its own reason while the origin was skipped, its style was wiped, and nothing re-created the entry. Deriving it needs no `markCellChanged`: a collection change repaints every cell, `rowHeights` goes through `updateSettings` (render epoch).
+
+The selection extra class (`afterDrawSelection`) is asked by Walkontable on every draw for every coordinate of the selection and diffed like any other class, so the plugin no longer registers `beforeRemoveCellClassNames` (the hook still exists for external code). The per-coordinate call matters: `getSelectedMergedCellClassName` answers only for a block's **first renderable** coordinate, so a scan that asked once per element would miss the block.

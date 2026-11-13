@@ -21,7 +21,7 @@ describe('WalkontableEvent', () => {
     this.wotInstance.destroy();
   });
 
-  it('should call `onCellMouseDown` callback', () => {
+  it('should call `onCellMouseDown` callback', async() => {
     const onCellMouseDown = jasmine.createSpy('onCellMouseDown');
     const wt = walkontable({
       data: getData,
@@ -98,7 +98,7 @@ describe('WalkontableEvent', () => {
     }
   });
 
-  it('should call `onCellMouseUp` callback', () => {
+  it('should call `onCellMouseUp` callback', async() => {
     const onCellMouseUp = jasmine.createSpy('onCellMouseUp');
     const wt = walkontable({
       data: getData,
@@ -175,7 +175,7 @@ describe('WalkontableEvent', () => {
     }
   });
 
-  it('should call `onCellContextMenu` callback', () => {
+  it('should call `onCellContextMenu` callback', async() => {
     const onCellContextMenu = jasmine.createSpy('onCellContextMenu');
     const wt = walkontable({
       data: getData,
@@ -199,7 +199,7 @@ describe('WalkontableEvent', () => {
     expect(onCellContextMenu).toHaveBeenCalledTimes(1);
   });
 
-  it('should call `onCellMouseOver` callback', () => {
+  it('should call `onCellMouseOver` callback', async() => {
     const onCellMouseOver = jasmine.createSpy('onCellMouseOver');
     const wt = walkontable({
       data: getData,
@@ -276,7 +276,7 @@ describe('WalkontableEvent', () => {
     }
   });
 
-  it('should call `onCellMouseOver` callback with correctly passed TD element when cell contains another table', () => {
+  it('should call `onCellMouseOver` callback with correctly passed TD element when cell contains another table', async() => {
     const onCellMouseOver = jasmine.createSpy('onCellMouseOver');
     const wt = walkontable({
       data: [['<table style="width: 50px;"><tr><td class="test">TEST</td></tr></table>']],
@@ -298,7 +298,7 @@ describe('WalkontableEvent', () => {
     expect(onCellMouseOver.calls.argsFor(0)[2]).toBe(outerTD[0]);
   });
 
-  it('should call `onCellMouseOut` callback', () => {
+  it('should call `onCellMouseOut` callback', async() => {
     const onCellMouseOut = jasmine.createSpy('onCellMouseOut');
     const wt = walkontable({
       data: getData,
@@ -369,7 +369,7 @@ describe('WalkontableEvent', () => {
     }
   });
 
-  it('should call `onCellMouseOut` callback with correctly passed TD element when cell contains another table', () => {
+  it('should call `onCellMouseOut` callback with correctly passed TD element when cell contains another table', async() => {
     const onCellMouseOut = jasmine.createSpy('onCellMouseOut');
     const wt = walkontable({
       data: [['<table style="width: 50px;"><tr><td class="test">TEST</td></tr></table>']],
@@ -394,7 +394,7 @@ describe('WalkontableEvent', () => {
     expect(onCellMouseOut.calls.argsFor(0)[2]).toBe(outerTD[0]);
   });
 
-  it('should call `onCellDblClick` callback but only for LMB', () => {
+  it('should call `onCellDblClick` callback but only for LMB', async() => {
     const onCellDblClick = jasmine.createSpy('onCellDblClick');
     const wt = walkontable({
       data: getData,
@@ -470,7 +470,7 @@ describe('WalkontableEvent', () => {
     }
   });
 
-  it('should call `onCellDblClick` callback, even when it is set only after first click', () => {
+  it('should call `onCellDblClick` callback, even when it is set only after first click', async() => {
     const onCellDblClick = jasmine.createSpy('onCellDblClick');
     const wt = walkontable({
       data: getData,
@@ -506,7 +506,7 @@ describe('WalkontableEvent', () => {
     );
   });
 
-  it('should call `onCellMouseDown` callback when clicked on TH', () => {
+  it('should call `onCellMouseDown` callback when clicked on TH', async() => {
     const onCellMouseDown = jasmine.createSpy('onCellMouseDown');
     const wt = walkontable({
       data: getData,
@@ -529,7 +529,7 @@ describe('WalkontableEvent', () => {
     expect(onCellMouseDown).toHaveBeenCalledTimes(1);
   });
 
-  it('should not call `onCellMouseDown` callback when clicked on the focusable element (column headers)', () => {
+  it('should not call `onCellMouseDown` callback when clicked on the focusable element (column headers)', async() => {
     const opt = ['Maserati', 'Mazda', 'Mercedes', 'Mini', 'Mitsubishi']
       .map(value => `<option value="${value}">${value}</option>`).join('');
     const onCellMouseDown = jasmine.createSpy('onCellMouseDown');
@@ -555,7 +555,7 @@ describe('WalkontableEvent', () => {
     expect(onCellMouseDown).toHaveBeenCalledTimes(0);
   });
 
-  it('should not call `onCellMouseDown` callback when clicked on the focusable element (cell renderer)', () => {
+  it('should not call `onCellMouseDown` callback when clicked on the focusable element (cell renderer)', async() => {
     const opt = ['Maserati', 'Mazda', 'Mercedes', 'Mini', 'Mitsubishi']
       .map(value => `<option value="${value}">${value}</option>`).join('');
     const onCellMouseDown = jasmine.createSpy('onCellMouseDown');
@@ -581,7 +581,7 @@ describe('WalkontableEvent', () => {
     expect(onCellMouseDown).toHaveBeenCalledTimes(0);
   });
 
-  it('should call `onCellMouseOver` callback when clicked on TH', () => {
+  it('should call `onCellMouseOver` callback when clicked on TH', async() => {
     const onCellMouseOver = jasmine.createSpy('onCellMouseOver');
     const wt = walkontable({
       data: getData,
@@ -608,7 +608,7 @@ describe('WalkontableEvent', () => {
     );
   });
 
-  it('should call `onCellDblClick` callback when clicked on TH', () => {
+  it('should call `onCellDblClick` callback when clicked on TH', async() => {
     const onCellDblClick = jasmine.createSpy('onCellDblClick');
     const wt = walkontable({
       data: getData,
@@ -636,7 +636,7 @@ describe('WalkontableEvent', () => {
     expect(onCellDblClick).toHaveBeenCalledTimes(1);
   });
 
-  it('should not call `onCellDblClick` when first mouse up came from mouse drag', () => {
+  it('should not call `onCellDblClick` when first mouse up came from mouse drag', async() => {
     const onCellDblClick = jasmine.createSpy('onCellDblClick');
     const wt = walkontable({
       data: getData,
@@ -661,7 +661,7 @@ describe('WalkontableEvent', () => {
     expect(onCellDblClick).toHaveBeenCalledTimes(0);
   });
 
-  it('border click should call `onCellDblClick` callback', () => {
+  it('border click should call `onCellDblClick` callback', async() => {
     const onCellDblClick = jasmine.createSpy('onCellDblClick');
     const selections = createSelectionController({
       border: {
@@ -705,7 +705,7 @@ describe('WalkontableEvent', () => {
     expect(onCellDblClick).toHaveBeenCalledTimes(1);
   });
 
-  it('border click should call `onCellMouseDown` callback', () => {
+  it('border click should call `onCellMouseDown` callback', async() => {
     const onCellMouseDown = jasmine.createSpy('onCellMouseDown');
     const selections = createSelectionController({
       border: {
@@ -745,7 +745,7 @@ describe('WalkontableEvent', () => {
     expect(onCellMouseDown).toHaveBeenCalledTimes(1);
   });
 
-  it('border click should call `onCellMouseUp` callback', () => {
+  it('border click should call `onCellMouseUp` callback', async() => {
     const onCellMouseUp = jasmine.createSpy('onCellMouseUp');
     const selections = createSelectionController({
       border: {
@@ -786,7 +786,7 @@ describe('WalkontableEvent', () => {
   });
 
   // corner
-  it('border click should call `onCellCornerMouseDown` callback', () => {
+  it('border click should call `onCellCornerMouseDown` callback', async() => {
     const onCellCornerMouseDown = jasmine.createSpy('onCellCornerMouseDown');
     const selections = createSelectionController({
       border: {
@@ -820,7 +820,7 @@ describe('WalkontableEvent', () => {
     expect(onCellCornerMouseDown).toHaveBeenCalledTimes(1);
   });
 
-  it('border click should call `onCellCornerDblClick` callback, even when it is set only after first click', () => {
+  it('border click should call `onCellCornerDblClick` callback, even when it is set only after first click', async() => {
     const onCellCornerDblClick = jasmine.createSpy('onCellCornerDblClick');
     const selections = createSelectionController({
       border: {
@@ -864,7 +864,7 @@ describe('WalkontableEvent', () => {
     );
   });
 
-  it('should call `onDraw` callback after render', () => {
+  it('should call `onDraw` callback after render', async() => {
     const onDraw = jasmine.createSpy('onDraw');
     const wt = walkontable({
       data: getData,
@@ -876,5 +876,149 @@ describe('WalkontableEvent', () => {
     wt.draw();
 
     expect(onDraw).toHaveBeenCalledTimes(1);
+  });
+
+  describe('`onCellMouseOverOutside` callback', () => {
+    it('should not be called when no mousedown is in progress (drag guard)', async() => {
+      const onCellMouseOverOutside = jasmine.createSpy('onCellMouseOverOutside');
+      const wt = walkontable({
+        data: getData,
+        totalRows: getTotalRows,
+        totalColumns: getTotalColumns,
+        onCellMouseOverOutside,
+      });
+
+      wt.draw();
+
+      const holderRect = spec().$table.parents('.wtHolder')[0].getBoundingClientRect();
+
+      $(document.body).simulate('mousemove', {
+        clientX: holderRect.right + 30,
+        clientY: holderRect.top + 10,
+      });
+
+      expect(onCellMouseOverOutside).toHaveBeenCalledTimes(0);
+    });
+
+    it('should be called when the mouse moves outside the viewport during a drag', async() => {
+      const onCellMouseOverOutside = jasmine.createSpy('onCellMouseOverOutside');
+      const wt = walkontable({
+        data: getData,
+        totalRows: getTotalRows,
+        totalColumns: getTotalColumns,
+        onCellMouseOverOutside,
+      });
+
+      wt.draw();
+
+      const $td = spec().$table.find('tbody tr:first td:first');
+      const holderRect = spec().$table.parents('.wtHolder')[0].getBoundingClientRect();
+
+      $td.simulate('mousedown');
+
+      $(document.body).simulate('mousemove', {
+        clientX: holderRect.right + 30,
+        clientY: holderRect.top + 10,
+      });
+
+      $(document.body).simulate('mouseup');
+
+      expect(onCellMouseOverOutside).toHaveBeenCalledTimes(1);
+      expect(onCellMouseOverOutside).toHaveBeenCalledWith(
+        jasmine.any(MouseEvent),
+        jasmine.any(Walkontable.CellCoords),
+        jasmine.any(HTMLElement),
+        jasmine.any(wt.constructor)
+      );
+    });
+
+    it('should be called only once for repeated mousemoves that land on the same edge cell', async() => {
+      const onCellMouseOverOutside = jasmine.createSpy('onCellMouseOverOutside');
+      const wt = walkontable({
+        data: getData,
+        totalRows: getTotalRows,
+        totalColumns: getTotalColumns,
+        onCellMouseOverOutside,
+      });
+
+      wt.draw();
+
+      const $td = spec().$table.find('tbody tr:first td:first');
+      const holderRect = spec().$table.parents('.wtHolder')[0].getBoundingClientRect();
+      const outsideX = holderRect.right + 30;
+      const outsideY = holderRect.top + 10;
+
+      $td.simulate('mousedown');
+
+      $(document.body).simulate('mousemove', { clientX: outsideX, clientY: outsideY });
+      $(document.body).simulate('mousemove', { clientX: outsideX, clientY: outsideY });
+      $(document.body).simulate('mousemove', { clientX: outsideX, clientY: outsideY });
+
+      $(document.body).simulate('mouseup');
+
+      expect(onCellMouseOverOutside).toHaveBeenCalledTimes(1);
+    });
+
+    it('should be called again when the mouse moves to a different edge cell', async() => {
+      const onCellMouseOverOutside = jasmine.createSpy('onCellMouseOverOutside');
+      const wt = walkontable({
+        data: getData,
+        totalRows: getTotalRows,
+        totalColumns: getTotalColumns,
+        onCellMouseOverOutside,
+      });
+
+      wt.draw();
+
+      const $td = spec().$table.find('tbody tr:first td:first');
+      const holderRect = spec().$table.parents('.wtHolder')[0].getBoundingClientRect();
+
+      $td.simulate('mousedown');
+
+      $(document.body).simulate('mousemove', {
+        clientX: holderRect.right + 30,
+        clientY: holderRect.top + 10,
+      });
+
+      $(document.body).simulate('mousemove', {
+        clientX: holderRect.left + 10,
+        clientY: holderRect.bottom + 30,
+      });
+
+      $(document.body).simulate('mouseup');
+
+      expect(onCellMouseOverOutside).toHaveBeenCalledTimes(2);
+    });
+
+    it('should reset dedup state on a new mousedown so the callback fires again on the next drag', async() => {
+      const onCellMouseOverOutside = jasmine.createSpy('onCellMouseOverOutside');
+      const wt = walkontable({
+        data: getData,
+        totalRows: getTotalRows,
+        totalColumns: getTotalColumns,
+        onCellMouseOverOutside,
+      });
+
+      wt.draw();
+
+      const $td = spec().$table.find('tbody tr:first td:first');
+      const holderRect = spec().$table.parents('.wtHolder')[0].getBoundingClientRect();
+      const outsideX = holderRect.right + 30;
+      const outsideY = holderRect.top + 10;
+
+      // First drag
+      $td.simulate('mousedown');
+      $(document.body).simulate('mousemove', { clientX: outsideX, clientY: outsideY });
+      $(document.body).simulate('mouseup');
+
+      const callsAfterFirstDrag = onCellMouseOverOutside.calls.count();
+
+      // Second drag from the same anchor to the same outside position
+      $td.simulate('mousedown');
+      $(document.body).simulate('mousemove', { clientX: outsideX, clientY: outsideY });
+      $(document.body).simulate('mouseup');
+
+      expect(onCellMouseOverOutside.calls.count() - callsAfterFirstDrag).toBeGreaterThanOrEqual(1);
+    });
   });
 });

@@ -1,0 +1,105 @@
+name: Docs Visual Tests
+
+# The by-hand entry point for the docs visual suite. It runs the
+# docs-visual-run action -- the one implementation docs.yml's `visual` job and
+# docs-visual-seed.yml use -- against the chosen environment, so a compare here
+# is held to the same R2 baseline, `docs/base/<this branch>/`, as a pull
+# request, and a re-seed writes that same prefix. Nothing calls this file:
+# docs.yml uses the action directly, so the `workflow_call` fragment mode, the
+# label gate, and the actions/cache baseline that never was one (the action's
+# probe step has the history) are gone (DEV-2860).
+#
+# A compare publishes its report under `docs/dispatch/<branch>/<run id>/`, a
+# per-run key that pr-cleanup.yml does not purge (it keys on a pull request
+# number); retention there is the bucket's business. The verdict lands in the
+# job summary, and nothing waits on an approval for a dispatch.
+on:
+  workflow_dispatch:
+    inputs:
+      test_env:
+        type: choice
+        description: Test environment
+        default: 'http://localhost:4321/docs'
+        options:
+          - https://dev.handsontable.com/docs
+          - https://handsontable.com/docs
+          - http://localhost:4321/docs
+      update-snapshots:
+        description: 'Re-seed docs/base/<this branch> from the chosen environment. A deployed one moves with the next deploy; to re-seed from one staging deploy, dispatch Docs visual seed'
+        type: boolean
+        default: false
+
+concurrency:
+  # Static prefix — see docs-staging.yml. The key SPLITS on what the run does,
+  # because the two modes want opposite policies.
+  #
+  # With `update-snapshots` ticked this dispatch seeds: it passes `mode: seed` and
+  # an `actual-key` of `docs/base/<branch>`, and the action's `Seed the golden
+  # records` step reconciles that prefix with `aws s3 sync --delete`. Killing a run
+  # mid-reconcile leaves a mixture of the old and the new goldens under a prefix the
+  # probe still reports as present — a torn baseline nothing detects. So a seeding
+  # dispatch joins docs-visual-seed.yml's key and never cancels, which is also the
+  # one-writer-per-prefix rule the core seed follows (visual-tests/AGENTS.md).
+  #
+  # A comparing dispatch writes only `docs/dispatch/<branch>/<run id>`, which nothing
+  # else reads, so it keeps the cancelling group it has always had: a newer dispatch
+  # should supersede it. Note this workflow lost its `workflow_call` trigger in
+  # DEV-2860 — cancelling used to serve the in-pipeline fragment runs, and that
+  # consumer is gone.
+  group: ${{ inputs.update-snapshots && format('docs-visual-seed-{0}', github.ref_name) || format('docs-visual-{0}', github.ref) }}
+  cancel-in-progress: ${{ !inputs.update-snapshots }}
+
+jobs:
+  run-tests:
+    name: "[TEST] Docs Visual"
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    # Read-only: no comment, no pull request. The R2 writes go through the
+    # action's inputs, not the token.
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # https://github.com/actions/checkout/releases/tag/v6.0.2
+
+      # The localhost choice builds the packages and the docs here; the config's
+      # `webServer` then starts `pnpm preview` for the run. The other choices
+      # test a deployed site and need none of this.
+      - name: Set up the workspace
+        if: ${{ inputs.test_env == 'http://localhost:4321/docs' }}
+        uses: ./.github/actions/setup-workspace
+
+      - name: Build the packages
+        if: ${{ inputs.test_env == 'http://localhost:4321/docs' }}
+        run: npm run all build -- --e examples visual-tests
+
+      - name: Generate API refs
+        if: ${{ inputs.test_env == 'http://localhost:4321/docs' }}
+        working-directory: ./docs
+        run: npm run docs:api
+
+      - name: Build documentation
+        if: ${{ inputs.test_env == 'http://localhost:4321/docs' }}
+        working-directory: ./docs
+        run: npm run build
+        env:
+          # The same key as the staging deploys the baseline is seeded from
+          # (docs-staging.yml), so the local build renders the same grids. A
+          # release branch's baseline comes from RC staging, which builds in
+          # production mode without the key, so it stays off there.
+          DOCS_TEST_LICENSE_KEY: ${{ !startsWith(github.ref_name, 'release/') && 'true' || '' }}
+
+      # `with:` values are expressions, not shell, so the ternaries are safe
+      # here; inside the action every one of them travels through `env:`.
+      - name: Run the docs visual suite
+        uses: ./.github/actions/docs-visual-run
+        with:
+          test-url: ${{ inputs.test_env }}
+          mode: ${{ inputs.update-snapshots && 'seed' || 'compare' }}
+          base-key: docs/base/${{ github.ref_name }}
+          actual-key: ${{ inputs.update-snapshots && format('docs/base/{0}', github.ref_name) || format('docs/dispatch/{0}/{1}', github.ref_name, github.run_id) }}
+          pass-cookie: ${{ secrets.PASS_COOKIE }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

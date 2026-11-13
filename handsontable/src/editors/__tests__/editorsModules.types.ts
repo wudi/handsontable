@@ -13,6 +13,7 @@ import {
   getEditor,
   registerAllEditors,
   registerEditor,
+  editorFactory,
 } from 'handsontable/editors';
 
 registerAllEditors();
@@ -29,15 +30,44 @@ registerEditor(SelectEditor);
 registerEditor(TextEditor);
 registerEditor(TimeEditor);
 
-const AutocompleteEditorClass: typeof AutocompleteEditor = getEditor('autocomplete');
-const BaseEditorClass: typeof BaseEditor = getEditor('base');
-const CheckboxEditorClass: typeof CheckboxEditor = getEditor('checkbox');
-const DateEditorClass: typeof DateEditor = getEditor('date');
-const DropdownEditorClass: typeof DropdownEditor = getEditor('dropdown');
-const HandsontableEditorClass: typeof HandsontableEditor = getEditor('handsontable');
-const NumericEditorClass: typeof NumericEditor = getEditor('numeric');
-const PasswordEditorClass: typeof PasswordEditor = getEditor('password');
-const SelectEditorClass: typeof SelectEditor = getEditor('select');
-const TextEditorClass: typeof TextEditor = getEditor('text');
-const TimeEditorClass: typeof TimeEditor = getEditor('time');
-const CustomEditorClass: typeof BaseEditor = getEditor('custom-editor');
+const AutocompleteEditorClass = getEditor('autocomplete') as typeof AutocompleteEditor;
+const BaseEditorClass = getEditor('base') as typeof BaseEditor;
+const CheckboxEditorClass = getEditor('checkbox') as typeof CheckboxEditor;
+const DateEditorClass = getEditor('date') as typeof DateEditor;
+const DropdownEditorClass = getEditor('dropdown') as typeof DropdownEditor;
+const HandsontableEditorClass = getEditor('handsontable') as typeof HandsontableEditor;
+const NumericEditorClass = getEditor('numeric') as typeof NumericEditor;
+const PasswordEditorClass = getEditor('password') as typeof PasswordEditor;
+const SelectEditorClass = getEditor('select') as typeof SelectEditor;
+const TextEditorClass = getEditor('text') as typeof TextEditor;
+const TimeEditorClass = getEditor('time') as typeof TimeEditor;
+const CustomEditorClass = getEditor('custom-editor') as typeof BaseEditor;
+
+editorFactory({
+  init(editor: BaseEditor) {},
+  afterInit(editor: BaseEditor) {},
+  afterOpen(editor: BaseEditor) {},
+  afterClose(editor: BaseEditor) {},
+  beforeOpen(editor: BaseEditor) {},
+  getValue(editor: BaseEditor) {},
+  setValue(editor: BaseEditor, value: unknown) {},
+  onFocus(editor: BaseEditor) {},
+  render(editor: BaseEditor) {},
+  position: 'container',
+  value: 'test',
+  config: {
+    test: 'test',
+  },
+  shortcutsGroup: 'custom-shortcuts',
+  shortcuts: [
+    {
+      keys: [['Enter']],
+      callback: (editor: BaseEditor) => {
+        return false;
+      },
+    },
+  ],
+  args: {
+    test: 'test',
+  },
+});

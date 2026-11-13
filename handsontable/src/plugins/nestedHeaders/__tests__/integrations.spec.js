@@ -13,7 +13,7 @@ describe('Integration with other plugins', () => {
   });
 
   describe('Core `getColHeader` method', () => {
-    it('should return column header values based on the nested headers configuration', () => {
+    it('should return column header values based on the nested headers configuration', async() => {
       handsontable({
         data: [['1', '2', '3', '4', '5', '6']],
         colHeaders: true,
@@ -51,7 +51,7 @@ describe('Integration with other plugins', () => {
 
   describe('DropdownMenu', () => {
     it('should not block the opening of the dropdown menu after clicking on its header button, when all the rows are' +
-      ' trimmed', () => {
+      ' trimmed', async() => {
       const afterDropdownMenuShow = jasmine.createSpy('afterDropdownMenuShow');
 
       handsontable({
@@ -73,6 +73,53 @@ describe('Integration with other plugins', () => {
 
       expect(afterDropdownMenuShow).toHaveBeenCalledTimes(1);
     });
+
+    it('should close drop-down menu after click on header which sorts a column', async() => {
+      handsontable({
+        data: createSpreadsheetData(5, 11),
+        colHeaders: true,
+        rowHeaders: true,
+        columnSorting: true,
+        dropdownMenu: true,
+        nestedHeaders: [
+          ['A', { label: 'B', colspan: 8 }, 'C'],
+        ],
+      });
+
+      const $firstHeader = spec().$container.find('.ht_master table.htCore thead th span.columnSorting');
+
+      await dropdownMenu(0);
+
+      $firstHeader.simulate('mousedown');
+      $firstHeader.simulate('mouseup');
+      $firstHeader.simulate('click');
+
+      expect(getPlugin('dropdownMenu').menu.container.style.display).not.toBe('block');
+    });
+
+    it('should not throw after sorting when current highlight is disabled', async() => {
+      handsontable({
+        data: createSpreadsheetData(5, 11),
+        colHeaders: true,
+        rowHeaders: true,
+        columnSorting: true,
+        navigableHeaders: true,
+        disableVisualSelection: 'current',
+        nestedHeaders: [
+          ['A', { label: 'B', colspan: 8 }, 'C'],
+        ],
+      });
+
+      const $headerWithSortAction = spec().$container.find(
+        '.ht_master table.htCore thead tr:last-of-type th:nth-of-type(2) span.columnSorting'
+      );
+
+      $headerWithSortAction.simulate('mousedown');
+      $headerWithSortAction.simulate('mouseup');
+      $headerWithSortAction.simulate('click');
+
+      expect(getPlugin('columnSorting').isSorted()).toBe(true);
+    });
   });
 
   describe('CopyPaste', () => {
@@ -82,7 +129,7 @@ describe('Integration with other plugins', () => {
       spyOn(document, 'execCommand');
     });
 
-    it('should copy cells and all column nested headers to the clipboard', () => {
+    it('should copy cells and all column nested headers to the clipboard', async() => {
       handsontable({
         data: createSpreadsheetData(2, 4),
         rowHeaders: true,
@@ -103,7 +150,7 @@ describe('Integration with other plugins', () => {
       const copyEvent = getClipboardEvent();
       const plugin = getPlugin('CopyPaste');
 
-      selectAll();
+      await selectAll();
 
       plugin.copyWithAllColumnHeaders();
       plugin.onCopy(copyEvent); // emulate native "copy" event

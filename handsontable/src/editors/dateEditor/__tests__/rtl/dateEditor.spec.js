@@ -19,100 +19,35 @@ describe('DateEditor (RTL mode)', () => {
       }
     });
 
-    it('should render an editable editor\'s element without messing with "dir" attribute', () => {
+    it('should render an editable editor\'s element without messing with "dir" attribute', async() => {
       handsontable({
         layoutDirection,
-        data: Handsontable.helper.createSpreadsheetData(2, 5),
+        data: createSpreadsheetData(2, 5),
         editor: 'date',
       });
 
-      selectCell(0, 0);
+      await selectCell(0, 0);
 
       const editableElement = getActiveEditor().TEXTAREA;
 
       expect(editableElement.getAttribute('dir')).toBeNull();
     });
 
-    it('should render Pikaday within element that contains correct "dir" attribute value', () => {
+    it('should render an input element with type="date" in RTL mode', async() => {
       handsontable({
         layoutDirection,
-        data: Handsontable.helper.createSpreadsheetData(5, 2),
+        data: createSpreadsheetData(2, 5),
         columns: [
           { type: 'date' },
           { type: 'date' }
         ]
       });
 
-      selectCell(1, 1);
-      keyDown('enter');
+      await selectCell(0, 0);
 
-      const datePicker = getActiveEditor().datePicker;
-      const config = getActiveEditor().$datePicker.config();
+      const editor = getActiveEditor();
 
-      expect(datePicker.getAttribute('dir')).toBe('rtl');
-      // it's set as `false` in RTL due to https://github.com/Pikaday/Pikaday/issues/647 bug. The Pikaday layout
-      // direction mode is controlled by above "dir" attribute.
-      expect(config.isRTL).toBe(false);
-    });
-
-    it('should display Pikaday Calendar left-bottom of the selected cell', () => {
-      handsontable({
-        layoutDirection,
-        data: Handsontable.helper.createSpreadsheetData(5, 2),
-        columns: [
-          { type: 'date' },
-          { type: 'date' }
-        ]
-      });
-
-      selectCell(1, 1);
-      keyDown('enter');
-
-      const cellOffset = $(getActiveEditor().TD).offset();
-      const cellWidth = $(getActiveEditor().TD).outerWidth();
-      const $datePicker = $('.htDatepickerHolder');
-      const datePickerOffset = $datePicker.offset();
-      const datePickerWidth = $datePicker.outerWidth();
-
-      // 23 is a height of the editor's cell
-      expect(cellOffset.top + 23).toBeCloseTo(datePickerOffset.top, 0);
-      expect(cellOffset.left).toBeCloseTo(datePickerOffset.left + datePickerWidth - cellWidth, 0);
-    });
-
-    it('should display Pikaday Calendar left-bottom of the selected cell when table have scrolls', () => {
-      const container = $('#testContainer');
-
-      container[0].style.height = '300px';
-      container[0].style.width = '200px';
-      container[0].style.overflow = 'hidden';
-
-      handsontable({
-        layoutDirection,
-        data: Handsontable.helper.createSpreadsheetData(30, 10),
-        colWidths: 60,
-        columns: [
-          { type: 'date' },
-          { type: 'date' },
-          { type: 'date' },
-          { type: 'date' },
-          { type: 'date' },
-          { type: 'date' },
-          { type: 'date' }
-        ]
-      });
-
-      selectCell(20, 6);
-      keyDown('enter');
-
-      const cellOffset = $(getActiveEditor().TD).offset();
-      const cellWidth = $(getActiveEditor().TD).outerWidth();
-      const $datePicker = $('.htDatepickerHolder');
-      const datePickerOffset = $datePicker.offset();
-      const datePickerWidth = $datePicker.outerWidth();
-
-      // 23 is a height of the editor's cell
-      expect(cellOffset.top + 23).toBeCloseTo(datePickerOffset.top, 0);
-      expect(cellOffset.left).toBeCloseTo(datePickerOffset.left + datePickerWidth - cellWidth, 0);
+      expect(editor.TEXTAREA.getAttribute('type')).toBe('date');
     });
   });
 });

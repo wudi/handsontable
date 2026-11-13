@@ -1,0 +1,42 @@
+<script setup lang="ts">
+import { ref } from 'vue';
+import { HotTable } from '@handsontable/vue3';
+import { registerAllModules } from 'handsontable/registry';
+import type { GridSettings } from 'handsontable/settings';
+
+// register Handsontable's modules
+registerAllModules();
+
+const hotSettings = ref<GridSettings>({
+  data: [
+    ['H', 'Nonmetal', 1],
+    ['He', 'Noble gas', 2],
+    ['Li', 'Alkali metal', 3],
+    ['Be', 'Alkaline earth metal', 4],
+    ['B', 'Metalloid', 5],
+  ],
+  width: '100%',
+  height: 'auto',
+  colHeaders: ['Symbol', 'Category', 'No.'],
+  rowHeaders: true,
+  columns: [
+    { width: 90 },
+    {},
+    { width: 60 },
+  ],
+  modifyColWidth(width, column) {
+    if (column === 1 && width > 120) {
+      return 100;
+    }
+  },
+  autoWrapRow: true,
+  autoWrapCol: true,
+  // licenseKey: 'your-license-key', // get a key at https://handsontable.com/pricing/
+});
+</script>
+
+<template>
+  <div id="example7">
+    <HotTable :settings="hotSettings" />
+  </div>
+</template>

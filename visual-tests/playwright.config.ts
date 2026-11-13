@@ -11,8 +11,18 @@ import { PlaywrightTestConfig, devices } from '@playwright/test';
  */
 const config: PlaywrightTestConfig = {
   testDir: './tests',
-  /* Maximum time one test can run for. */
-  timeout: 60 * 1000,
+  testIgnore: '**/cross-browser/**',
+  /*
+   * Maximum time one test can run for. 15 s, not 10, for headroom: every capture that follows a scroll
+   * now waits the clearance band out (up to FADE_ALLOWANCE, usually about a second), and a spec with
+   * several of those spends real time it did not spend before.
+   *
+   * This is NOT what makes a stuck band's diagnosis win over the generic timeout — a flat bump cannot,
+   * since a spec with a dozen captures can exhaust any fixed budget before it reaches the stuck one.
+   * The fixture buys the extra time where it spends it, with `testInfo.setTimeout()` on entering the
+   * slow path (see awaitScrollbarClearance in src/test-runner.ts).
+   */
+  timeout: 15 * 1000,
   expect: {
     /**
      * Maximum time expect() should wait for the condition to be met.
@@ -25,8 +35,7 @@ const config: PlaywrightTestConfig = {
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
-  retries: process.env.CI ? 2 : 2,
-  /* Opt out of parallel tests on CI. */
+  retries: 2,
   workers: process.env.CI ? 1 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: 'html',
@@ -35,10 +44,20 @@ const config: PlaywrightTestConfig = {
     /* Maximum time each action such as `click()` can take. Defaults to 0 (no limit). */
     actionTimeout: 0,
     /* Base URL to use in actions like `await page.goto('/')`. */
-    // baseURL: 'http://localhost:3000',
+    baseURL: 'http://localhost:8082',
+
+    /**
+     * Pin the browser locale and timezone so date/time rendering is deterministic.
+     * Date cells format values with `Intl.DateTimeFormat` and the native `<input type="date">`
+     * editor renders in the browser locale; without pinning, the resolved locale/timezone varies
+     * between CI runners and the same snapshot flaps between formats (e.g. MM/DD/YYYY vs DD/MM/YYYY).
+     */
+    locale: 'en-US',
+    timezoneId: 'UTC',
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
   },
 
   /* Configure projects for major browsers */

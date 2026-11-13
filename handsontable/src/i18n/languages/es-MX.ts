@@ -1,0 +1,198 @@
+/**
+ * @preserve
+ * Authors: Handsoncode, Enrique Enciso
+ * Last updated: Nov 18, 2022
+ *
+ * Description: Definition file for Spanish - Mexico language-country.
+ */
+import * as C from '../constants';
+
+const dictionary = {
+  languageCode: 'es-MX',
+
+  [C.OK]: 'OK',
+  [C.CANCEL]: 'Cancelar',
+
+  [C.CONTEXTMENU_ITEMS_ROW_ABOVE]: 'Insertar fila arriba',
+  [C.CONTEXTMENU_ITEMS_ROW_BELOW]: 'Insertar fila abajo',
+  [C.CONTEXTMENU_ITEMS_INSERT_LEFT]: 'Insertar columna izquierda',
+  [C.CONTEXTMENU_ITEMS_INSERT_RIGHT]: 'Insertar columna derecha',
+  [C.CONTEXTMENU_ITEMS_REMOVE_ROW]: ['Eliminar fila', 'Eliminar filas'],
+  [C.CONTEXTMENU_ITEMS_REMOVE_COLUMN]: ['Eliminar columna', 'Eliminar columnas'],
+  [C.CONTEXTMENU_ITEMS_UNDO]: 'Deshacer',
+  [C.CONTEXTMENU_ITEMS_REDO]: 'Rehacer',
+  [C.CONTEXTMENU_ITEMS_READ_ONLY]: 'Solo lectura',
+  [C.CONTEXTMENU_ITEMS_CLEAR_COLUMN]: 'Limpiar columna',
+
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT]: 'Alineación',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_LEFT]: 'Izquierda',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_CENTER]: 'Centro',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_RIGHT]: 'Derecha',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_JUSTIFY]: 'Justificar',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_TOP]: 'Superior',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_MIDDLE]: 'Medio',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_BOTTOM]: 'Inferior',
+
+  [C.CONTEXTMENU_ITEMS_FREEZE_COLUMN]: 'Congelar columna',
+  [C.CONTEXTMENU_ITEMS_UNFREEZE_COLUMN]: 'Descongelar columna',
+
+  [C.CONTEXTMENU_ITEMS_BORDERS]: 'Bordes',
+  [C.CONTEXTMENU_ITEMS_BORDERS_TOP]: 'Superior',
+  [C.CONTEXTMENU_ITEMS_BORDERS_RIGHT]: 'Derecho',
+  [C.CONTEXTMENU_ITEMS_BORDERS_BOTTOM]: 'Inferior',
+  [C.CONTEXTMENU_ITEMS_BORDERS_LEFT]: 'Izquierdo',
+  [C.CONTEXTMENU_ITEMS_REMOVE_BORDERS]: 'Quitar borde(s)',
+
+  [C.CONTEXTMENU_ITEMS_ADD_COMMENT]: 'Agregar comentario',
+  [C.CONTEXTMENU_ITEMS_EDIT_COMMENT]: 'Editar comentario',
+  [C.CONTEXTMENU_ITEMS_REMOVE_COMMENT]: 'Borrar comentario',
+  [C.CONTEXTMENU_ITEMS_READ_ONLY_COMMENT]: 'Comentario Solo de lectura',
+
+  [C.CONTEXTMENU_ITEMS_MERGE_CELLS]: 'Unir celdas',
+  [C.CONTEXTMENU_ITEMS_UNMERGE_CELLS]: 'Separar celdas',
+
+  [C.CONTEXTMENU_ITEMS_COPY]: 'Copiar',
+  [C.CONTEXTMENU_ITEMS_COPY_WITH_COLUMN_HEADERS]: ['Copiar con encabezado', 'Copiar con encabezados'],
+  [C.CONTEXTMENU_ITEMS_COPY_WITH_COLUMN_GROUP_HEADERS]: [
+    'Copiar con encabezado de grupo',
+    'Copiar con encabezados de grupos'
+  ],
+  [C.CONTEXTMENU_ITEMS_COPY_COLUMN_HEADERS_ONLY]: ['Copiar solo el encabezado', 'Copiar solo los encabezados'],
+  [C.CONTEXTMENU_ITEMS_CUT]: 'Cortar',
+
+  [C.CONTEXTMENU_ITEMS_EXPORT]: 'Exportar',
+  [C.CONTEXTMENU_ITEMS_EXPORT_FILE_CSV]: 'A CSV',
+  [C.CONTEXTMENU_ITEMS_EXPORT_FILE_XLSX]: 'A Excel',
+  [C.EXPORT_FILE_DIALOG_TITLE]: 'Exportando…',
+
+  [C.CONTEXTMENU_ITEMS_NESTED_ROWS_INSERT_CHILD]: 'Insertar fila hija',
+  [C.CONTEXTMENU_ITEMS_NESTED_ROWS_DETACH_CHILD]: 'Separar del padre',
+
+  [C.CONTEXTMENU_ITEMS_HIDE_COLUMN]: ['Esconder columna', 'Esconder columnas'],
+  [C.CONTEXTMENU_ITEMS_SHOW_COLUMN]: ['Mostrar columna', 'Mostrar columnas'],
+
+  [C.CONTEXTMENU_ITEMS_HIDE_ROW]: ['Esconder fila', 'Esconder filas'],
+  [C.CONTEXTMENU_ITEMS_SHOW_ROW]: ['Mostrar fila', 'Mostrar filas'],
+
+  [C.FILTERS_CONDITIONS_NONE]: 'Ninguna',
+  [C.FILTERS_CONDITIONS_EMPTY]: 'Está vacío',
+  [C.FILTERS_CONDITIONS_NOT_EMPTY]: 'No está vacío',
+  [C.FILTERS_CONDITIONS_EQUAL]: 'Es igual a',
+  [C.FILTERS_CONDITIONS_NOT_EQUAL]: 'No es igual a',
+  [C.FILTERS_CONDITIONS_BEGINS_WITH]: 'Comienza con',
+  [C.FILTERS_CONDITIONS_ENDS_WITH]: 'Termina con',
+  [C.FILTERS_CONDITIONS_CONTAINS]: 'Contiene',
+  [C.FILTERS_CONDITIONS_NOT_CONTAIN]: 'No contiene',
+  [C.FILTERS_CONDITIONS_GREATER_THAN]: 'Mayor que',
+  [C.FILTERS_CONDITIONS_GREATER_THAN_OR_EQUAL]: 'Mayor o igual que',
+  [C.FILTERS_CONDITIONS_LESS_THAN]: 'Menor que',
+  [C.FILTERS_CONDITIONS_LESS_THAN_OR_EQUAL]: 'Menor o igual que',
+  [C.FILTERS_CONDITIONS_BETWEEN]: 'Es entre',
+  [C.FILTERS_CONDITIONS_NOT_BETWEEN]: 'No es entre',
+  [C.FILTERS_CONDITIONS_AFTER]: 'Después',
+  [C.FILTERS_CONDITIONS_AFTER_OR_EQUAL]: 'Después o igual a',
+  [C.FILTERS_CONDITIONS_BEFORE]: 'Antes',
+  [C.FILTERS_CONDITIONS_BEFORE_OR_EQUAL]: 'Antes o igual a',
+  [C.FILTERS_CONDITIONS_TODAY]: 'Hoy',
+  [C.FILTERS_CONDITIONS_TOMORROW]: 'Mañana',
+  [C.FILTERS_CONDITIONS_YESTERDAY]: 'Ayer',
+
+  [C.FILTERS_VALUES_BLANK_CELLS]: 'Celdas vacías',
+
+  [C.FILTERS_DIVS_FILTER_BY_CONDITION]: 'Filtrar por condición',
+  [C.FILTERS_DIVS_FILTER_BY_VALUE]: 'Filtrar por valor',
+
+  [C.FILTERS_LABELS_CONJUNCTION]: 'Y',
+  [C.FILTERS_LABELS_DISJUNCTION]: 'O',
+
+  [C.FILTERS_BUTTONS_SELECT_ALL]: 'Seleccionar todo',
+  [C.FILTERS_BUTTONS_CLEAR]: 'Deseleccionar todo',
+  [C.FILTERS_BUTTONS_OK]: 'OK',
+  [C.FILTERS_BUTTONS_CANCEL]: 'Cancelar',
+
+  [C.FILTERS_BUTTONS_PLACEHOLDER_SEARCH]: 'Buscar',
+  [C.FILTERS_BUTTONS_PLACEHOLDER_VALUE]: 'Valor',
+  [C.FILTERS_BUTTONS_PLACEHOLDER_SECOND_VALUE]: 'Valor secundario',
+
+  [C.PAGINATION_SECTION]: 'Paginación',
+  [C.PAGINATION_PAGE_SIZE_SECTION]: 'Filas por página',
+  [C.PAGINATION_PAGE_SIZE_AUTO]: 'Auto',
+  [C.PAGINATION_COUNTER_SECTION]: '[start] - [end] de [total]',
+  [C.PAGINATION_NAV_SECTION]: 'Página [currentPage] de [totalPages]',
+  [C.PAGINATION_FIRST_PAGE]: 'Ir a la primera página',
+  [C.PAGINATION_PREV_PAGE]: 'Ir a la página anterior',
+  [C.PAGINATION_NEXT_PAGE]: 'Ir a la siguiente página',
+  [C.PAGINATION_LAST_PAGE]: 'Ir a la última página',
+
+  [C.SHEETS_BAR_SECTION]: 'Hojas',
+  [C.SHEETS_BAR_ADD_SHEET]: 'Agregar hoja',
+  [C.SHEETS_BAR_ALL_SHEETS]: 'Todas las hojas',
+  [C.SHEETS_BAR_SHEET_MENU]: 'Acciones de la hoja: [name]',
+  [C.SHEETS_BAR_RENAME_SHEET]: 'Nombre de la hoja',
+  [C.SHEETS_BAR_ITEMS_DELETE]: 'Eliminar',
+  [C.SHEETS_BAR_ITEMS_DUPLICATE]: 'Duplicar',
+  [C.SHEETS_BAR_ITEMS_RENAME]: 'Cambiar nombre',
+  [C.SHEETS_BAR_ITEMS_MOVE_RIGHT]: 'Mover a la derecha',
+  [C.SHEETS_BAR_ITEMS_MOVE_LEFT]: 'Mover a la izquierda',
+  [C.SHEETS_BAR_PAGE_PREV]: 'Desplazar hojas hacia atrás',
+  [C.SHEETS_BAR_PAGE_NEXT]: 'Desplazar hojas hacia adelante',
+  [C.SHEETS_BAR_SHEET_CHANGED]: 'Hoja [name] activada',
+  [C.SHEETS_BAR_RENAME_REJECTED]: 'Nombre de hoja sin cambios: [name] ya está en uso',
+  [C.SHEETS_BAR_RENAME_NOT_CHANGED]: 'Nombre de hoja sin cambios',
+  [C.SHEETS_BAR_SHEET_DUPLICATED]: 'Hoja [name] duplicada como [copy]',
+  [C.SHEETS_BAR_SHEET_MOVED]: 'Hoja [name] movida a la posición [position] de [count]',
+  [C.SHEETS_BAR_DEFAULT_SHEET_NAME]: 'Hoja',
+
+  [C.LOADING_TITLE]: 'Cargando...',
+  [C.NOTIFICATION_BUTTONS_CLOSE]: 'Cerrar',
+
+  [C.EMPTY_DATA_STATE_TITLE]: 'No hay datos disponibles',
+  [C.EMPTY_DATA_STATE_DESCRIPTION]: 'No hay nada que mostrar aún.',
+  [C.EMPTY_DATA_STATE_TITLE_FILTERS]: 'No se encontraron resultados',
+  [C.EMPTY_DATA_STATE_DESCRIPTION_FILTERS]: 'Parece que tus filtros actuales están ocultando todos los resultados.',
+  [C.EMPTY_DATA_STATE_BUTTONS_FILTERS_RESET]: 'Restablecer filtros',
+  [C.EMPTY_DATA_STATE_TITLE_LOADING]: 'Cargando datos',
+  [C.EMPTY_DATA_STATE_DESCRIPTION_LOADING]: 'Espere por favor.',
+
+  [C.DATA_PROVIDER_ERRORS_FETCH]: 'No se pudieron cargar los datos',
+  [C.DATA_PROVIDER_ERRORS_CREATE]: 'No se pudieron crear las filas',
+  [C.DATA_PROVIDER_ERRORS_UPDATE]: 'No se pudieron actualizar las filas',
+  [C.DATA_PROVIDER_ERRORS_REMOVE]: 'No se pudieron eliminar las filas',
+  [C.DATA_PROVIDER_ERRORS_REQUEST_FAILED]: 'La solicitud falló',
+  [C.DATA_PROVIDER_BUTTONS_REFETCH]: 'Volver a cargar',
+  [C.ROW_SELECTION_SELECT_ROW]: 'Seleccionar fila [row]',
+  [C.ROW_SELECTION_SELECT_ALL]: 'Seleccionar todas las filas ([selected] de [total] seleccionadas)',
+  [C.CHECKBOX_HEADER_CHECK_ALL]: 'Marcar todo ([checked] de [total] marcadas)',
+  [C.ROW_SELECTION_ANNOUNCE_ROW_SELECTED]: 'Fila [row] seleccionada',
+  [C.ROW_SELECTION_ANNOUNCE_ROW_DESELECTED]: 'Fila [row] deseleccionada',
+  [C.ROW_SELECTION_ANNOUNCE_COUNT]: '[selected] de [total] filas seleccionadas',
+  [C.ROW_SELECTION_MENU_REMOVE]: 'Eliminar filas seleccionadas ([count])',
+  [C.ROW_SELECTION_MENU_CLEAR]: 'Borrar selección de filas',
+  [C.FREEZE_BAR_ROWS_TOP]: 'Filas inmovilizadas en la parte superior',
+  [C.FREEZE_BAR_ROWS_BOTTOM]: 'Filas inmovilizadas en la parte inferior',
+  [C.FREEZE_BAR_COLUMNS_START]: 'Columnas inmovilizadas al inicio',
+  [C.FREEZE_BAR_COLUMNS_END]: 'Columnas inmovilizadas al final',
+  [C.NESTED_ROWS_ANNOUNCEMENT_EXPANDED]: 'Se expandió la fila [label], filas expandidas mostradas: [count]',
+  [C.NESTED_ROWS_ANNOUNCEMENT_COLLAPSED]: 'Se contrajo la fila [label]',
+  [C.FORMULA_BUILDER_EDITOR]: 'Editor de fórmulas',
+  [C.FORMULA_BUILDER_INPUT]: 'Entrada de fórmula',
+  [C.FORMULA_BUILDER_CELL_ADDRESS]: 'Dirección de celda',
+  [C.FORMULA_BUILDER_SUGGESTIONS]: 'Sugerencias de fórmulas',
+  [C.FORMULA_BUILDER_ACCEPT_HINT]: 'para aceptar.',
+  [C.FORMULA_BUILDER_NAVIGATE_HINT]: 'para navegar',
+  [C.FORMULA_BUILDER_FUNCTION_HELP]: 'Ayuda de la función',
+  [C.FORMULA_BUILDER_FUNCTION_HELP_FOR]: 'Ayuda de la función [name]',
+  [C.FORMULA_BUILDER_FUNCTION_EXAMPLE]: 'Ejemplo',
+  [C.FORMULA_BUILDER_FUNCTION_DESCRIPTION]: 'Descripción',
+  [C.FORMULA_BUILDER_OPTIONAL_ARGUMENT]: 'opcional',
+  [C.FORMULA_BUILDER_REPEATABLE_ARGUMENT]: 'repetible',
+  [C.FORMULA_BUILDER_LEARN_MORE]: 'Más información',
+  [C.FORMULA_BUILDER_CLOSE]: 'Cerrar',
+  [C.FORMULA_BUILDER_INVALID_ADDRESS]: 'Dirección de celda no válida: [text]',
+  [C.FORMULA_BUILDER_CELL_UNAVAILABLE]: 'No se puede seleccionar [text]',
+  [C.FORMULA_BUILDER_CELL_ERROR]: 'Error en [cell]: [message].',
+  [C.FORMULA_BUILDER_DEPENDENT_ERROR]: '[count] celda más contiene ahora un error.',
+  [C.FORMULA_BUILDER_DEPENDENT_ERRORS]: '[count] celdas más contienen ahora errores.',
+};
+
+export default dictionary;

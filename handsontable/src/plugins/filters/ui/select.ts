@@ -1,0 +1,337 @@
+import type { HotInstance } from '../../../core/types';
+import { Menu } from '../../../utils/menu/menu';
+import { clone, extend } from '../../../helpers/object';
+import { arrayEach } from '../../../helpers/array';
+import { addClass, setAttribute } from '../../../helpers/dom/element';
+import * as C from '../../../i18n/constants';
+import { SEPARATOR } from '../../../utils/menu/predefinedItems';
+import { BaseUI } from './_base';
+import type { BaseUIOptions } from './_base';
+import { A11Y_HIDDEN, A11Y_LISTBOX } from '../../../helpers/a11y';
+import { syncIcon } from '../../../themes/engine/icons';
+
+const CAPTION_ICON_CLASS_NAME = 'htUISelectCaptionIcon';
+
+interface SelectMenuItem {
+  key?: string;
+  name?: string;
+  inputsCount?: number;
+  [key: string]: unknown;
+}
+
+/**
+ * @private
+ * @class SelectUI
+ */
+export class SelectUI extends BaseUI {
+  /**
+   * Returns the default configuration options for the select UI component.
+   */
+  static get DEFAULTS(): BaseUIOptions {
+    return clone({
+      className: 'htUISelect',
+      wrapIt: false,
+      tabIndex: -1,
+    }) as BaseUIOptions;
+  }
+
+  /**
+   * Instance of {@link Menu}.
+   *
+   * @type {Menu}
+   */
+  #menu: Menu | null = null;
+  /**
+   * List of available operator menu items displayed in the dropdown.
+   */
+  #items: SelectMenuItem[] = [];
+  /**
+   * UI component that renders the currently selected operator label.
+   */
+  #caption: BaseUI | null = null;
+  /**
+   * Reference to the DOM element that displays the currently selected operator caption.
+   */
+  #captionElement: HTMLElement | null = null;
+  /**
+   * Reference to the DOM element that displays the label text of the currently selected
+   * operator, kept separate from `#captionElement` so updating the text never wipes the
+   * caret icon appended as its sibling.
+   */
+  #captionLabel: HTMLElement | null = null;
+  /**
+   * UI component that wraps the dropdown toggle and menu.
+   */
+  #dropdown: BaseUI | null = null;
+
+  /**
+   * Initializes the select UI component and registers event hooks for dropdown interaction.
+   */
+  constructor(hotInstance: HotInstance, options: Record<string, unknown>) {
+    super(hotInstance, extend(SelectUI.DEFAULTS as Record<string, unknown>, options) as Record<string, unknown>);
+    this.registerHooks();
+  }
+
+  /**
+   * Gets the instance of the Menu.
+   *
+   * @returns {Menu}
+   */
+  getMenu() {
+    return this.#menu;
+  }
+
+  /**
+   * Register all necessary hooks.
+   */
+  registerHooks() {
+    this.addLocalHook('click', () => this.#onClick());
+  }
+
+  /**
+   * Set options which can be selected in the list.
+   *
+   * @param {Array} items Array of objects with required keys `key` and `name`.
+   */
+  setItems(items: SelectMenuItem[]) {
+    this.#items = this.translateNames(items);
+
+    if (this.#menu) {
+      this.#menu.setMenuItems(this.#items);
+    }
+  }
+
+  /**
+   * Translate names of menu items.
+   *
+   * @param {Array} items Array of objects with required keys `key` and `name`.
+   * @returns {Array} Items with translated `name` keys.
+   */
+  translateNames(items: SelectMenuItem[]) {
+    arrayEach(items, (item) => {
+      const menuItem = item as SelectMenuItem;
+
+      menuItem.name = this.translateIfPossible(menuItem.name) as string | undefined;
+    });
+
+    return items;
+  }
+
+  /**
+   * Build DOM structure.
+   */
+  build() {
+    super.build();
+
+    if (!this.hot || !this._element) {
+      return;
+    }
+
+    const hot = this.hot;
+    const rootElement = this._element;
+
+    this.#menu = new Menu(hot, {
+      className: 'htSelectUI htFiltersConditionsMenu',
+      keepInViewport: false,
+      // The list opens under its select and is placed by it, so it is moved up into the viewport and capped to it
+      // by this option: `keepInViewport: true` would also flip it above or beside the select.
+      scrollInViewport: true,
+      standalone: true,
+      container: this.options.menuContainer,
+    });
+    this.#menu.setMenuItems(this.#items);
+
+    const caption = new BaseUI(hot, {
+      className: 'htUISelectCaption',
+      // No inner wrap element is needed here: the caption never listens to its own DOM events
+      // (clicks are handled by the parent `SelectUI` element), and keeping the DOM flat lets the
+      // label span and the caret icon (appended below) be direct, addressable children. `wrapIt:
+      // false` also moves where `BaseUI#build()` registers the caption's own DOM event listeners
+      // - onto `caption.element` itself instead of an inner wrapped child - which is harmless
+      // here because nothing ever calls `caption.addLocalHook(...)` to consume them.
+      wrapIt: false,
+    });
+
+    const dropdown = new BaseUI(hot, {
+      className: 'htUISelectDropdown'
+    });
+
+    this.#caption = caption;
+    this.#captionElement = caption.element;
+    this.#dropdown = dropdown;
+
+    if (this.#captionElement) {
+      // The label text lives in its own child so `update()` can rewrite it with `textContent`
+      // without wiping the caret icon appended as its sibling - assigning `textContent` on
+      // `#captionElement` itself would remove every child, icon included, on the very next
+      // condition change (see `update()`).
+      this.#captionLabel = hot.rootDocument.createElement('span');
+      addClass(this.#captionLabel, 'htUISelectCaptionLabel');
+      this.#captionElement.appendChild(this.#captionLabel);
+      syncIcon(hot, this.#captionElement, CAPTION_ICON_CLASS_NAME, 'selectArrow');
+    }
+
+    if (hot.getSettings().ariaTags) {
+      const dropdownEl = dropdown.element;
+
+      if (dropdownEl) {
+        setAttribute(dropdownEl, [
+          A11Y_HIDDEN()
+        ]);
+      }
+
+      setAttribute(rootElement, [
+        A11Y_LISTBOX()
+      ]);
+    }
+
+    arrayEach([caption, dropdown] as BaseUI[], (element) => {
+      const el = (element as BaseUI).element;
+
+      if (el) {
+        rootElement.appendChild(el);
+      }
+    });
+
+    this.#menu.addLocalHook('select', (command: Record<string, unknown>) => this.#onMenuSelect(command));
+    this.#menu.addLocalHook('afterClose', () => this.#onMenuClosed());
+    this.update();
+  }
+
+  /**
+   * Re-applies the theme's current icon mapping to the caret. The caption element is built once
+   * and reused for the life of the plugin, so this is what lets a runtime `icons` remap reach it
+   * (called on every menu show). A no-op unless the theme's icons revision moved.
+   */
+  refreshIcons() {
+    if (this.hot && this.#captionElement) {
+      syncIcon(this.hot, this.#captionElement, CAPTION_ICON_CLASS_NAME, 'selectArrow');
+    }
+  }
+
+  /**
+   * Update DOM structure.
+   */
+  update() {
+    if (!this.isBuilt()) {
+      return;
+    }
+
+    let conditionName;
+
+    if (this.options.value) {
+      conditionName = (this.options.value as SelectMenuItem).name;
+
+    } else {
+      conditionName = this.#menu?.hot?.getTranslatedPhrase(C.FILTERS_CONDITIONS_NONE);
+    }
+
+    if (this.#captionLabel) {
+      this.#captionLabel.textContent = conditionName ?? null;
+    }
+    super.update();
+  }
+
+  /**
+   * Open select dropdown menu with available options.
+   */
+  openOptions() {
+    const el = this.element;
+
+    if (!el) {
+      return;
+    }
+
+    const rect = el.getBoundingClientRect();
+
+    if (this.#menu) {
+      this.#menu.open();
+      this.#menu.setPosition(
+        {
+          left: this.hot?.isLtr() ? rect.left - 5 : rect.left - 31,
+          top: rect.top - 1,
+          width: rect.width,
+          height: rect.height,
+        },
+        () => (el.isConnected ? el.getBoundingClientRect() : null),
+      );
+      this.#menu?.getNavigator()?.toFirstItem();
+      this.#menu?.getKeyboardShortcutsCtrl()?.addCustomShortcuts([{
+        keys: [['Tab'], ['Shift', 'Tab']],
+        callback: (event: Event) => {
+          this.closeOptions();
+          this.runLocalHooks('tabKeydown', event);
+        },
+      }, {
+        keys: [['Control/Meta', 'A']],
+        callback: () => false,
+      }]);
+    }
+  }
+
+  /**
+   * Close select dropdown menu.
+   */
+  closeOptions() {
+    if (this.#menu) {
+      this.#menu.close();
+    }
+  }
+
+  /**
+   * Focus element.
+   */
+  focus() {
+    if (this.isBuilt()) {
+      this.element?.focus();
+    }
+  }
+
+  /**
+   * On menu selected listener.
+   *
+   * @param {object} command Selected item.
+   */
+  #onMenuSelect(command: Record<string, unknown>) {
+    if (command.name !== SEPARATOR) {
+      this.options.value = command;
+      this.update();
+      this.runLocalHooks('select', this.options.value);
+    }
+  }
+
+  /**
+   * On menu closed listener.
+   */
+  #onMenuClosed() {
+    this.runLocalHooks('afterClose');
+  }
+
+  /**
+   * On element click listener.
+   *
+   * @private
+   */
+  #onClick() {
+    this.openOptions();
+  }
+
+  /**
+   * Destroy instance.
+   */
+  destroy() {
+    if (this.#menu) {
+      this.#menu.destroy();
+      this.#menu = null;
+    }
+
+    if (this.#caption) {
+      this.#caption.destroy();
+    }
+    if (this.#dropdown) {
+      this.#dropdown.destroy();
+    }
+
+    super.destroy();
+  }
+}

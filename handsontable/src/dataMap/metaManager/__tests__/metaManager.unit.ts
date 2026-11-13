@@ -1,0 +1,938 @@
+import MetaManager from '../';
+import GlobalMeta from '../metaLayers/globalMeta';
+import TableMeta from '../metaLayers/tableMeta';
+import ColumnMeta from '../metaLayers/columnMeta';
+import CellMeta from '../metaLayers/cellMeta';
+import { registerAllCellTypes, getCellType } from '../../../cellTypes';
+
+registerAllCellTypes();
+
+describe('MetaManager', () => {
+  it('should instantiate the mod class with proper list of arguments', () => {
+    const constructorSpy = jest.fn();
+
+    class CacheCellMetaMod {
+      constructor(...args) {
+        constructorSpy.apply(constructorSpy, args);
+      }
+    }
+
+    const hotMock = {};
+    const meta = new MetaManager(hotMock, {}, [CacheCellMetaMod]);
+
+    expect(constructorSpy).toHaveBeenCalledTimes(1);
+    expect(constructorSpy).toHaveBeenCalledWith(meta);
+  });
+
+  describe('constructor()', () => {
+    it('should initialize all meta layers', () => {
+      const metaManager = new MetaManager();
+
+      expect(metaManager.globalMeta instanceof GlobalMeta).toBe(true);
+      expect(metaManager.tableMeta instanceof TableMeta).toBe(true);
+      expect(metaManager.columnMeta instanceof ColumnMeta).toBe(true);
+      expect(metaManager.cellMeta instanceof CellMeta).toBe(true);
+    });
+  });
+
+  describe('getGlobalMeta()', () => {
+    it('should pass a method call to GlobalMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.globalMeta, 'getMeta').and.returnValue('foo');
+
+      expect(metaManager.getGlobalMeta()).toBe('foo');
+      expect(metaManager.globalMeta.getMeta).toHaveBeenCalledWith();
+    });
+  });
+
+  describe('updateGlobalMeta()', () => {
+    it('should pass a method call to GlobalMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.globalMeta, 'updateMeta').and.returnValue('foo');
+
+      expect(metaManager.updateGlobalMeta('bar')).toBeUndefined();
+      expect(metaManager.globalMeta.updateMeta).toHaveBeenCalledWith('bar');
+    });
+  });
+
+  describe('getTableMeta()', () => {
+    it('should pass a method call to TableMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.tableMeta, 'getMeta').and.returnValue('foo');
+
+      expect(metaManager.getTableMeta()).toBe('foo');
+      expect(metaManager.tableMeta.getMeta).toHaveBeenCalledWith();
+    });
+  });
+
+  describe('updateTableMeta()', () => {
+    it('should pass a method call to TableMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.tableMeta, 'updateMeta').and.returnValue('foo');
+
+      expect(metaManager.updateTableMeta('bar')).toBeUndefined();
+      expect(metaManager.tableMeta.updateMeta).toHaveBeenCalledWith('bar');
+    });
+  });
+
+  describe('getColumnMeta()', () => {
+    it('should pass a method call to ColumnMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.columnMeta, 'getMeta').and.returnValue('foo');
+
+      expect(metaManager.getColumnMeta(34)).toBe('foo');
+      expect(metaManager.columnMeta.getMeta).toHaveBeenCalledWith(34);
+    });
+  });
+
+  describe('updateColumnMeta()', () => {
+    it('should pass a method call to ColumnMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.columnMeta, 'updateMeta').and.returnValue('foo');
+
+      expect(metaManager.updateColumnMeta(34, 'bar')).toBeUndefined();
+      expect(metaManager.columnMeta.updateMeta).toHaveBeenCalledWith(34, 'bar');
+    });
+  });
+
+  describe('getCellMeta()', () => {
+    it('should pass a method call to CellMeta layer', () => {
+      const metaManager = new MetaManager();
+      const metaMock = {};
+      const optionsMock = {};
+
+      spyOn(metaManager.cellMeta, 'getMeta').and.returnValue(metaMock);
+
+      expect(metaManager.getCellMeta(34, 22, optionsMock)).toBe(metaMock);
+      expect(metaManager.cellMeta.getMeta).toHaveBeenCalledWith(34, 22);
+    });
+
+    it('should extend the cell meta object for physical and visual indexes', () => {
+      const metaManager = new MetaManager();
+      const metaMock = {
+        foo: 'bar',
+      };
+
+      spyOn(metaManager.cellMeta, 'getMeta').and.returnValue(metaMock);
+
+      metaManager.getCellMeta(34, 22, {
+        visualRow: 3,
+        visualColumn: 5,
+      });
+
+      expect(metaMock).toEqual({
+        row: 34,
+        col: 22,
+        visualRow: 3,
+        visualCol: 5,
+        foo: 'bar',
+      });
+    });
+  });
+
+  describe('getCellMetaKeyValue()', () => {
+    it('should pass a method call to CellMeta layer', () => {
+      const metaManager = new MetaManager();
+      const metaMock = {};
+
+      spyOn(metaManager.cellMeta, 'getMeta').and.returnValue(metaMock);
+
+      expect(metaManager.getCellMetaKeyValue(34, 22, 'foo')).toBe(metaMock);
+      expect(metaManager.cellMeta.getMeta).toHaveBeenCalledWith(34, 22, 'foo');
+    });
+
+    it('should throw an error when the "key" is not a string', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.cellMeta, 'getMeta');
+
+      expect(() => {
+        metaManager.getCellMetaKeyValue(34, 22);
+      }).toThrow('The passed cell meta object key is not a string');
+      expect(() => {
+        metaManager.getCellMetaKeyValue(34, 22, 1);
+      }).toThrow('The passed cell meta object key is not a string');
+      expect(() => {
+        metaManager.getCellMetaKeyValue(34, 22, {});
+      }).toThrow('The passed cell meta object key is not a string');
+      expect(metaManager.cellMeta.getMeta).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('setCellMeta()', () => {
+    it('should pass a method call to CellMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.cellMeta, 'setMeta');
+
+      metaManager.setCellMeta(34, 22, 'key', 'value');
+
+      expect(metaManager.cellMeta.setMeta).toHaveBeenCalledWith(34, 22, 'key', 'value');
+    });
+  });
+
+  describe('updateCellMeta()', () => {
+    it('should pass a method call to CellMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.cellMeta, 'updateMeta').and.returnValue('foo');
+
+      expect(metaManager.updateCellMeta(34, 22, 'bar')).toBeUndefined();
+      expect(metaManager.cellMeta.updateMeta).toHaveBeenCalledWith(34, 22, 'bar');
+    });
+  });
+
+  describe('removeCellMeta()', () => {
+    it('should pass a method call to CellMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.cellMeta, 'removeMeta').and.returnValue('foo');
+
+      expect(metaManager.removeCellMeta(34, 22, 'bar')).toBeUndefined();
+      expect(metaManager.cellMeta.removeMeta).toHaveBeenCalledWith(34, 22, 'bar');
+    });
+
+    it('should not materialize cell meta when removing a key from an untouched cell', () => {
+      // Bulk callers (e.g. the MoveCells plugin) remove keys across whole regions; obtaining a
+      // meta object just to delete a key from it retained O(visited cells) memory the viewport
+      // eviction cannot sweep.
+      const metaManager = new MetaManager();
+
+      metaManager.removeCellMeta(5, 5, 'className');
+
+      expect(metaManager.getCellsMeta()).toEqual([]);
+    });
+
+    it('should still remove a stored key', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.setCellMeta(5, 5, 'className', 'marked');
+      metaManager.removeCellMeta(5, 5, 'className');
+
+      expect(metaManager.getCellMeta(5, 5, { visualRow: 5, visualColumn: 5 }).className).toBeUndefined();
+    });
+  });
+
+  describe('getCellsMeta()', () => {
+    it('should pass a method call to CellMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.cellMeta, 'getMetas').and.returnValue(['foo']);
+
+      expect(metaManager.getCellsMeta()).toEqual(['foo']);
+      expect(metaManager.cellMeta.getMetas).toHaveBeenCalledWith();
+    });
+  });
+
+  describe('getCellsMetaAtRow()', () => {
+    it('should pass a method call to CellMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.cellMeta, 'getMetasAtRow').and.returnValue(['foo']);
+
+      expect(metaManager.getCellsMetaAtRow(32)).toEqual(['foo']);
+      expect(metaManager.cellMeta.getMetasAtRow).toHaveBeenCalledWith(32);
+    });
+  });
+
+  describe('getUserDefinedCellMetas()', () => {
+    it('should pass a method call to CellMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.cellMeta, 'getUserDefinedMetas').and.returnValue(['foo']);
+
+      expect(metaManager.getUserDefinedCellMetas()).toEqual(['foo']);
+      expect(metaManager.cellMeta.getUserDefinedMetas).toHaveBeenCalledWith();
+    });
+  });
+
+  describe('getInvalidCellMetas()', () => {
+    it('should pass a method call to CellMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.cellMeta, 'getInvalidMetas').and.returnValue(['foo']);
+
+      expect(metaManager.getInvalidCellMetas()).toEqual(['foo']);
+      expect(metaManager.cellMeta.getInvalidMetas).toHaveBeenCalledWith();
+    });
+
+    it('should report only the cells whose last validation failed', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 }).valid = false;
+      metaManager.getCellMeta(1, 2, { visualRow: 1, visualColumn: 2 }).valid = true;
+      metaManager.getCellMeta(3, 1, { visualRow: 3, visualColumn: 1 }).valid = false;
+      // Materialized but never validated.
+      metaManager.getCellMeta(4, 4, { visualRow: 4, visualColumn: 4 });
+
+      // Order-independent: the method promises a set of coordinates, not an iteration order.
+      const invalidCellMetas = metaManager.getInvalidCellMetas();
+
+      expect(invalidCellMetas.length).toBe(2);
+      expect(invalidCellMetas).toContainEqual({ physicalRow: 0, physicalColumn: 0 });
+      expect(invalidCellMetas).toContainEqual({ physicalRow: 3, physicalColumn: 1 });
+    });
+
+    it('should ignore a `valid` flag inherited from a higher meta layer', () => {
+      // `valid` is an ordinary meta key, so it can be declared on the column or global layer. Reading
+      // it through the prototype chain would report every materialized cell of such a grid, and the
+      // restore would then stamp the flag on as an own property that outlives the setting.
+      const metaManager = new MetaManager();
+
+      metaManager.updateColumnMeta(0, { valid: false });
+
+      const cellMeta = metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 });
+
+      expect(cellMeta.valid).toBe(false); // inherited, so the cell still reads as invalid
+      expect(metaManager.getInvalidCellMetas()).toEqual([]);
+    });
+
+    it('should report a cell whose own `valid` is false even when a higher layer says otherwise', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.updateColumnMeta(0, { valid: true });
+      metaManager.getCellMeta(1, 0, { visualRow: 1, visualColumn: 0 }).valid = false;
+
+      expect(metaManager.getInvalidCellMetas()).toEqual([{ physicalRow: 1, physicalColumn: 0 }]);
+    });
+
+    it('should report physical coordinates, so they stay usable after a cache clear', () => {
+      const metaManager = new MetaManager();
+
+      // `visualRow`/`visualCol` are stamped onto the meta object by `getCellMeta`; the snapshot must
+      // not read them, or a grid with moved rows would restore the flag onto the wrong cell.
+      metaManager.getCellMeta(2, 1, { visualRow: 9, visualColumn: 8 }).valid = false;
+
+      expect(metaManager.getInvalidCellMetas()).toEqual([{ physicalRow: 2, physicalColumn: 1 }]);
+    });
+  });
+
+  describe('restoreInvalidCellMetas()', () => {
+    it('should pass a method call to CellMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.cellMeta, 'restoreInvalidMetas');
+
+      metaManager.restoreInvalidCellMetas([{ physicalRow: 1, physicalColumn: 2 }]);
+
+      expect(metaManager.cellMeta.restoreInvalidMetas)
+        .toHaveBeenCalledWith([{ physicalRow: 1, physicalColumn: 2 }]);
+    });
+
+    it('should bring the failed validation result back after a cache clear', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 }).valid = false;
+
+      const invalidCellMetas = metaManager.getInvalidCellMetas();
+
+      metaManager.clearCache();
+
+      expect(metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 }).valid).toBeUndefined();
+
+      metaManager.restoreInvalidCellMetas(invalidCellMetas);
+
+      expect(metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 }).valid).toBe(false);
+    });
+
+    it('should not record `valid` as a user-defined or persisted meta property', () => {
+      // The restore must be a direct property write. Going through `setCellMeta` would mark `valid`
+      // as user-defined, and every later cache clear would replay a stale `false` onto a cell that
+      // has since been corrected.
+      const metaManager = new MetaManager();
+
+      metaManager.restoreInvalidCellMetas([{ physicalRow: 0, physicalColumn: 0 }]);
+
+      const cellMeta = metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 });
+
+      expect(cellMeta.valid).toBe(false);
+      expect(metaManager.getUserDefinedCellMetas()).toEqual([]);
+      expect(cellMeta._persistedMetaProps).toBeUndefined();
+    });
+
+    it('should leave the other cells untouched', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.restoreInvalidCellMetas([{ physicalRow: 2, physicalColumn: 2 }]);
+
+      expect(metaManager.getCellMeta(2, 2, { visualRow: 2, visualColumn: 2 }).valid).toBe(false);
+      expect(metaManager.getCellMeta(1, 2, { visualRow: 1, visualColumn: 2 }).valid).toBeUndefined();
+      expect(metaManager.getCellMeta(2, 1, { visualRow: 2, visualColumn: 1 }).valid).toBeUndefined();
+    });
+  });
+
+  describe('getCellOptionCellMetas()', () => {
+    it('should pass a method call to CellMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.cellMeta, 'getCellOptionMetas').and.returnValue(['foo']);
+
+      expect(metaManager.getCellOptionCellMetas()).toEqual(['foo']);
+      expect(metaManager.cellMeta.getCellOptionMetas).toHaveBeenCalledWith();
+    });
+  });
+
+  describe('startCellOptionMetaRecording() / endCellOptionMetaRecording()', () => {
+    it('should pass the method calls to CellMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.cellMeta, 'startCellOptionMetaRecording');
+      spyOn(metaManager.cellMeta, 'endCellOptionMetaRecording');
+
+      metaManager.startCellOptionMetaRecording();
+      metaManager.endCellOptionMetaRecording();
+
+      expect(metaManager.cellMeta.startCellOptionMetaRecording).toHaveBeenCalledWith();
+      expect(metaManager.cellMeta.endCellOptionMetaRecording).toHaveBeenCalledWith();
+    });
+
+    it('should track a `setCellMeta` write made inside the scope as applied from the `cell` option', () => {
+      // The declarative `cell` option path. Unlike the plugin-declarative writes covered below, these are
+      // replayed across an `updateSettings` cache reset, because nothing re-applies them afterwards.
+      const metaManager = new MetaManager();
+
+      metaManager.startCellOptionMetaRecording();
+      metaManager.setCellMeta(0, 0, 'readOnly', true);
+      metaManager.endCellOptionMetaRecording();
+
+      expect(metaManager.getCellOptionCellMetas()).toEqual([
+        { physicalRow: 0, physicalColumn: 0, key: 'readOnly', value: true },
+      ]);
+      expect(metaManager.getUserDefinedCellMetas()).toEqual([]);
+    });
+  });
+
+  describe('enableUserDefinedMetaRecording()', () => {
+    it('should pass a method call to CellMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.cellMeta, 'enableUserDefinedMetaRecording');
+
+      metaManager.enableUserDefinedMetaRecording();
+
+      expect(metaManager.cellMeta.enableUserDefinedMetaRecording).toHaveBeenCalledWith();
+    });
+  });
+
+  describe('disableUserDefinedMetaRecording()', () => {
+    it('should pass a method call to CellMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.cellMeta, 'disableUserDefinedMetaRecording');
+
+      metaManager.disableUserDefinedMetaRecording();
+
+      expect(metaManager.cellMeta.disableUserDefinedMetaRecording).toHaveBeenCalledWith();
+    });
+
+    it('should apply a recording-disabled `setCellMeta` write without tracking it as user-defined', () => {
+      // Mirrors the `_setCellMetaDeclarative` path Core exposes for built-in plugins (for example
+      // ColumnSummary): the write lands on the cell meta but is not user-defined, so it survives the
+      // viewport meta eviction yet is cleared and re-applied on an `updateSettings` cache reset.
+      const metaManager = new MetaManager();
+
+      metaManager.disableUserDefinedMetaRecording();
+      metaManager.setCellMeta(3, 0, 'className', 'columnSummaryResult');
+      metaManager.enableUserDefinedMetaRecording();
+
+      expect(metaManager.getCellMeta(3, 0, { visualRow: 3, visualColumn: 0 }).className)
+        .toBe('columnSummaryResult');
+      expect(metaManager.getUserDefinedCellMetas()).toEqual([]);
+    });
+  });
+
+  describe('createRow()', () => {
+    it('should pass a method call to CellMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.cellMeta, 'createRow');
+
+      expect(metaManager.createRow(32)).toBeUndefined();
+      expect(metaManager.cellMeta.createRow).toHaveBeenCalledWith(32, 1);
+
+      expect(metaManager.createRow(22, 10)).toBeUndefined();
+      expect(metaManager.cellMeta.createRow).toHaveBeenCalledWith(22, 10);
+    });
+  });
+
+  describe('removeRow()', () => {
+    it('should pass a method call to CellMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.cellMeta, 'removeRow');
+
+      expect(metaManager.removeRow(32)).toBeUndefined();
+      expect(metaManager.cellMeta.removeRow).toHaveBeenCalledWith(32, 1);
+
+      expect(metaManager.removeRow(22, 10)).toBeUndefined();
+      expect(metaManager.cellMeta.removeRow).toHaveBeenCalledWith(22, 10);
+    });
+  });
+
+  describe('createColumn()', () => {
+    it('should pass a method call to CellMeta and ColumnMeta layers', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.cellMeta, 'createColumn');
+      spyOn(metaManager.columnMeta, 'createColumn');
+
+      expect(metaManager.createColumn(32)).toBeUndefined();
+      expect(metaManager.cellMeta.createColumn).toHaveBeenCalledWith(32, 1);
+      expect(metaManager.columnMeta.createColumn).toHaveBeenCalledWith(32, 1);
+
+      expect(metaManager.createColumn(22, 10)).toBeUndefined();
+      expect(metaManager.cellMeta.createColumn).toHaveBeenCalledWith(22, 10);
+      expect(metaManager.columnMeta.createColumn).toHaveBeenCalledWith(22, 10);
+    });
+  });
+
+  describe('removeColumn()', () => {
+    it('should pass a method call to CellMeta and ColumnMeta layers', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.cellMeta, 'removeColumn');
+      spyOn(metaManager.columnMeta, 'removeColumn');
+
+      expect(metaManager.removeColumn(32)).toBeUndefined();
+      expect(metaManager.cellMeta.removeColumn).toHaveBeenCalledWith(32, 1);
+      expect(metaManager.columnMeta.removeColumn).toHaveBeenCalledWith(32, 1);
+
+      expect(metaManager.removeColumn(22, 10)).toBeUndefined();
+      expect(metaManager.cellMeta.removeColumn).toHaveBeenCalledWith(22, 10);
+      expect(metaManager.columnMeta.removeColumn).toHaveBeenCalledWith(22, 10);
+    });
+  });
+
+  describe('clearCellsCache()', () => {
+    it('should pass a method call to only CellMeta layer', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.cellMeta, 'clearCache');
+      spyOn(metaManager.columnMeta, 'clearCache');
+
+      expect(metaManager.clearCellsCache()).toBeUndefined();
+      expect(metaManager.cellMeta.clearCache).toHaveBeenCalledWith();
+      expect(metaManager.columnMeta.clearCache).not.toHaveBeenCalledWith();
+    });
+  });
+
+  describe('clearCache()', () => {
+    it('should pass a method call to CellMeta, ColumnMeta and TableMeta layers', () => {
+      const metaManager = new MetaManager();
+
+      spyOn(metaManager.cellMeta, 'clearCache');
+      spyOn(metaManager.columnMeta, 'clearCache');
+
+      expect(metaManager.clearCache()).toBeUndefined();
+      expect(metaManager.cellMeta.clearCache).toHaveBeenCalledWith();
+      expect(metaManager.columnMeta.clearCache).toHaveBeenCalledWith();
+    });
+  });
+
+  describe('getCellMetaUncached()', () => {
+    it('should not retain a meta object for a cell with no overrides', () => {
+      const metaManager = new MetaManager();
+
+      const meta = metaManager.getCellMetaUncached(2, 3, { visualRow: 2, visualColumn: 3 });
+
+      // positional props set, just like getCellMeta
+      expect(meta.row).toBe(2);
+      expect(meta.col).toBe(3);
+      expect(meta.visualRow).toBe(2);
+      expect(meta.visualCol).toBe(3);
+      // ...but nothing was stored in the cell-meta cache
+      expect(metaManager.cellMeta.hasMeta(2, 3)).toBe(false);
+      expect(metaManager.cellMeta.getMetas()).toHaveLength(0);
+    });
+
+    it('should inherit column-layer settings through the prototype chain', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.updateColumnMeta(4, { className: 'htCenter', type: 'numeric' });
+
+      const meta = metaManager.getCellMetaUncached(10, 4, { visualRow: 10, visualColumn: 4 });
+
+      expect(meta.className).toBe('htCenter');
+      expect(meta.type).toBe('numeric');
+      expect(metaManager.cellMeta.hasMeta(10, 4)).toBe(false);
+    });
+
+    it('should reuse the stored meta object when the cell already has its own meta', () => {
+      const metaManager = new MetaManager();
+
+      // give the cell an override -> it now has a cached meta object
+      metaManager.setCellMeta(5, 1, 'className', 'htRight');
+
+      const stored = metaManager.getCellMeta(5, 1, { visualRow: 5, visualColumn: 1, skipMetaExtension: true });
+      const uncached = metaManager.getCellMetaUncached(5, 1, { visualRow: 5, visualColumn: 1 });
+
+      // the override is preserved AND the same object is reused (not a throwaway copy)
+      expect(uncached.className).toBe('htRight');
+      expect(uncached).toBe(stored);
+    });
+
+    it('should return the stored meta object through a pending row-shift buffer', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.setCellMeta(10, 1, 'className', 'htRight');
+
+      const stored = metaManager.getCellMeta(10, 1, { visualRow: 10, visualColumn: 1, skipMetaExtension: true });
+
+      // buffer a row shift without any read in between, as DataMap.removeRow does
+      metaManager.removeRow(3, 1);
+
+      const uncached = metaManager.getCellMetaUncached(9, 1, { visualRow: 9, visualColumn: 1 });
+
+      expect(uncached).toBe(stored);
+      expect(uncached.className).toBe('htRight');
+    });
+
+    it('should not materialize a row map when probing an empty row', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.getCellMetaUncached(7, 0, { visualRow: 7, visualColumn: 0 });
+
+      expect(metaManager.cellMeta.getMetaIfExists(7, 0)).toBeUndefined();
+      expect(metaManager.cellMeta.metas.has(7)).toBe(false);
+    });
+  });
+
+  describe('getCellMetaTransient()', () => {
+    it('should run the "extendTransientCellMeta" local hook on the throwaway object without storing it', () => {
+      const metaManager = new MetaManager();
+      const extended = [];
+
+      metaManager.addLocalHook('extendTransientCellMeta', (cellMeta) => {
+        extended.push(cellMeta);
+        cellMeta.readOnly = true; // simulates a `cells()`-driven property
+      });
+
+      const meta = metaManager.getCellMetaTransient(2, 3, { visualRow: 2, visualColumn: 3 });
+
+      expect(extended).toEqual([meta]);
+      expect(meta.readOnly).toBe(true);
+      expect(meta.row).toBe(2);
+      expect(meta.col).toBe(3);
+      expect(meta.visualRow).toBe(2);
+      expect(meta.visualCol).toBe(3);
+      // nothing retained
+      expect(metaManager.cellMeta.getMetaIfExists(2, 3)).toBeUndefined();
+      expect(metaManager.cellMeta.getMetas()).toHaveLength(0);
+    });
+
+    it('should resolve stored meta once, without a second storage lookup', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.setCellMeta(5, 1, 'className', 'htRight');
+
+      const getMetaSpy = jest.spyOn(metaManager.cellMeta, 'getMeta');
+      const meta = metaManager.getCellMetaTransient(5, 1, { visualRow: 5, visualColumn: 1 });
+
+      expect(meta.className).toBe('htRight');
+      expect(getMetaSpy).not.toHaveBeenCalled();
+    });
+
+    it('should route cells with stored meta through the regular memoized getCellMeta path', () => {
+      const metaManager = new MetaManager();
+      const transientHookCalls = [];
+      const eagerHookCalls = [];
+
+      metaManager.addLocalHook('extendTransientCellMeta', () => transientHookCalls.push(1));
+      metaManager.addLocalHook('afterGetCellMeta', () => eagerHookCalls.push(1));
+
+      metaManager.setCellMeta(5, 1, 'className', 'htRight');
+
+      const meta = metaManager.getCellMetaTransient(5, 1, { visualRow: 5, visualColumn: 1 });
+
+      expect(meta.className).toBe('htRight');
+      expect(meta).toBe(metaManager.getCellMeta(5, 1, { visualRow: 5, visualColumn: 1, skipMetaExtension: true }));
+      expect(transientHookCalls).toHaveLength(0);
+      expect(eagerHookCalls).toHaveLength(1);
+    });
+
+    it('should inherit column-layer settings through the prototype chain', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.updateColumnMeta(4, { className: 'htCenter' });
+
+      const meta = metaManager.getCellMetaTransient(10, 4, { visualRow: 10, visualColumn: 4 });
+
+      expect(meta.className).toBe('htCenter');
+      expect(metaManager.cellMeta.getMetaIfExists(10, 4)).toBeUndefined();
+    });
+  });
+
+  describe('an "editor" setting of `true`', () => {
+    // `true` names no editor, so it has to read as "not passed" - the cell keeps the editor its
+    // "type" (or a higher meta layer) provides. Without normalization the raw `true` reaches
+    // `getEditorInstance()`, which throws on the first edit (GH #7561 follow-up).
+    const textEditor = () => getCellType('text').editor;
+    const numericEditor = () => getCellType('numeric').editor;
+
+    it('should fall back to the default editor when passed to the global meta layer', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.updateGlobalMeta({ editor: true });
+
+      expect(metaManager.getGlobalMeta().editor).toBe(textEditor());
+    });
+
+    it('should fall back to the default editor when passed to the table meta layer', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.updateTableMeta({ editor: true });
+
+      expect(metaManager.getTableMeta().editor).toBe(textEditor());
+    });
+
+    it('should fall back to the default editor when passed to the column meta layer', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.updateColumnMeta(2, { editor: true });
+
+      const meta = metaManager.getCellMeta(0, 2, { visualRow: 0, visualColumn: 2 });
+
+      expect(meta.editor).toBe(textEditor());
+    });
+
+    it('should fall back to the default editor when passed to the cell meta layer', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.updateCellMeta(1, 1, { editor: true });
+
+      const meta = metaManager.getCellMeta(1, 1, { visualRow: 1, visualColumn: 1 });
+
+      expect(meta.editor).toBe(textEditor());
+    });
+
+    it('should keep the editor supplied by the cell "type" of the same column', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.updateColumnMeta(3, { type: 'numeric', editor: true });
+
+      const meta = metaManager.getCellMeta(0, 3, { visualRow: 0, visualColumn: 3 });
+
+      expect(meta.editor).toBe(numericEditor());
+      expect(meta.renderer).toBe(getCellType('numeric').renderer);
+    });
+
+    it('should keep the editor supplied by the cell "type" of the same cell', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.updateCellMeta(2, 2, { type: 'numeric', editor: true });
+
+      const meta = metaManager.getCellMeta(2, 2, { visualRow: 2, visualColumn: 2 });
+
+      expect(meta.editor).toBe(numericEditor());
+    });
+
+    it('should keep the editor inherited from a higher meta layer', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.updateGlobalMeta({ editor: 'password' });
+      metaManager.updateColumnMeta(1, { editor: true });
+
+      const meta = metaManager.getCellMeta(0, 1, { visualRow: 0, visualColumn: 1 });
+
+      expect(meta.editor).toBe('password');
+    });
+
+    it('should not leave the raw `true` on the meta object', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.updateColumnMeta(0, { type: 'numeric', editor: true });
+
+      const meta = metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 });
+
+      expect(meta.editor).not.toBe(true);
+      expect(metaManager.getColumnMeta(0).editor).not.toBe(true);
+    });
+
+    it('should not affect an "editor" setting of `false`, which still disables editing', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.updateColumnMeta(0, { type: 'numeric', editor: false });
+
+      const meta = metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 });
+
+      expect(meta.editor).toBe(false);
+    });
+
+    it('should not affect a named editor, which still wins over the cell "type"', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.updateColumnMeta(0, { type: 'numeric', editor: 'password' });
+
+      const meta = metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 });
+
+      expect(meta.editor).toBe('password');
+    });
+  });
+
+  describe('grid-level `editor: false` against a column "type"', () => {
+    it('should keep editing disabled when a column declares a "type"', () => {
+      const metaManager = new MetaManager(null, { editor: false });
+
+      metaManager.updateColumnMeta(0, { type: 'numeric' });
+
+      expect(metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 }).editor).toBe(false);
+    });
+
+    it('should still apply the rest of the column "type" so formatting survives', () => {
+      const metaManager = new MetaManager(null, { editor: false });
+
+      metaManager.updateColumnMeta(0, { type: 'numeric' });
+
+      const meta = metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 });
+
+      expect(meta.renderer).toBe(getCellType('numeric').renderer);
+      expect(meta.validator).toBe(getCellType('numeric').validator);
+    });
+
+    it('should let a column opt back in with a named editor of its own', () => {
+      const metaManager = new MetaManager(null, { editor: false });
+
+      metaManager.updateColumnMeta(0, { type: 'numeric', editor: 'text' });
+
+      expect(metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 }).editor).toBe('text');
+    });
+
+    // `editor: true` names no editor of its own, but it asks for the one the type provides. It is the
+    // opt-in users reach for first, so it must work like a named editor does.
+    it('should let a column opt back in with `editor: true`', () => {
+      const metaManager = new MetaManager(null, { editor: false });
+
+      metaManager.updateColumnMeta(0, { type: 'numeric', editor: true });
+
+      expect(metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 }).editor)
+        .toBe(getCellType('numeric').editor);
+    });
+
+    it('should let a single cell opt back in with `editor: true`', () => {
+      const metaManager = new MetaManager(null, { editor: false });
+
+      metaManager.extendCellMeta(0, 0, { type: 'numeric', editor: true });
+
+      expect(metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 }).editor)
+        .toBe(getCellType('numeric').editor);
+    });
+
+    it('should let a grid-level "type" supply its editor when `editor: true` comes with it', () => {
+      const metaManager = new MetaManager(null, { editor: false });
+
+      metaManager.updateGlobalMeta({ type: 'numeric', editor: true });
+
+      expect(metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 }).editor)
+        .toBe(getCellType('numeric').editor);
+    });
+
+    // A grid-level custom type that declares `editor: false` supplies a DEFAULT, not the user's
+    // policy, so a column's own type still replaces it - the same as it does one layer down.
+    it('should let a column "type" replace an `editor: false` that a grid-level "type" supplied', () => {
+      const metaManager = new MetaManager(null, { type: { renderer: () => {}, editor: false } });
+
+      metaManager.updateColumnMeta(0, { type: 'numeric' });
+      metaManager.updateColumnMeta(1, { type: 'checkbox' });
+
+      expect(metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 }).editor)
+        .toBe(getCellType('numeric').editor);
+      expect(metaManager.getCellMeta(0, 1, { visualRow: 0, visualColumn: 1 }).editor)
+        .toBe(getCellType('checkbox').editor);
+    });
+
+    it('should keep a grid-level `editor: false` the user set next to a grid-level "type"', () => {
+      const metaManager = new MetaManager(null, { type: { renderer: () => {}, editor: 'text' }, editor: false });
+
+      metaManager.updateColumnMeta(0, { type: 'numeric' });
+
+      expect(metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 }).editor).toBe(false);
+    });
+
+    // Documented limitation, pinned so a change to it is noticed. The carve-out acts when the type
+    // is EXPANDED, and a column built earlier already owns its type's editor - so switching editing
+    // off afterwards at the grid level does not reach it until the column is rebuilt.
+    it('should NOT reach an already-built typed column when disabled after the fact', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.updateColumnMeta(0, { type: 'numeric' });
+      metaManager.updateGlobalMeta({ editor: false });
+
+      expect(metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 }).editor)
+        .toBe(getCellType('numeric').editor);
+    });
+
+    it('should reach that column once it is rebuilt', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.updateColumnMeta(0, { type: 'numeric' });
+      metaManager.updateGlobalMeta({ editor: false });
+      metaManager.clearCache();
+      metaManager.updateColumnMeta(0, { type: 'numeric' });
+
+      expect(metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 }).editor).toBe(false);
+    });
+
+    // `updateSettings()` writes options onto the global meta directly, not through `updateMeta()`. The
+    // grid-level default type has already written its own editor there, so a later `editor: false`
+    // must be recognized as the user's value rather than as that type's default.
+    it('should keep editing disabled when `editor: false` is written onto the global meta directly', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.getGlobalMeta().editor = false;
+      metaManager.updateColumnMeta(0, { type: 'numeric' });
+
+      expect(metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 }).editor).toBe(false);
+    });
+  });
+
+  describe('cell type `textEllipsis` default (DEV-28)', () => {
+    it('should default `textEllipsis` to `true` for the autocomplete/dropdown/handsontable types', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.updateColumnMeta(0, { type: 'autocomplete' });
+      metaManager.updateColumnMeta(1, { type: 'dropdown' });
+      metaManager.updateColumnMeta(2, { type: 'handsontable' });
+
+      expect(metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 }).textEllipsis).toBe(true);
+      expect(metaManager.getCellMeta(0, 1, { visualRow: 0, visualColumn: 1 }).textEllipsis).toBe(true);
+      expect(metaManager.getCellMeta(0, 2, { visualRow: 0, visualColumn: 2 }).textEllipsis).toBe(true);
+    });
+
+    it('should let a column override the type default with `textEllipsis: false`', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.updateColumnMeta(0, { type: 'dropdown', textEllipsis: false });
+
+      expect(metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 }).textEllipsis).toBe(false);
+    });
+
+    it('should let `setCellMeta` override the type default and keep it across re-extension', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.updateColumnMeta(0, { type: 'dropdown' });
+      metaManager.setCellMeta(0, 0, 'textEllipsis', false);
+
+      // The type re-extends on every read; the user's own value must keep winning.
+      expect(metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 }).textEllipsis).toBe(false);
+      expect(metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 }).textEllipsis).toBe(false);
+    });
+
+    it('should NOT let a grid-level `textEllipsis: false` reach a column that declares the type', () => {
+      const metaManager = new MetaManager();
+
+      metaManager.updateGlobalMeta({ textEllipsis: false });
+      metaManager.updateColumnMeta(0, { type: 'dropdown' });
+
+      // The type's own value lands on the column meta as an own property and shadows the
+      // grid-level setting, which lives on the column meta's prototype. Recovery must be at the
+      // column (or below), not at the grid level.
+      expect(metaManager.getCellMeta(0, 0, { visualRow: 0, visualColumn: 0 }).textEllipsis).toBe(true);
+    });
+  });
+});

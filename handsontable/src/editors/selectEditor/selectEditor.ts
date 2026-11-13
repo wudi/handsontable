@@ -1,0 +1,337 @@
+import { BaseEditor, EDITOR_STATE } from '../baseEditor';
+import type { CellProperties } from '../../settings';
+import {
+  addClass,
+  empty,
+  fastInnerHTML,
+  hasClass,
+  removeClass,
+} from '../../helpers/dom/element';
+import { objectEach } from '../../helpers/object';
+import { A11Y_HIDDEN } from '../../helpers/a11y';
+import { getSanitizer } from '../../utils/sanitizer';
+import { syncIcon } from '../../themes/engine/icons';
+
+const EDITOR_VISIBLE_CLASS_NAME = 'ht_editor_visible';
+const SHORTCUTS_GROUP = 'selectEditor';
+const ARROW_ICON_CLASS_NAME = 'ht-select-editor-arrow-icon';
+
+export const EDITOR_TYPE = 'select';
+
+/**
+ * @private
+ * @class SelectEditor
+ */
+export class SelectEditor extends BaseEditor {
+  /**
+   * Returns the unique editor type identifier for the select editor.
+   */
+  static get EDITOR_TYPE() {
+    return EDITOR_TYPE;
+  }
+
+  /**
+   * @type {HTMLDivElement}
+   */
+  declare selectWrapper: HTMLDivElement;
+  /**
+   * @type {HTMLSelectElement}
+   */
+  declare select: HTMLSelectElement;
+
+  /**
+   * Initializes editor instance, DOM Element and mount hooks.
+   */
+  init(): void {
+    this.selectWrapper = this.hot.rootDocument.createElement('div');
+    this.select = this.hot.rootDocument.createElement('select');
+    this.select.dataset.hotInput = 'true';
+    this.selectWrapper.style.display = 'none';
+
+    const ARROW = this.hot.rootDocument.createElement('DIV');
+    const isAriaEnabled = this.hot.getSettings().ariaTags;
+
+    ARROW.className = 'htAutocompleteArrow';
+
+    if (isAriaEnabled) {
+      ARROW.setAttribute(...A11Y_HIDDEN());
+    }
+
+    // The text glyph is hidden by `font-size: 0` on `.htAutocompleteArrow` (`_autocomplete-
+    // renderer.scss`) wherever the theme paints the real one from an icon mask, so it stays as
+    // the fallback a bare, unthemed grid renders instead - same choice `autocompleteRenderer.ts`
+    // makes for the cell arrow this editor's own arrow mirrors.
+    ARROW.appendChild(this.hot.rootDocument.createTextNode(String.fromCharCode(9660)));
+    syncIcon(this.hot, ARROW, ARROW_ICON_CLASS_NAME, 'selectArrow');
+
+    addClass(this.selectWrapper, 'htSelectEditor');
+    this.selectWrapper.appendChild(this.select);
+
+    this.selectWrapper.insertBefore(ARROW, this.selectWrapper.firstChild);
+
+    this.hot.rootElement.appendChild(this.selectWrapper);
+    this.registerHooks();
+
+    this.hot.addHookOnce('afterDestroy', () => this.destroy());
+  }
+
+  /**
+   * Returns select's value.
+   *
+   * @returns {*}
+   */
+  getValue(): unknown {
+    return this.select.value;
+  }
+
+  /**
+   * Sets value in the select element.
+   *
+   * @param {*} value A new select's value.
+   */
+  setValue(value?: unknown): void {
+    this.select.value = (value === null || value === undefined) ? '' : String(value);
+  }
+
+  /**
+   * Opens the editor and adjust its size.
+   */
+  open(): void {
+    this._opened = true;
+
+    // The editor element is built once and reused, so the arrow icon picks up a runtime `icons`
+    // remap or theme switch here. A no-op unless the theme's icons revision moved. Looked up rather
+    // than kept in a `#` field: `BaseEditor`'s constructor runs `init()` before a subclass's own
+    // field initializers, so a private field assigned there throws.
+    const arrow = this.selectWrapper.querySelector<HTMLElement>('.htAutocompleteArrow');
+
+    if (arrow) {
+      syncIcon(this.hot, arrow, ARROW_ICON_CLASS_NAME, 'selectArrow');
+    }
+
+    this.refreshDimensions();
+    this.selectWrapper.style.display = '';
+
+    const shortcutManager = this.hot.getShortcutManager();
+
+    shortcutManager.setActiveContextName('editor');
+
+    this.registerShortcuts();
+  }
+
+  /**
+   * Closes the editor.
+   */
+  close(): void {
+    this._opened = false;
+    this.selectWrapper.style.display = 'none';
+
+    if (hasClass(this.selectWrapper, EDITOR_VISIBLE_CLASS_NAME)) {
+      removeClass(this.selectWrapper, EDITOR_VISIBLE_CLASS_NAME);
+    }
+
+    this.unregisterShortcuts();
+    this.removeHooksByKey('beforeDialogShow');
+  }
+
+  /**
+   * Sets focus state on the select element.
+   */
+  focus(): void {
+    this.select.focus();
+  }
+
+  /**
+   * Binds hooks to refresh editor's size after scrolling of the viewport or resizing of columns/rows.
+   *
+   * @private
+   */
+  registerHooks(): void {
+    this.addHook('afterScrollHorizontally', () => this.refreshDimensions());
+    this.addHook('afterScrollVertically', () => this.refreshDimensions());
+    this.addHook('afterColumnResize', () => this.refreshDimensions());
+    this.addHook('afterRowResize', () => this.refreshDimensions());
+  }
+
+  /**
+   * Prepares editor's meta data and a list of available options.
+   *
+   * @param {number} row The visual row index.
+   * @param {number} col The visual column index.
+   * @param {number|string} prop The column property (passed when datasource is an array of objects).
+   * @param {HTMLTableCellElement} td The rendered cell element.
+   * @param {*} value The rendered value.
+   * @param {object} cellProperties The cell meta object (see {@link Core#getCellMeta}).
+   */
+  prepare(
+    row: number, col: number, prop: string | number,
+    td: HTMLTableCellElement, value: unknown, cellProperties: CellProperties): void {
+    super.prepare(row, col, prop, td, value, cellProperties);
+
+    type SelectOpts = (string | number | object)[] | Record<string, string> | undefined;
+    const selectOptions = this.cellProperties.selectOptions as SelectOpts;
+    let options;
+
+    if (typeof selectOptions === 'function') {
+      type OptionsFn = (row: number, col: number, prop: string | number) => unknown;
+      options = this.prepareOptions((selectOptions as OptionsFn)(this.row!, this.col!, this.prop!));
+    } else {
+      options = this.prepareOptions(selectOptions);
+    }
+
+    empty(this.select);
+
+    const sanitizer = getSanitizer(this.hot);
+
+    if (Array.isArray(options)) {
+      for (let i = 0; i < options.length; i++) {
+        const optionElement = this.hot.rootDocument.createElement('OPTION') as HTMLOptionElement;
+
+        optionElement.value = String(options[i]);
+        fastInnerHTML(optionElement, String(options[i]), sanitizer, 'selectEditor', this.hot.rootElement);
+        this.select.appendChild(optionElement);
+      }
+    } else {
+      objectEach(options, (optionValue, key) => {
+        const optionElement = this.hot.rootDocument.createElement('OPTION') as HTMLOptionElement;
+
+        optionElement.value = key;
+        fastInnerHTML(optionElement, String(optionValue), sanitizer, 'selectEditor', this.hot.rootElement);
+        this.select.appendChild(optionElement);
+      });
+    }
+  }
+
+  /**
+   * Creates consistent list of available options.
+   *
+   * @private
+   * @param {Array|object} optionsToPrepare The list of the values to render in the select element.
+   * @returns {Array|object}
+   */
+  prepareOptions(optionsToPrepare?: unknown): unknown[] | Record<string, unknown> {
+    if (Array.isArray(optionsToPrepare)) {
+      return optionsToPrepare as unknown[];
+    }
+
+    if (typeof optionsToPrepare === 'object') {
+      return optionsToPrepare as Record<string, unknown>;
+    }
+
+    return {};
+  }
+
+  /**
+   * Refreshes editor's value using source data.
+   *
+   * @private
+   */
+  refreshValue(): void {
+    const physicalRow = this.hot.toPhysicalRow(this.row!);
+    const sourceData = this.hot.getSourceDataAtCell(physicalRow, this.col!);
+
+    this.originalValue = sourceData;
+
+    this.setValue(sourceData);
+    // Same reason as in `TextEditor#refreshValue()`: the control now shows the cell's own value
+    // again, so the unchanged-edit baseline has to follow it. Leaving the opening value in place
+    // would compare the user's next confirm against an option the editor no longer shows, and the
+    // choice they actually picked would be dropped.
+    this.resetValueBeforeEdit();
+    this.refreshDimensions();
+  }
+
+  /**
+   * Refreshes editor's size and position.
+   *
+   * @private
+   */
+  refreshDimensions(): void {
+    if (this.state !== EDITOR_STATE.EDITING) {
+      return;
+    }
+
+    this.TD = this.getEditedCell();
+
+    // TD is outside of the viewport.
+    if (!this.TD) {
+      this.close();
+
+      return;
+    }
+
+    const cellRect = this.getEditedCellRect();
+
+    if (!cellRect) {
+      return;
+    }
+
+    const { top, start, width, height } = cellRect;
+    const selectStyle = this.selectWrapper.style;
+
+    selectStyle.height = `${height}px`;
+    selectStyle.width = `${width}px`;
+    selectStyle.top = `${top}px`;
+    selectStyle[this.hot.isRtl() ? 'right' : 'left'] = `${start}px`;
+    selectStyle.margin = '0px';
+
+    addClass(this.selectWrapper, EDITOR_VISIBLE_CLASS_NAME);
+  }
+
+  /**
+   * Register shortcuts responsible for handling editor.
+   *
+   * @private
+   */
+  registerShortcuts(): void {
+    const shortcutManager = this.hot.getShortcutManager();
+    const editorContext = shortcutManager.getContext('editor');
+    const contextConfig = {
+      group: SHORTCUTS_GROUP,
+    };
+
+    if (this.isInFullEditMode()) {
+      // The arrow-related shortcuts should work only in full edit mode.
+      editorContext!.addShortcuts([{
+        keys: [['ArrowUp']],
+        callback: () => {
+          const previousOptionIndex = this.select.selectedIndex - 1;
+
+          if (previousOptionIndex >= 0) {
+            (this.select[previousOptionIndex] as HTMLOptionElement).selected = true;
+          }
+        },
+      }, {
+        keys: [['ArrowDown']],
+        callback: () => {
+          const nextOptionIndex = this.select.selectedIndex + 1;
+
+          if (nextOptionIndex <= this.select.length - 1) {
+            (this.select[nextOptionIndex] as HTMLOptionElement).selected = true;
+          }
+        }
+      }], contextConfig);
+    }
+  }
+
+  /**
+   * Unregister shortcuts responsible for handling editor.
+   *
+   * @private
+   */
+  unregisterShortcuts(): void {
+    const shortcutManager = this.hot.getShortcutManager();
+    const editorContext = shortcutManager.getContext('editor');
+
+    editorContext!.removeShortcutsByGroup(SHORTCUTS_GROUP);
+  }
+
+  /**
+   * Clears all attached hooks.
+   *
+   * @private
+   */
+  destroy() {
+    this.clearHooks();
+  }
+}

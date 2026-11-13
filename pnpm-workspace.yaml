@@ -1,0 +1,54 @@
+autoInstallPeers: true
+linkWorkspacePackages: true
+preferWorkspacePackages: true
+preferFrozenLockfile: true
+
+packages:
+  - handsontable
+  - wrappers/*
+  - visual-tests
+  - examples
+  - docs
+  - docs/angular-type-check
+  - tests
+
+# One Playwright version across the monorepo — the catalog version and the CI
+# container tag (mcr.microsoft.com/playwright:vX.Y.Z-noble in e2e.yml) bump
+# together, never apart. tests/, visual-tests/, and docs/ consume it via
+# `catalog:`; performance-tests/ is npm-managed (own package-lock.json), so its
+# pin is kept in lockstep by hand.
+catalog:
+  '@playwright/test': 1.62.1
+
+ignoredBuiltDependencies:
+  - lefthook # its postinstall is redundant — scripts/prepare-dev-env.mjs wires the hooks
+  - nice-napi
+  - sharp
+
+onlyBuiltDependencies:
+  - '@parcel/watcher'
+  - core-js
+  - esbuild
+  - puppeteer
+  - nx
+
+# TODO: Replace with newer version of the Vue wrapper dependencies.
+packageExtensions:
+  '@vue/test-utils@2.0.0-rc.16': # Force compatible Vue3 sub-dependencies for rc and alpha versions of the wrapper dependencies.
+    dependencies:
+      'vue': '3.5.16'
+      '@vue/compiler-dom': '3.5.16'
+      '@vue/compiler-sfc': '3.5.16'
+  'vue-jest@5.0.0-alpha.10': # Force compatible Vue3 sub-dependencies for rc and alpha versions of the wrapper dependencies.
+    dependencies:
+      '@vue/compiler-dom': '3.5.16'
+      '@vue/compiler-sfc': '3.5.16'
+  '@nx/devkit': # Add a missing peer dependency of rxjs used by the Nx devkit.
+    peerDependencies:
+      'rxjs': '*'
+  'jsdom@16':
+    peerDependencies:
+      'form-data': '3.0.5'
+  'jsdom@24':
+    peerDependencies:
+      'form-data': '4.0.6'

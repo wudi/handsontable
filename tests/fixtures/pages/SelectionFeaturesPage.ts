@@ -1,0 +1,2177 @@
+import { type Page, type Locator, expect } from '@playwright/test';
+import type { CellValue, MoveCellsHookRecord } from './windowTypes';
+import { dragFillHandle } from '../gestures';
+import { awaitBundle } from '../bundle';
+
+/**
+ * The plugins the DEV-775 spec destroys on their own, ahead of the grid.
+ */
+type DestroyablePluginName = 'autofill' | 'comments' | 'filters' | 'autoColumnSize' | 'nestedHeaders';
+
+type Box = { x: number, y: number, width: number, height: number };
+
+/**
+ * An overlay (table) of the grid: the master, or one of the frozen-pane clones.
+ */
+type OverlayName = 'master' | 'top' | 'bottom' | 'inline_start' | 'top_inline_start_corner' |
+  'bottom_inline_start_corner';
+
+/**
+ * The CSS class of an overlay's root element.
+ *
+ * @param {OverlayName} overlay The overlay.
+ * @returns {string}
+ */
+function overlayClass(overlay: OverlayName): string {
+  return overlay === 'master' ? 'ht_master' : `ht_clone_${overlay}`;
+}
+
+/**
+ * Page Object for the selection features fixture
+ * (tests/fixtures/demo/selection-features.html).
+ *
+ * The fixture runs a grid with `selectionHandles` and `moveCells` enabled.
+ * Tests express intent (`selectCells`, `hoverCell`, `visibleHandles`); the
+ * selectors and the `window.hot` driving mechanics live here. Most locators are
+ * scoped to the master overlay — the frozen-pane clones duplicate the border
+ * elements, so an unscoped match would be ambiguous. The `…InAnyOverlay`
+ * locators are the deliberate exception (they count handles across overlays),
+ * and `overlayCell()`/`overlayHandle()` scope to one named overlay.
+ */
+export class SelectionFeaturesPage {
+  readonly page: Page;
+  readonly theme: string;
+  readonly bundle: string;
+  readonly grid: Locator;
+
+  constructor(page: Page, theme = 'main', bundle = 'umd') {
+    this.page = page;
+    this.theme = theme;
+    this.bundle = bundle;
+    this.grid = page.getByTestId('grid');
+  }
+
+  /**
+   * Navigate to the fixture and wait for the grid to render (web-first wait on
+   * a real DOM condition).
+   */
+  async goto(): Promise<void> {
+    await this.page.goto(`/tests/fixtures/demo/selection-features.html?theme=${this.theme}&bundle=${this.bundle}`);
+    await awaitBundle(this.page);
+    await expect(this.cell(0, 0)).toBeVisible();
+  }
+
+  /**
+   * Rebuild the grid with the default selection-feature settings merged with
+   * the given overrides — a fresh instance per test, no cross-test state.
+   */
+  async initGrid(overrides: Record<string, unknown> = {}): Promise<void> {
+    await this.page.evaluate(settings => window.initSelectionGrid(settings), overrides);
+    await expect(this.grid.locator('.ht-wrapper')).toBeVisible();
+  }
+
+  /**
+   * Rebuild the grid with reordered indexes and a value getter that distinguishes displayed
+   * and source values.
+   */
+  async initGridWithValueGetter(): Promise<void> {
+    await this.page.evaluate(() => window.initSelectionGrid({
+      valueGetter: value => `Display: ${value}`,
+      manualRowMove: [1, 0, 2, 3, 4, 5, 6, 7, 8, 9],
+      manualColumnMove: [1, 0, 2, 3, 4, 5, 6, 7, 8, 9],
+    }));
+    await expect(this.grid.locator('.ht-wrapper')).toBeVisible();
+  }
+
+  /**
+   * Rebuild the grid with enough rows and deterministic timers for auto-scroll tests.
+   */
+  async initLongAutoScrollGrid(): Promise<void> {
+    await this.page.evaluate(() => window.initSelectionGrid({
+      data: Array.from({ length: 100 }, (_, row) =>
+        Array.from({ length: 10 }, (_, col) => `R${row + 1}C${col + 1}`)),
+      height: 150,
+      dragToScroll: {
+        interval: {
+          min: 50,
+          max: 50,
+        },
+      },
+    }));
+    await expect(this.grid.locator('.ht-wrapper')).toBeVisible();
+  }
+
+  /**
+   * Rebuild the grid with enough rows to scroll vertically through several selections.
+   */
+  async initScrollableGrid(): Promise<void> {
+    await this.page.evaluate(() => window.initSelectionGrid({
+      data: Array.from({ length: 100 }, (_, row) =>
+        Array.from({ length: 10 }, (_, col) => `R${row + 1}C${col + 1}`)),
+      height: 300,
+    }));
+    await expect(this.grid.locator('.ht-wrapper')).toBeVisible();
+  }
+
+  /** A single data cell, by visual row/column, via its stable test id. */
+  cell(row: number, col: number): Locator {
+    return this.page.locator('.ht_master').getByTestId(`cell-${row}-${col}`);
+  }
+
+  /** Select a cell range through the instance API. */
+  async selectCells(
+    fromRow: number, fromCol: number, toRow: number, toCol: number, scrollToCell = true,
+  ): Promise<void> {
+    await this.page.evaluate(
+      ([range, scroll]) => window.hot.selectCells([range as number[]], scroll as boolean),
+      [[fromRow, fromCol, toRow, toCol], scrollToCell] as const,
+    );
+  }
+
+  /**
+   * Select several ranges at once through the instance API, the way `selectCells()` builds a
+   * non-contiguous selection. Each range is `[fromRow, fromCol, toRow, toCol]`.
+   */
+  async selectRanges(ranges: [number, number, number, number][]): Promise<void> {
+    await this.page.evaluate(selection => window.hot.selectCells(selection), ranges);
+  }
+
+  /**
+   * Every fill handle drawn in any overlay – the cell corner (`.current`) and the area corner
+   * (`.area`) alike. Counting across overlays keeps a handle drawn by a frozen clone from hiding.
+   */
+  fillHandlesInAnyOverlay(): Locator {
+    return this.grid.locator('.wtBorder.corner:visible');
+  }
+
+  /**
+   * Select a cell and paste text into it through the CopyPaste plugin's `paste()` – the same write
+   * a Ctrl/Cmd+V makes (source `CopyPaste.paste`), without depending on the system clipboard.
+   */
+  async pasteText(row: number, col: number, text: string): Promise<void> {
+    await this.page.evaluate(([r, c, t]) => {
+      window.hot.selectCell(r, c);
+      window.hot.getPlugin('copyPaste').paste(t);
+    }, [row, col, text] as const);
+  }
+
+  /**
+   * What a checkbox cell holds and shows: the stored source value, whether the renderer drew the
+   * `#bad-value#` state, and whether the cell carries the invalid class.
+   */
+  async checkboxCell(row: number, col: number): Promise<{ value: unknown, badValue: boolean, invalid: boolean }> {
+    return this.page.evaluate(([r, c]) => {
+      const td = window.hot.getCell(r, c, true);
+
+      return {
+        value: window.hot.getSourceDataAtCell(r, c),
+        badValue: Boolean(td?.querySelector('.htBadValue')),
+        invalid: td?.classList.contains('htInvalid') ?? false,
+      };
+    }, [row, col] as const);
+  }
+
+  /**
+   * Write a value through `setDataAtCell()` with an explicit change source.
+   */
+  async setCellValueWithSource(row: number, col: number, value: CellValue, source: string): Promise<void> {
+    await this.page.evaluate(([r, c, v, src]) => window.hot.setDataAtCell(r, c, v, src), [row, col, value, source] as const);
+  }
+
+  /**
+   * Whether the grid renders a cell right now (a row below the viewport has no element).
+   */
+  async isCellRendered(row: number, col: number): Promise<boolean> {
+    return this.page.evaluate(([r, c]) => window.hot.getCell(r, c) !== null, [row, col] as const);
+  }
+
+  /**
+   * Select a cell through the API, make the grid listen, and press a key the way a user does.
+   */
+  async pressKeyOnCell(row: number, col: number, key: string): Promise<void> {
+    await this.page.evaluate(([r, c]) => {
+      window.hot.selectCell(r, c);
+      window.hot.listen();
+    }, [row, col] as const);
+    await this.page.keyboard.press(key);
+  }
+
+  /**
+   * The values of one column in visual order, read through the instance API.
+   */
+  async visualColumnData(col: number): Promise<CellValue[]> {
+    return this.page.evaluate(c => window.hot.getDataAtCol(c), col);
+  }
+
+  /**
+   * Sort one column through the ColumnSorting plugin.
+   */
+  async sortColumn(col: number, sortOrder: 'asc' | 'desc'): Promise<void> {
+    await this.page.evaluate(([c, order]) => window.hot.getPlugin('columnSorting').sort({ column: c, sortOrder: order }),
+      [col, sortOrder] as const);
+  }
+
+  /** Clear the selection through the instance API. */
+  async deselect(): Promise<void> {
+    await this.page.evaluate(() => window.hot.deselectCell());
+  }
+
+  /**
+   * Stop the instance from listening to keyboard input, as an outside click with
+   * `outsideClickDeselects: false` (or focusing another instance) would.
+   */
+  async unlisten(): Promise<void> {
+    await this.page.evaluate(() => window.hot.unlisten());
+  }
+
+  /** Destroy the grid instance. */
+  async destroyGrid(): Promise<void> {
+    await this.page.evaluate(() => window.hot.destroy());
+  }
+
+  /**
+   * Move a selected range through the MoveCells plugin API.
+   */
+  async moveRange(
+    [fromRow, fromCol, toRow, toCol]: [number, number, number, number],
+    [targetRow, targetCol]: [number, number],
+  ): Promise<boolean> {
+    return this.page.evaluate(({ from, target }) => {
+      const hot = window.hot;
+
+      hot.selectCells([from]);
+
+      return hot.getPlugin('moveCells').moveCellRange(
+        hot.getSelectedRangeLast(),
+        hot._createCellCoords(target[0], target[1]),
+      );
+    }, { from: [fromRow, fromCol, toRow, toCol], target: [targetRow, targetCol] });
+  }
+
+  /**
+   * Move or copy a range through the MoveCells plugin API, without going through the pointer.
+   * Unlike `moveRange` this does not pre-select, so it can exercise ranges the UI would not offer.
+   */
+  async moveCellRange(
+    [fromRow, fromCol, toRow, toCol]: [number, number, number, number],
+    [targetRow, targetCol]: [number, number],
+    isCopy = false,
+  ): Promise<boolean> {
+    return this.page.evaluate(({ from, target, copy }) => {
+      const hot = window.hot;
+      const range = hot._createCellRange(
+        hot._createCellCoords(from[0], from[1]),
+        hot._createCellCoords(from[0], from[1]),
+        hot._createCellCoords(from[2], from[3]),
+      );
+
+      return hot.getPlugin('moveCells').moveCellRange(
+        range,
+        hot._createCellCoords(target[0], target[1]),
+        copy,
+      );
+    }, { from: [fromRow, fromCol, toRow, toCol], target: [targetRow, targetCol], copy: isCopy });
+  }
+
+  /**
+   * Read a displayed cell value.
+   */
+  async cellValue(row: number, col: number): Promise<CellValue> {
+    return this.page.evaluate(([r, c]) => window.hot.getDataAtCell(r, c), [row, col]);
+  }
+
+  /**
+   * The text the clipboard would receive for a single cell, which is empty for a cell flagged
+   * `copyable: false`.
+   */
+  async copyableText(row: number, col: number): Promise<string> {
+    return this.page.evaluate(([r, c]) => window.hot.getCopyableText(r, c, r, c), [row, col] as const);
+  }
+
+  /**
+   * Write a cell value through the grid, producing one undoable data change.
+   */
+  async setCellValue(row: number, col: number, value: CellValue): Promise<void> {
+    await this.page.evaluate(
+      ({ r, c, v }) => window.hot.setDataAtCell(r, c, v),
+      { r: row, c: col, v: value }
+    );
+  }
+
+  /**
+   * Read a raw source value without applying valueGetter.
+   */
+  async sourceCellValue(row: number, col: number): Promise<CellValue> {
+    return this.page.evaluate(([r, c]) => window.hot.getSourceDataAtCell(r, c), [row, col]);
+  }
+
+  /**
+   * Read a cell's `className` meta — the one meta key `moveCellRange` moves with the data.
+   */
+  async cellClassName(row: number, col: number): Promise<string | undefined> {
+    return this.page.evaluate(([r, c]) => window.hot.getCellMeta(r, c).className, [row, col]);
+  }
+
+  /**
+   * The moveCells hook calls recorded since the grid was built.
+   */
+  async hookLog(): Promise<MoveCellsHookRecord[]> {
+    return this.page.evaluate(() => window.moveCellsHookLog);
+  }
+
+  /**
+   * Make the fixture's `beforeMoveCells` listener veto the next move.
+   */
+  async setBeforeMoveCellsVeto(shouldVeto: boolean): Promise<void> {
+    await this.page.evaluate(veto => window.setBeforeMoveCellsVeto(veto), shouldVeto);
+  }
+
+  /**
+   * Make the fixture's `beforeRowMove` listener veto the next row move.
+   */
+  async setBeforeRowMoveVeto(shouldVeto: boolean): Promise<void> {
+    await this.page.evaluate(veto => window.setBeforeRowMoveVeto(veto), shouldVeto);
+  }
+
+  /**
+   * Make the fixture's `beforeColumnMove` listener veto the next column move.
+   */
+  async setBeforeColumnMoveVeto(shouldVeto: boolean): Promise<void> {
+    await this.page.evaluate(veto => window.setBeforeColumnMoveVeto(veto), shouldVeto);
+  }
+
+  /**
+   * Move rows through the ManualRowMove plugin API.
+   */
+  async moveRows(rows: number[], finalIndex: number): Promise<void> {
+    await this.page.evaluate(
+      ({ r, i }) => window.hot.getPlugin('manualRowMove').moveRows(r, i),
+      { r: rows, i: finalIndex }
+    );
+  }
+
+  /**
+   * Move columns through the ManualColumnMove plugin API.
+   */
+  async moveColumns(columns: number[], finalIndex: number): Promise<void> {
+    await this.page.evaluate(
+      ({ c, i }) => window.hot.getPlugin('manualColumnMove').moveColumns(c, i),
+      { c: columns, i: finalIndex }
+    );
+  }
+
+  /**
+   * Press the undo keyboard shortcut, the way a user does. Needs a selected cell so the grid holds
+   * focus. `ControlOrMeta` maps to Cmd on macOS and Ctrl elsewhere.
+   */
+  async pressUndoShortcut(): Promise<void> {
+    await this.page.keyboard.press('ControlOrMeta+z');
+  }
+
+  /**
+   * Freeze a column through the ManualColumnFreeze plugin API. Also arms that plugin's own
+   * `beforeColumnMove` veto, which only applies after its first use.
+   */
+  async freezeColumn(column: number): Promise<void> {
+    await this.page.evaluate(c => window.hot.getPlugin('manualColumnFreeze').freezeColumn(c), column);
+  }
+
+  /**
+   * The current visual-to-physical row order held by the index mapper.
+   */
+  async rowOrder(): Promise<number[]> {
+    return this.page.evaluate(() => window.hot.rowIndexMapper.getIndexesSequence());
+  }
+
+  /**
+   * The current visual-to-physical column order held by the index mapper.
+   */
+  async columnOrder(): Promise<number[]> {
+    return this.page.evaluate(() => window.hot.columnIndexMapper.getIndexesSequence());
+  }
+
+  /**
+   * Whether a redo is currently available.
+   */
+  async isRedoAvailable(): Promise<boolean> {
+    return this.page.evaluate(() => window.hot.getPlugin('undoRedo').isRedoAvailable());
+  }
+
+  /**
+   * Whether an undo is currently available.
+   */
+  async isUndoAvailable(): Promise<boolean> {
+    return this.page.evaluate(() => window.hot.getPlugin('undoRedo').isUndoAvailable());
+  }
+
+  /**
+   * How many actions sit on the undo stack — guards against a redo pushing a duplicate action.
+   */
+  async doneActionsCount(): Promise<number> {
+    return this.page.evaluate(() => window.hot.getPlugin('undoRedo').doneActions.length);
+  }
+
+  /**
+   * Undo the last action.
+   */
+  async undo(): Promise<void> {
+    await this.page.evaluate(() => window.hot.getPlugin('undoRedo').undo());
+  }
+
+  /**
+   * Redo the last undone action.
+   */
+  async redo(): Promise<void> {
+    await this.page.evaluate(() => window.hot.getPlugin('undoRedo').redo());
+  }
+
+  /**
+   * Start dragging the bottom move zone below the scrollable viewport.
+   */
+  async dragBottomMoveZoneBelowViewport(): Promise<void> {
+    await this.#dragElementBelowViewport(this.visibleMoveZones().nth(1));
+  }
+
+  /**
+   * Start dragging the bottom selection handle below the scrollable viewport.
+   */
+  async dragBottomHandleBelowViewport(): Promise<void> {
+    await this.#dragElementBelowViewport(this.handle('bottom'));
+  }
+
+  /**
+   * Drag the outer half of a move zone to the center of a target cell.
+   */
+  async dragOuterMoveZoneToCell(edge: 'bottom' | 'end', row: number, col: number): Promise<void> {
+    const isBottomEdge = edge === 'bottom';
+    const moveZoneBox = await this.visibleMoveZones().nth(isBottomEdge ? 1 : 3).boundingBox();
+    const targetBox = await this.cell(row, col).boundingBox();
+
+    if (!moveZoneBox || !targetBox) {
+      throw new Error('The move zone or target cell is not rendered.');
+    }
+
+    await this.page.mouse.move(
+      isBottomEdge ? moveZoneBox.x + (moveZoneBox.width / 2) : moveZoneBox.x + moveZoneBox.width - 1,
+      isBottomEdge ? moveZoneBox.y + moveZoneBox.height - 1 : moveZoneBox.y + (moveZoneBox.height / 2),
+    );
+    await this.page.mouse.down();
+    await this.page.mouse.move(
+      targetBox.x + (targetBox.width / 2),
+      targetBox.y + (targetBox.height / 2),
+    );
+    await this.page.mouse.up();
+  }
+
+  /**
+   * Press the bottom selection handle without releasing the pointer.
+   */
+  async pressBottomHandle(): Promise<void> {
+    const handleBox = await this.handle('bottom').boundingBox();
+
+    if (!handleBox) {
+      throw new Error('The bottom selection handle is not rendered.');
+    }
+
+    await this.page.mouse.move(
+      handleBox.x + (handleBox.width / 2),
+      handleBox.y + (handleBox.height / 2),
+    );
+    await this.page.mouse.down();
+  }
+
+  /**
+   * Drag a selection handle to the center of a rendered cell. The handle defaults to the master
+   * overlay's; pass another locator (e.g. `handleInAnyOverlay(edge)`) for one a frozen pane draws.
+   */
+  async dragHandleToCell(
+    edge: 'top' | 'bottom' | 'start' | 'end', row: number, col: number, handle: Locator = this.handle(edge),
+  ): Promise<void> {
+    const handleBox = await handle.boundingBox();
+    const targetBox = await this.cell(row, col).boundingBox();
+
+    if (!handleBox || !targetBox) {
+      throw new Error('The selection handle or target cell is not rendered.');
+    }
+
+    await this.page.mouse.move(
+      handleBox.x + (handleBox.width / 2),
+      handleBox.y + (handleBox.height / 2),
+    );
+    await this.page.mouse.down();
+    await this.page.mouse.move(
+      targetBox.x + (targetBox.width / 2),
+      targetBox.y + (targetBox.height / 2),
+    );
+    await this.page.mouse.up();
+  }
+
+  /**
+   * Drag the first visible move-zone band onto a target cell and drop.
+   *
+   * `modifier` is held down only for the release, which is when MoveCells reads it to decide between
+   * a move and a copy.
+   */
+  async dragMoveZoneToCell(
+    row: number, col: number, modifier?: 'Control' | 'Meta',
+  ): Promise<void> {
+    await this.#pressFirstMoveZone();
+    await this.#movePointerToCell(row, col);
+
+    if (modifier) {
+      await this.page.keyboard.down(modifier);
+    }
+
+    await this.page.mouse.up();
+
+    if (modifier) {
+      await this.page.keyboard.up(modifier);
+    }
+  }
+
+  /**
+   * Press the first visible move-zone band and move the pointer over a cell, without releasing.
+   */
+  async startMoveZoneDragOverCell(row: number, col: number): Promise<void> {
+    await this.#pressFirstMoveZone();
+    await this.#movePointerToCell(row, col);
+  }
+
+  /**
+   * Drag a range by grabbing it at a specific cell's bottom-end corner, then drop on a target cell.
+   *
+   * The grab offset MoveCells applies is derived from the pointer coordinates, not from which band
+   * element was pressed — so the press has to land at the grabbed cell, on the sliver where the
+   * bottom and end bands run along that cell's edges.
+   */
+  async dragRangeByCellCornerToCell(
+    grabRow: number, grabCol: number, targetRow: number, targetCol: number,
+  ): Promise<void> {
+    const grabBox = await this.cell(grabRow, grabCol).boundingBox();
+
+    if (!grabBox) {
+      throw new Error('The grab cell is not rendered.');
+    }
+
+    // Press on the bottom band along the grab cell's edge, at the cell's horizontal center — the
+    // exact SE corner point belongs to the autofill fill handle, which sits above the move bands.
+    await this.page.mouse.move(
+      grabBox.x + (grabBox.width / 2),
+      grabBox.y + grabBox.height - 2,
+    );
+    await this.page.mouse.down();
+    await this.#movePointerToCell(targetRow, targetCol);
+    await this.page.mouse.up();
+  }
+
+  /**
+   * Drag-select a range with the real pointer, ending with the pointer inside the new selection.
+   *
+   * Distinct from the `selectCells` API call: no fresh `mouseover` fires after the `mouseup`, which is
+   * the condition under which the handles used to stay hidden after a drag-select.
+   */
+  async dragSelectCells(fromRow: number, fromCol: number, toRow: number, toCol: number): Promise<void> {
+    await this.#movePointerToCell(fromRow, fromCol);
+    await this.page.mouse.down();
+    await this.#movePointerToCell(Math.round((fromRow + toRow) / 2), Math.round((fromCol + toCol) / 2));
+    await this.#movePointerToCell(toRow, toCol);
+    await this.page.mouse.up();
+  }
+
+  /**
+   * Press a move-zone band with the right button — must not start a move drag.
+   */
+  async rightPressMoveZone(): Promise<void> {
+    await this.#pressElementCenter(this.visibleMoveZones().first(), 'right');
+  }
+
+  /**
+   * Press a selection handle with the right button — must not start a resize drag.
+   */
+  async rightPressHandle(edge: 'top' | 'bottom' | 'start' | 'end'): Promise<void> {
+    await this.#pressElementCenter(this.handle(edge), 'right');
+  }
+
+  /**
+   * Whether the MoveCells plugin reports an active drag.
+   */
+  async isMoveDragActive(): Promise<boolean> {
+    return this.page.evaluate(() => window.hot.getPlugin('moveCells').isDragActive());
+  }
+
+  /**
+   * Whether a cell editor is currently open.
+   */
+  async isEditorOpened(): Promise<boolean> {
+    return this.page.evaluate(() => window.hot.getActiveEditor()?.isOpened() === true);
+  }
+
+  /**
+   * Open the cell editor on the focused cell through the editor API — the selection stays intact,
+   * unlike a dblclick, which collapses it to the clicked cell first.
+   */
+  async openEditor(): Promise<void> {
+    await this.page.evaluate(() => {
+      window.hot.listen();
+      window.hot.getActiveEditor()?.beginEditing();
+    });
+    await expect.poll(() => this.isEditorOpened()).toBe(true);
+  }
+
+  /**
+   * Close the open cell editor without committing its value.
+   */
+  async closeEditor(): Promise<void> {
+    await this.page.evaluate(() => window.hot.getActiveEditor()?.finishEditing(true));
+    await expect.poll(() => this.isEditorOpened()).toBe(false);
+  }
+
+  /**
+   * Enable or disable a selection-affordance plugin at runtime, then re-render so the borders
+   * re-evaluate their visibility callbacks.
+   */
+  async setPluginEnabled(name: 'moveCells' | 'selectionHandles', enabled: boolean): Promise<void> {
+    await this.page.evaluate(({ pluginName, isEnabled }) => {
+      // Branch instead of passing the union — the `getPlugin` fixture typing resolves per literal.
+      const plugin = pluginName === 'moveCells'
+        ? window.hot.getPlugin('moveCells')
+        : window.hot.getPlugin('selectionHandles');
+
+      if (isEnabled) {
+        plugin.enablePlugin();
+      } else {
+        plugin.disablePlugin();
+      }
+
+      window.hot.render();
+    }, { pluginName: name, isEnabled: enabled });
+  }
+
+  /**
+   * Whether the SelectionHandles plugin reports an active drag.
+   */
+  async isHandleDragActive(): Promise<boolean> {
+    return this.page.evaluate(() => window.hot.getPlugin('selectionHandles').isDragActive());
+  }
+
+  /**
+   * The cursor the document body currently holds. The drag cursor lives on the body so it persists
+   * while the pointer is outside the grid.
+   */
+  async bodyCursor(): Promise<string> {
+    return this.page.evaluate(() => document.body.style.cursor);
+  }
+
+  /**
+   * Whether the move ghost currently overlaps a cell — the preview must sit over the drop target.
+   * A positioning regression pushes the ghost off-screen, so it stops overlapping.
+   */
+  async isMoveGhostOverCell(row: number, col: number): Promise<boolean> {
+    const ghostBox = await this.moveGhost().boundingBox();
+    const cellBox = await this.cell(row, col).boundingBox();
+
+    if (!ghostBox || !cellBox) {
+      return false;
+    }
+
+    return ghostBox.x + ghostBox.width > cellBox.x &&
+      ghostBox.x < cellBox.x + cellBox.width &&
+      ghostBox.y + ghostBox.height > cellBox.y &&
+      ghostBox.y < cellBox.y + cellBox.height;
+  }
+
+  /**
+   * The move ghost's rendered size, for asserting it spans a whole multi-cell block.
+   */
+  async moveGhostSize(): Promise<{ width: number, height: number }> {
+    const ghostBox = await this.moveGhost().boundingBox();
+
+    if (!ghostBox) {
+      throw new Error('The move ghost is not rendered.');
+    }
+
+    return { width: ghostBox.width, height: ghostBox.height };
+  }
+
+  /**
+   * A rendered cell's size, used as the yardstick for ghost-span assertions.
+   */
+  async cellSize(row: number, col: number): Promise<{ width: number, height: number }> {
+    const cellBox = await this.cell(row, col).boundingBox();
+
+    if (!cellBox) {
+      throw new Error('The cell is not rendered.');
+    }
+
+    return { width: cellBox.width, height: cellBox.height };
+  }
+
+  /**
+   * Release the active pointer drag.
+   */
+  async releasePointer(): Promise<void> {
+    await this.page.mouse.up();
+  }
+
+  /**
+   * Press the centre of the first visible move-zone band.
+   */
+  async #pressFirstMoveZone(): Promise<void> {
+    await this.#pressElementCenter(this.visibleMoveZones().first());
+  }
+
+  /**
+   * Press the centre of an element with the given mouse button.
+   */
+  async #pressElementCenter(element: Locator, button: 'left' | 'right' = 'left'): Promise<void> {
+    const box = await element.boundingBox();
+
+    if (!box) {
+      throw new Error('The target element is not rendered.');
+    }
+
+    await this.page.mouse.move(box.x + (box.width / 2), box.y + (box.height / 2));
+    await this.page.mouse.down({ button });
+  }
+
+  /**
+   * Move the pointer to the centre of a rendered cell.
+   */
+  async #movePointerToCell(row: number, col: number): Promise<void> {
+    const box = await this.cell(row, col).boundingBox();
+
+    if (!box) {
+      throw new Error('The target cell is not rendered.');
+    }
+
+    await this.page.mouse.move(box.x + (box.width / 2), box.y + (box.height / 2));
+  }
+
+  /**
+   * Cancel the active pointer drag.
+   */
+  async cancelPointerDrag(): Promise<void> {
+    await this.page.keyboard.press('Escape');
+  }
+
+  /**
+   * Install Playwright's deterministic browser clock.
+   */
+  async installClock(): Promise<void> {
+    await this.page.clock.install();
+  }
+
+  /**
+   * Advance browser timers by the given number of milliseconds.
+   */
+  async advanceClock(milliseconds: number): Promise<void> {
+    await this.page.clock.fastForward(milliseconds);
+  }
+
+  /**
+   * Read the first fully visible visual row.
+   */
+  async firstFullyVisibleRow(): Promise<number> {
+    return this.page.evaluate(() => window.hot.getFirstFullyVisibleRow());
+  }
+
+  /**
+   * Read the last fully visible visual row.
+   */
+  async lastFullyVisibleRow(): Promise<number> {
+    return this.page.evaluate(() => window.hot.getLastFullyVisibleRow());
+  }
+
+  /**
+   * Read the last fully visible visual column.
+   */
+  async lastFullyVisibleColumn(): Promise<number> {
+    return this.page.evaluate(() => window.hot.getLastFullyVisibleColumn());
+  }
+
+  /**
+   * Scroll the target row to the bottom of the viewport.
+   */
+  async scrollRowToBottom(row: number): Promise<void> {
+    await this.page.evaluate(targetRow => window.hot.scrollViewportTo({
+      row: targetRow,
+      verticalSnap: 'bottom',
+    }), row);
+    await expect(this.cell(row, 0)).toBeVisible();
+  }
+
+  /**
+   * Read the selected range's bottom visual row.
+   */
+  async selectedBottomRow(): Promise<number> {
+    return this.page.evaluate(() => window.hot.getSelectedRangeLast().getBottomEndCorner().row ?? -1);
+  }
+
+  /**
+   * Read the normalized bounds of the latest selected range.
+   */
+  async selectedBounds(): Promise<{ top: number, start: number, bottom: number, end: number }> {
+    return this.page.evaluate(() => {
+      const range = window.hot.getSelectedRangeLast();
+      const topStart = range.getTopStartCorner();
+      const bottomEnd = range.getBottomEndCorner();
+
+      return {
+        top: topStart.row ?? -1,
+        start: topStart.col ?? -1,
+        bottom: bottomEnd.row ?? -1,
+        end: bottomEnd.col ?? -1,
+      };
+    });
+  }
+
+  /**
+   * The focus (highlight) cell of the last selected range. Resizing must keep it stable when it stays
+   * inside the new range, and clamp it into the range when a shrink pushes it out.
+   */
+  async focusCell(): Promise<{ row: number, col: number }> {
+    return this.page.evaluate(() => {
+      // The ACTIVE range, not the last one. Keyboard navigation can rotate the focus onto a layer
+      // that is not on top, and `getSelectedRangeLast()` would then report the wrong cell — which
+      // is exactly the state the ctrl+click rule has to read correctly.
+      const highlight = window.hot.getSelectedRangeActive()?.highlight;
+
+      if (!highlight) {
+        return { row: -1, col: -1 };
+      }
+
+      return { row: highlight.row ?? -1, col: highlight.col ?? -1 };
+    });
+  }
+
+  /**
+   * Normalized bounds for every selection layer, so a resize can be checked not to disturb the others.
+   */
+  async allSelectedBounds(): Promise<{ top: number, start: number, bottom: number, end: number }[]> {
+    return this.page.evaluate(() => window.hot.getSelectedRange().map((range) => {
+      const topStart = range.getTopStartCorner();
+      const bottomEnd = range.getBottomEndCorner();
+
+      return {
+        top: topStart.row ?? -1,
+        start: topStart.col ?? -1,
+        bottom: bottomEnd.row ?? -1,
+        end: bottomEnd.col ?? -1,
+      };
+    }));
+  }
+
+  /** Select several disjoint ranges as separate selection layers. */
+  async selectLayers(ranges: [number, number, number, number][]): Promise<void> {
+    await this.page.evaluate(layers => window.hot.selectCells(layers), ranges);
+  }
+
+  /**
+   * Ctrl/Cmd+clicks a cell, the way a user adds one to a multiple selection.
+   *
+   * The modifier is pressed as a real key event, not passed as an event property: the held-modifier
+   * state comes from the key recorder, so a synthesized `metaKey` alone would not register.
+   * `ControlOrMeta` maps to Cmd on macOS and Ctrl elsewhere.
+   *
+   * @param {number} row Visual row index.
+   * @param {number} col Visual column index.
+   */
+  async ctrlClickCell(row: number, col: number): Promise<void> {
+    await this.cell(row, col).click({ modifiers: ['ControlOrMeta'] });
+  }
+
+  /**
+   * Ctrl/Cmd+double-clicks a cell — two clicks inside the OS double-click window.
+   *
+   * This is also the only Playwright gesture that reproduces a real fast click pair: `dblclick()`
+   * escalates `clickCount`, so the two mouseups report `detail` 1 then 2, while two `click()` calls
+   * report 1 twice however quickly they land.
+   *
+   * @param {number} row Visual row index.
+   * @param {number} col Visual column index.
+   */
+  async ctrlDoubleClickCell(row: number, col: number): Promise<void> {
+    await this.cell(row, col).dblclick({ modifiers: ['ControlOrMeta'] });
+  }
+
+  /**
+   * Ctrl/Cmd+clicks a row header, which adds the whole row as a range layer.
+   *
+   * Resolved through the row's own cell so the lookup names a visual row rather than a position in
+   * the rendered rows, which a scrolled grid renumbers. Scoped to the grid, and to the
+   * inline-start overlay where the headers the user actually clicks are rendered — the master
+   * table holds a second copy of them.
+   *
+   * @param {number} row Visual row index.
+   */
+  async ctrlClickRowHeader(row: number): Promise<void> {
+    await this.#clickRowHeader(row, true);
+  }
+
+  /**
+   * Clicks a row header with no modifier, which selects the whole row as the only range.
+   *
+   * @param {number} row Visual row index.
+   */
+  async clickRowHeader(row: number): Promise<void> {
+    await this.#clickRowHeader(row, false);
+  }
+
+  /**
+   * Drag-selects a range with the real pointer while Ctrl/Cmd is held, which adds it as a new
+   * selection layer instead of replacing the selection.
+   */
+  async ctrlDragSelectCells(fromRow: number, fromCol: number, toRow: number, toCol: number): Promise<void> {
+    await this.page.keyboard.down('ControlOrMeta');
+    await this.dragSelectCells(fromRow, fromCol, toRow, toCol);
+    await this.page.keyboard.up('ControlOrMeta');
+  }
+
+  /**
+   * Presses Ctrl/Cmd+A, which selects the whole grid as one range.
+   */
+  async pressSelectAll(): Promise<void> {
+    await this.page.keyboard.press('ControlOrMeta+a');
+  }
+
+  /**
+   * Clicks a cell where it is drawn on top, with or without Ctrl/Cmd held. A cell in a frozen row or
+   * column is drawn by a clone that covers the master copy, and `cell()` cannot tell the copies apart,
+   * so the point comes from `getCell(row, col, true)` – the topmost overlay's element.
+   *
+   * @param {number} row Visual row index.
+   * @param {number} col Visual column index.
+   * @param {boolean} [withModifier=false] Whether to hold Ctrl/Cmd during the click.
+   */
+  async clickTopmostCell(row: number, col: number, withModifier = false): Promise<void> {
+    const point = await this.page.evaluate(([r, c]) => {
+      const rect = window.hot.getCell(r, c, true)?.getBoundingClientRect();
+
+      return rect ? { x: rect.x + (rect.width / 2), y: rect.y + (rect.height / 2) } : null;
+    }, [row, col] as const);
+
+    if (!point) {
+      throw new Error(`Cell (${row}, ${col}) is not rendered, so it cannot be clicked`);
+    }
+
+    if (withModifier) {
+      await this.page.keyboard.down('ControlOrMeta');
+    }
+
+    await this.page.mouse.click(point.x, point.y);
+
+    if (withModifier) {
+      await this.page.keyboard.up('ControlOrMeta');
+    }
+  }
+
+  /**
+   * Clicks a row header, resolved through the row's own cell and the inline-start header strip.
+   *
+   * @param {number} row Visual row index.
+   * @param {boolean} withModifier Whether to hold Ctrl/Cmd during the click.
+   */
+  async #clickRowHeader(row: number, withModifier: boolean): Promise<void> {
+    const cellBox = await this.cell(row, 0).boundingBox();
+    const headerBox = await this.grid.locator('.ht_clone_inline_start tbody th').first().boundingBox();
+
+    if (!cellBox || !headerBox) {
+      throw new Error(`Row ${row} or its header column is not rendered, so it cannot be clicked`);
+    }
+
+    // The row comes from its own cell and the column from the header strip, so neither depends on
+    // a position in the rendered rows — which a scrolled grid renumbers.
+    if (withModifier) {
+      await this.page.keyboard.down('ControlOrMeta');
+    }
+
+    await this.page.mouse.click(headerBox.x + (headerBox.width / 2), cellBox.y + (cellBox.height / 2));
+
+    if (withModifier) {
+      await this.page.keyboard.up('ControlOrMeta');
+    }
+  }
+
+  /**
+   * How many selection layers exist, and `0` when nothing is selected at all.
+   *
+   * @returns {Promise<number>}
+   */
+  async selectedLayerCount(): Promise<number> {
+    return this.page.evaluate(() => window.hot.getSelected()?.length ?? 0);
+  }
+
+  /** Select whole columns through the instance API. */
+  async selectColumns(fromCol: number, toCol: number): Promise<void> {
+    await this.page.evaluate(([from, to]) => window.hot.selectColumns(from, to), [fromCol, toCol]);
+  }
+
+  /**
+   * Drag a selection handle onto a cell without releasing, so mid-drag state can be asserted.
+   */
+  async startHandleDragOverCell(
+    edge: 'top' | 'bottom' | 'start' | 'end', row: number, col: number,
+  ): Promise<void> {
+    await this.#pressElementCenter(this.handle(edge));
+    await this.#movePointerToCell(row, col);
+  }
+
+  /**
+   * Check whether DragToScroll is listening for pointer movement.
+   */
+  async isDragToScrollListening(): Promise<boolean> {
+    return this.page.evaluate(() => window.hot.getPlugin('dragToScroll').isListening());
+  }
+
+  /**
+   * Check whether the move ghost matches the last rendered row's vertical bounds.
+   */
+  async isMoveGhostAlignedWithLastRenderedRow(): Promise<boolean> {
+    const lastRenderedRow = await this.page.evaluate(() => window.hot.getLastRenderedVisibleRow());
+    const ghostBox = await this.moveGhost().boundingBox();
+    const rowBox = await this.cell(lastRenderedRow, 0).boundingBox();
+
+    if (!ghostBox || !rowBox) {
+      return false;
+    }
+
+    return Math.abs(ghostBox.y - rowBox.y) <= 1 &&
+      Math.abs(ghostBox.height - rowBox.height) <= 1;
+  }
+
+  /**
+   * Move the real pointer off the grid, to the page's top-left corner (the fixture's body margin
+   * keeps that point outside the grid).
+   */
+  async movePointerOffGrid(): Promise<void> {
+    await this.page.mouse.move(1, 1);
+  }
+
+  /** Dispatch one real wheel event at the pointer's current position. */
+  async wheel(deltaY: number): Promise<void> {
+    await this.page.mouse.wheel(0, deltaY);
+  }
+
+  /** The master holder's vertical scroll offset. */
+  async verticalScrollOffset(): Promise<number> {
+    return this.page.locator('.ht_master .wtHolder').evaluate(holder => holder.scrollTop);
+  }
+
+  /** The master holder's horizontal scroll offset. */
+  async horizontalScrollOffset(): Promise<number> {
+    return this.page.locator('.ht_master .wtHolder').evaluate(holder => holder.scrollLeft);
+  }
+
+  /** Scroll the master holder to its top edge, and wait until the first row is rendered. */
+  async scrollToTop(): Promise<void> {
+    await this.page.evaluate(() => window.hot.scrollViewportTo({ row: 0, col: 0 }));
+    await expect(this.cell(0, 0)).toBeVisible();
+  }
+
+  /** Select several ranges at once, one selection layer per range, through the instance API. */
+  async selectLayers(ranges: Array<[number, number, number, number]>): Promise<void> {
+    await this.page.evaluate(layers => window.hot.selectCells(layers), ranges);
+  }
+
+  /** The visible bottom-edge resize handle in the master overlay. */
+  visibleBottomHandle(): Locator {
+    return this.page.locator('.ht_master .wtSelectionHandle--bottom:visible');
+  }
+
+  /** How many times the renderer has painted a cell of the grid since the grid was built. */
+  async cellPaintCount(): Promise<number> {
+    return this.page.evaluate(() => window.cellPaintCount);
+  }
+
+  /** The selection layer the handles are shown for, or `null` when the pointer is over none. */
+  async handlesHoveredLayer(): Promise<number | null> {
+    return this.page.evaluate(() => window.hot.selection.getHandlesHoveredLayer());
+  }
+
+  /** The public selection hooks the fixture recorded, in firing order. */
+  async selectionHookLog(): Promise<string[]> {
+    return this.page.evaluate(() => [...window.selectionHookLog]);
+  }
+
+  /** Forget the selection hooks recorded so far. */
+  async clearSelectionHookLog(): Promise<void> {
+    await this.page.evaluate(() => {
+      window.selectionHookLog.length = 0;
+    });
+  }
+
+  /** Hover a cell with the real pointer (drives the handle-visibility logic). */
+  async hoverCell(row: number, col: number): Promise<void> {
+    await this.cell(row, col).hover();
+  }
+
+  /** Hover a cell rendered by the top-left frozen overlay. */
+  async hoverFrozenCornerCell(row: number, col: number): Promise<void> {
+    await this.page.locator('.ht_clone_top_left_corner').getByTestId(`cell-${row}-${col}`).hover();
+  }
+
+  /** Hover a cell rendered by the bottom frozen overlay. */
+  async hoverFrozenBottomCell(row: number, col: number): Promise<void> {
+    await this.overlayCell('bottom', row, col).hover();
+  }
+
+  /**
+   * The visible selection-adjust handle for an edge, scoped to the master
+   * overlay. Every border instance (focus, area, fill) owns a full handle set,
+   * so the non-visible duplicates are filtered out to keep the locator strict.
+   */
+  handle(edge: 'top' | 'bottom' | 'start' | 'end'): Locator {
+    return this.page.locator(`.ht_master .wtSelectionHandle--${edge}:visible`);
+  }
+
+  /**
+   * The visible selection-adjust handle for an edge, scoped to the bottom frozen overlay — a
+   * selection inside the bottom frozen pane renders its border (and handles) on that clone,
+   * not on the master.
+   */
+  frozenBottomHandle(edge: 'top' | 'bottom' | 'start' | 'end'): Locator {
+    return this.overlayHandle('bottom', edge);
+  }
+
+  /** The currently visible selection-adjust handles in the master overlay. */
+  visibleHandles(): Locator {
+    return this.page.locator('.ht_master .wtSelectionHandle:visible');
+  }
+
+  /**
+   * The visible selection-adjust handles for an edge in every overlay (the master and each frozen
+   * clone). A selection crossing a frozen pane is drawn once per overlay, so this is the locator that
+   * sees a handle duplicated across overlays — the master-scoped ones cannot.
+   */
+  handleInAnyOverlay(edge: 'top' | 'bottom' | 'start' | 'end'): Locator {
+    return this.grid.locator(`.wtSelectionHandle--${edge}:visible`);
+  }
+
+  /**
+   * The currently visible selection-adjust handles in every overlay.
+   */
+  visibleHandlesInAnyOverlay(): Locator {
+    return this.grid.locator('.wtSelectionHandle:visible');
+  }
+
+  /**
+   * The visible selection-adjust handle for an edge, scoped to one overlay.
+   */
+  overlayHandle(overlay: OverlayName, edge: 'top' | 'bottom' | 'start' | 'end'): Locator {
+    return this.page.locator(`.${overlayClass(overlay)} .wtSelectionHandle--${edge}:visible`);
+  }
+
+  /**
+   * A data cell as rendered by one overlay (a frozen cell is rendered by its clone, and possibly by
+   * the master underneath it).
+   */
+  overlayCell(overlay: OverlayName, row: number, col: number): Locator {
+    return this.page.locator(`.${overlayClass(overlay)}`).getByTestId(`cell-${row}-${col}`);
+  }
+
+  /**
+   * How far (in px) the cell a clone renders for `row`/`col` sits from the left edge of its column
+   * header, or `null` while that cell is not rendered. Both reads share one evaluation, because the
+   * grid recycles its nodes between draws. `0` means the cell is under its own header.
+   */
+  async cellOffsetFromColumnHeader(overlay: OverlayName, row: number, col: number): Promise<number | null> {
+    return this.page.evaluate(([name, targetRow, targetCol]) => {
+      const cell = document.querySelector(`.${name} [data-testid="cell-${targetRow}-${targetCol}"]`);
+      const header = window.hot.getCell(-1, targetCol as number, true);
+
+      if (!cell || !header || getComputedStyle(cell).display === 'none') {
+        return null;
+      }
+
+      return Math.round(cell.getBoundingClientRect().left - header.getBoundingClientRect().left);
+    }, [overlayClass(overlay), row, col] as const);
+  }
+
+  /**
+   * What an overlay renders for `row`/`col`: whether the cell is displayed, its `rowspan`, its text and its
+   * classes. `null` when the overlay holds no such cell. All read in one evaluation, because the grid
+   * recycles its nodes between draws.
+   */
+  async overlayCellState(overlay: OverlayName, row: number, col: number): Promise<{
+    displayed: boolean, rowspan: string | null, text: string, className: string,
+  } | null> {
+    return this.page.evaluate(([name, targetRow, targetCol]) => {
+      const cell = document.querySelector(`.${name} [data-testid="cell-${targetRow}-${targetCol}"]`);
+
+      if (!cell) {
+        return null;
+      }
+
+      return {
+        displayed: getComputedStyle(cell).display !== 'none',
+        rowspan: cell.getAttribute('rowspan'),
+        text: cell.textContent ?? '',
+        className: cell.className,
+      };
+    }, [overlayClass(overlay), row, col] as const);
+  }
+
+  /**
+   * The height (in px) of the `<tr>` that holds `cell-<row>-<col>` in the given overlay, or `null` while
+   * that overlay renders no such row.
+   */
+  async rowHeightInOverlay(overlay: OverlayName, row: number, col: number): Promise<number | null> {
+    return this.page.evaluate(([name, targetRow, targetCol]) => {
+      const cell = document.querySelector(`.${name} [data-testid="cell-${targetRow}-${targetCol}"]`);
+
+      return cell ? cell.closest('tr')!.getBoundingClientRect().height : null;
+    }, [overlayClass(overlay), row, col] as const);
+  }
+
+  /**
+   * Presses the mouse on the current-selection outline that the given overlay draws (its left edge, the
+   * middle of it) and reports what `beforeOnCellMouseDown` received as the cell element: `'element'` for a
+   * real cell, otherwise what it was. `null` when the overlay draws no such outline.
+   */
+  async pressOutlineOf(overlay: OverlayName): Promise<string | null> {
+    await this.page.evaluate(() => {
+      window.hot.addHook('beforeOnCellMouseDown', (_event, _coords, TD) => {
+        (window as unknown as { lastMouseDownCell: string }).lastMouseDownCell =
+          TD instanceof HTMLElement ? 'element' : String(TD);
+      });
+    });
+
+    const outline = this.page.locator(`.${overlayClass(overlay)} .wtBorder.current:visible`).first();
+    const box = await outline.boundingBox();
+
+    if (!box) {
+      return null;
+    }
+
+    // The outline's left edge is a thin vertical box: aim at its middle.
+    await this.page.mouse.move(box.x + 1, box.y + box.height / 2);
+    await this.page.mouse.down();
+    await this.page.mouse.up();
+
+    return this.page.evaluate(() => (window as unknown as { lastMouseDownCell: string }).lastMouseDownCell ?? null);
+  }
+
+  /**
+   * Whether `hot.getCell(row, col, true)`, asked outside any draw, resolves to a cell.
+   */
+  async topmostCellResolves(row: number, col: number): Promise<boolean> {
+    return this.page.evaluate(([targetRow, targetCol]) => !!window.hot.getCell(targetRow, targetCol, true), [row, col] as const);
+  }
+
+  /**
+   * Scroll the viewport so that the given column is at the inline start, right after the frozen
+   * columns.
+   */
+  async scrollToColumn(col: number): Promise<void> {
+    await this.page.evaluate(column => window.hot.scrollViewportTo({ col: column, horizontalSnap: 'start' }), col);
+    await expect.poll(() => this.page.evaluate(c => window.hot.getFirstFullyVisibleColumn() <= c && c <= window.hot.getLastFullyVisibleColumn(), col)).toBe(true);
+  }
+
+  /**
+   * Scroll horizontally so that only `px` pixels of the given scrollable column show past the frozen
+   * columns: the column stays partially visible and the next one becomes the first fully visible one.
+   */
+  async scrollToLeaveSliverOfColumn(col: number, px: number): Promise<void> {
+    await this.page.evaluate(([column, sliver]) => {
+      const { hot } = window;
+      const fixedColumnsStart = hot.getSettings().fixedColumnsStart ?? 0;
+      let scrollLeft = -sliver;
+
+      for (let c = fixedColumnsStart; c <= column; c++) {
+        scrollLeft += hot.getColWidth(c);
+      }
+
+      document.querySelector('.ht_master .wtHolder')!.scrollLeft = scrollLeft;
+    }, [col, px] as const);
+    await expect.poll(() => this.page.evaluate(() => window.hot.getFirstFullyVisibleColumn())).toBe(col + 1);
+  }
+
+  /**
+   * The edges of the selection-adjust handles a user can actually grab, sorted: displayed, and the
+   * topmost element at their own center. `:visible` does not check occlusion, so a handle drawn
+   * under a frozen pane passes a visibility count; it does not pass this.
+   */
+  async reachableHandleEdges(): Promise<string[]> {
+    return this.page.evaluate(() => {
+      const edges: string[] = [];
+
+      document.querySelectorAll('[data-testid="grid"] .wtSelectionHandle').forEach((handle) => {
+        const rect = handle.getBoundingClientRect();
+        const edge = (handle.className.match(/wtSelectionHandle--(\w+)/) ?? [])[1];
+
+        if (!edge || getComputedStyle(handle).display === 'none' || rect.width === 0 || rect.height === 0) {
+          return;
+        }
+
+        const hit = document.elementFromPoint(rect.x + (rect.width / 2), rect.y + (rect.height / 2));
+
+        if (hit && (hit === handle || handle.contains(hit))) {
+          edges.push(edge);
+        }
+      });
+
+      return edges.sort();
+    });
+  }
+
+  /**
+   * The first row the master renders, as a visual index. Past the frozen rows once the grid is
+   * scrolled far enough that the master stops rendering them behind the frozen pane.
+   */
+  async firstRenderedRow(): Promise<number> {
+    return this.page.evaluate(() => window.hot.view.getFirstRenderedVisibleRow());
+  }
+
+  /**
+   * Scroll the viewport so that the given row is at the top, right below the frozen rows.
+   */
+  async scrollToRow(row: number): Promise<void> {
+    await this.page.evaluate(targetRow => window.hot.scrollViewportTo({ row: targetRow, verticalSnap: 'top' }), row);
+    await expect.poll(() => this.page.evaluate(r => window.hot.getFirstFullyVisibleRow() <= r && r <= window.hot.getLastFullyVisibleRow(), row)).toBe(true);
+  }
+
+  /**
+   * The bounding box of a data cell rendered by the given overlay, read in the same evaluation as
+   * the visible handles' boxes, so no draw can land between the reads.
+   */
+  async handleBoxesAgainstCell(
+    overlay: OverlayName, row: number, col: number,
+  ): Promise<{ cell: Box, handles: Record<string, Box[]> }> {
+    return this.page.evaluate(([cloneClass, r, c]) => {
+      const toBox = (el: Element) => {
+        const rect = el.getBoundingClientRect();
+
+        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+      };
+      const grid = document.querySelector('[data-testid="grid"]')!;
+      const cell = grid.querySelector(`.${cloneClass} [data-testid="cell-${r}-${c}"]`)!;
+      const handles: Record<string, Box[]> = { top: [], bottom: [], start: [], end: [] };
+
+      grid.querySelectorAll('.wtSelectionHandle').forEach((handle) => {
+        const style = getComputedStyle(handle);
+        const edge = (handle.className.match(/wtSelectionHandle--(\w+)/) ?? [])[1];
+
+        if (edge && style.display !== 'none' && style.visibility !== 'hidden') {
+          handles[edge].push(toBox(handle));
+        }
+      });
+
+      return { cell: toBox(cell), handles };
+    }, [overlayClass(overlay), row, col] as const);
+  }
+
+  /**
+   * The visible border lines of the master's current and area selections (all edges and the corner).
+   * Walkontable hides the edges it does not need, so a drawn selection shows only some of them.
+   *
+   * @returns {Locator}
+   */
+  visibleSelectionBorders(): Locator {
+    return this.page.locator('.ht_master .wtBorder.area:visible, .ht_master .wtBorder.current:visible');
+  }
+
+  /** The currently visible move-zone bands in the master overlay. */
+  visibleMoveZones(): Locator {
+    return this.page.locator('.ht_master .wtMoveZone:visible');
+  }
+
+  /**
+   * The currently visible move-zone bands in every overlay. A selection crossing a frozen pane is
+   * drawn once per overlay, so this is the locator that sees a band a frozen clone adds; the
+   * master-scoped {@link SelectionFeaturesPage#visibleMoveZones} cannot.
+   */
+  visibleMoveZonesInAnyOverlay(): Locator {
+    return this.grid.locator('.wtMoveZone:visible');
+  }
+
+  /**
+   * For each point, whether the topmost element there is a move-zone band, which is what a press at
+   * that point would grab. `:visible` does not check occlusion, so a band drawn under a frozen pane
+   * passes a visibility count; it does not pass this.
+   */
+  async moveZoneHitsAt(points: { x: number, y: number }[]): Promise<boolean[]> {
+    return this.page.evaluate(pts => pts.map(({ x, y }) => {
+      const hit = document.elementFromPoint(x, y);
+
+      return !!hit?.closest('[data-testid="grid"] .wtMoveZone');
+    }), points);
+  }
+
+  /** The autofill fill handle of the focus selection, scoped to the master overlay. */
+  fillHandle(): Locator {
+    return this.page.locator('.ht_master .wtBorder.current.corner:visible');
+  }
+
+  /**
+   * The autofill fill handle of a multi-cell range (drawn by the area border, not the focus cell's),
+   * scoped to the master overlay.
+   */
+  rangeFillHandle(): Locator {
+    return this.page.locator('.ht_master .wtBorder.area.corner:visible');
+  }
+
+  /**
+   * The visible edges of the autofill "fill" border in the master overlay — the dashed preview
+   * that follows the pointer while the fill handle is dragged. Empty once no fill gesture is
+   * in progress.
+   */
+  visibleFillBorders(): Locator {
+    return this.page.locator('.ht_master .wtBorder.fill:visible');
+  }
+
+  /**
+   * Double-click the fill handle with the real pointer (the copy-down gesture). A real
+   * double-click, not a dispatched `dblclick`: Walkontable synthesizes its own double-click
+   * from the mousedown/mouseup pairs, and the browser decides in which order the grid's
+   * `mouseup` listeners run.
+   */
+  async doubleClickFillHandle(): Promise<void> {
+    await this.fillHandle().dblclick();
+  }
+
+  /** Every value of a column, by visual row, read through the instance API. */
+  async columnValues(col: number): Promise<CellValue[]> {
+    return this.page.evaluate(column => window.hot.getDataAtCol(column), col);
+  }
+
+  /** Every value of a row, by visual column, read through the instance API. */
+  async rowValues(row: number): Promise<CellValue[]> {
+    return this.page.evaluate(visualRow => window.hot.getDataAtRow(visualRow), row);
+  }
+
+  /** Drag the fill handle with the real pointer onto the given cell and release. */
+  async dragFillHandleTo(row: number, col: number): Promise<void> {
+    await dragFillHandle(this.page, this.fillHandle(), this.cell(row, col));
+  }
+
+  /** Whether the Autofill plugin still believes the fill handle is pressed. */
+  async isFillHandlePressed(): Promise<boolean> {
+    return this.page.evaluate(() => window.hot.getPlugin('autofill').mouseDownOnCellCorner);
+  }
+
+  /**
+   * Press the fill handle with the real pointer and keep the button held. The caller owns the
+   * release (`releasePointer()`), which is what lets a test slip a settings update inside the
+   * gesture.
+   */
+  async pressFillHandle(): Promise<void> {
+    await this.#pressElementCenter(this.fillHandle());
+  }
+
+  /**
+   * Move the held pointer onto a cell without releasing it, continuing whatever drag is in
+   * progress.
+   */
+  async dragPointerToCell(row: number, col: number): Promise<void> {
+    await this.#movePointerToCell(row, col);
+  }
+
+  /**
+   * Turn the fill handle on or off through `updateSettings`, the way an application toggles it at
+   * runtime. Goes through the settings path on purpose: that is what routes the plugin through
+   * `disablePlugin()` alone, without the `enablePlugin()` that `updatePlugin()` pairs it with.
+   */
+  async setFillHandleEnabled(enabled: boolean): Promise<void> {
+    await this.page.evaluate(isEnabled => window.hot.updateSettings({ fillHandle: isEnabled }), enabled);
+  }
+
+  /**
+   * Re-send the grid's current `fillHandle` value through `updateSettings`, changing nothing. This
+   * is the shape a framework wrapper produces on an unrelated re-render, when it forwards every
+   * declared prop back into the grid.
+   */
+  async resendFillHandleSetting(): Promise<void> {
+    await this.page.evaluate(() => {
+      window.hot.updateSettings({ fillHandle: window.hot.getSettings().fillHandle });
+    });
+  }
+
+  /**
+   * Destroy one plugin instance on its own, ahead of the grid, with `getPlugin(name).destroy()`. A
+   * reference to a destroyed Autofill plugin is kept, so `tryCallDestroyedAutofill()` can call it.
+   */
+  async destroyPlugin(pluginName: DestroyablePluginName): Promise<void> {
+    await this.page.evaluate((name) => {
+      if (name === 'autofill') {
+        const plugin = window.hot.getPlugin('autofill');
+
+        window.destroyedAutofill = plugin;
+        plugin.destroy();
+      } else if (name === 'comments') {
+        window.hot.getPlugin('comments').destroy();
+      } else if (name === 'filters') {
+        window.hot.getPlugin('filters').destroy();
+      } else {
+        window.hot.getPlugin(name).destroy();
+      }
+    }, pluginName);
+  }
+
+  /**
+   * Call `updateSettings()` and report the message it threw, or `null` when it did not throw.
+   */
+  async tryUpdateSettings(settings: Record<string, unknown>): Promise<string | null> {
+    return this.page.evaluate((nextSettings) => {
+      try {
+        window.hot.updateSettings(nextSettings);
+
+        return null;
+      } catch (error) {
+        return (error as Error).message;
+      }
+    }, settings);
+  }
+
+  /**
+   * Call one lifecycle method on the Autofill plugin reference `destroyPlugin('autofill')` kept, and
+   * report the message it threw, or `null` when it did not throw. A missing reference is reported as
+   * a failure, so the call cannot pass without reaching the plugin.
+   */
+  async tryCallDestroyedAutofill(
+    method: 'enablePlugin' | 'disablePlugin' | 'updatePlugin'
+  ): Promise<string | null> {
+    return this.page.evaluate((methodName) => {
+      if (!window.destroyedAutofill) {
+        return 'no Autofill reference was kept';
+      }
+
+      try {
+        window.destroyedAutofill[methodName]();
+
+        return null;
+      } catch (error) {
+        return (error as Error).message;
+      }
+    }, method);
+  }
+
+  /**
+   * Destroy the whole grid and report what happened: the message the call threw (or `null`) and
+   * whether `afterDestroy` - the last step of the teardown - ran. The fixture's `hot` reference is
+   * dropped afterwards, so the next `initGrid()` does not destroy the same instance twice.
+   */
+  async tryDestroyGrid(): Promise<{ error: string | null, afterDestroyFired: boolean }> {
+    return this.page.evaluate(() => {
+      let afterDestroyFired = false;
+      let error: string | null = null;
+
+      window.hot.addHook('afterDestroy', () => {
+        afterDestroyFired = true;
+      });
+
+      try {
+        window.hot.destroy();
+      } catch (thrown) {
+        error = (thrown as Error).message;
+      }
+
+      Reflect.deleteProperty(window, 'hot');
+
+      return { error, afterDestroyFired };
+    });
+  }
+
+  /**
+   * Disable or re-enable the Autofill plugin directly, leaving the `fillHandle` setting as it is.
+   * No render is forced here: the plugin has to show or hide the fill handle on its own.
+   */
+  async setAutofillPluginEnabled(enabled: boolean): Promise<void> {
+    await this.page.evaluate((isEnabled) => {
+      const plugin = window.hot.getPlugin('autofill');
+
+      if (isEnabled) {
+        plugin.enablePlugin();
+      } else {
+        plugin.disablePlugin();
+      }
+    }, enabled);
+  }
+
+  /**
+   * Narrow the fill handle to one axis through `updateSettings` — a reconfiguration that changes
+   * what a fill is allowed to do, as opposed to a re-send of the same value.
+   */
+  async setFillHandleDirection(direction: 'vertical' | 'horizontal'): Promise<void> {
+    await this.page.evaluate(value => window.hot.updateSettings({ fillHandle: value }), direction);
+  }
+
+  /**
+   * The fill handle drawn by the frozen-columns overlay — a selection ending inside that pane is
+   * rendered by the clone, not by the master.
+   */
+  frozenColumnsFillHandle(): Locator {
+    return this.page.locator('.ht_clone_inline_start .wtBorder.current.corner:visible');
+  }
+
+  /** The fill handle drawn by the frozen top-rows overlay. */
+  frozenTopFillHandle(): Locator {
+    return this.page.locator('.ht_clone_top .wtBorder.current.corner:visible');
+  }
+
+  /**
+   * How far a frozen overlay's own fill handle sticks out past the edge that clips it, in pixels.
+   * The clipping box is the overlay's `.wtHolder` (`overflow: hidden`), not the clone element, which
+   * is `overflow: visible` and ends a few pixels earlier — measuring the clone reports an overhang
+   * that is not actually cut off.
+   */
+  async frozenFillHandleOverflow(pane: 'columns' | 'rows'): Promise<number> {
+    return this.page.evaluate((targetPane) => {
+      const overlaySelector = targetPane === 'columns' ? '.ht_clone_inline_start' : '.ht_clone_top';
+      const clippingBox = document.querySelector(`${overlaySelector} .wtHolder`);
+      const handle = document.querySelector(`${overlaySelector} .wtBorder.current.corner`);
+
+      if (!clippingBox || !handle) {
+        throw new Error(`No fill handle is rendered by "${overlaySelector}".`);
+      }
+
+      const clippingRect = clippingBox.getBoundingClientRect();
+      const handleRect = handle.getBoundingClientRect();
+
+      return targetPane === 'columns'
+        ? handleRect.right - clippingRect.right
+        : handleRect.bottom - clippingRect.bottom;
+    }, pane);
+  }
+
+  /**
+   * The stacking order the selection affordances resolve to. `.ht_master` declares no z-index, so
+   * it opens no stacking context and its borders compete directly with the overlay clones — which
+   * is why the frozen pane's own z-index belongs in the same reading.
+   */
+  async selectionStackOrder(): Promise<{
+    moveZone: number, fillHandle: number, resizeHandle: number, frozenColumnsPane: number,
+  }> {
+    return this.page.evaluate(() => {
+      const zIndexOf = (selector: string) => {
+        const element = document.querySelector(selector);
+
+        if (!element) {
+          throw new Error(`No element matched "${selector}".`);
+        }
+
+        return parseInt(window.getComputedStyle(element).zIndex, 10);
+      };
+
+      return {
+        moveZone: zIndexOf('.ht_master .wtMoveZone'),
+        fillHandle: zIndexOf('.ht_master .wtBorder.current.corner'),
+        resizeHandle: zIndexOf('.ht_master .wtSelectionHandle'),
+        frozenColumnsPane: zIndexOf('.ht_clone_inline_start'),
+      };
+    });
+  }
+
+  /**
+   * Scroll the master viewport until the given cell's trailing edge sits just inside a frozen pane,
+   * which is where its fill handle is drawn. Stopping a fixed few pixels past the pane's edge rather
+   * than at its middle keeps the cell inside the rendered range in every theme, whatever its column
+   * widths and row heights are — a cell scrolled clean out of that range drops its handle entirely
+   * and leaves nothing to assert on.
+   */
+  async scrollCellBehindFrozenPane(row: number, col: number, pane: 'columns' | 'rows'): Promise<void> {
+    if (pane === 'columns') {
+      await this.scrollCellEndUnderInlinePane(row, col, 'start');
+
+      return;
+    }
+
+    const paneInset = 8;
+
+    await this.page.evaluate(({ targetRow, targetCol, inset }) => {
+      const holder = document.querySelector('.ht_master .wtHolder');
+      const cell = document.querySelector(`.ht_master [data-testid="cell-${targetRow}-${targetCol}"]`);
+      const paneElement = document.querySelector('.ht_clone_bottom');
+
+      if (!holder || !cell || !paneElement) {
+        throw new Error('The master viewport, the target cell or the frozen pane is not rendered.');
+      }
+
+      holder.scrollTop += cell.getBoundingClientRect().bottom - (paneElement.getBoundingClientRect().top + inset);
+    }, { targetRow: row, targetCol: col, inset: paneInset });
+  }
+
+  /**
+   * How far the fill handle stands inside the master holder's inline-end and bottom edges, in
+   * pixels - the strip an overlay scrollbar of the holder is painted over - next to the same
+   * distances for the cell it belongs to (the selection's bottom-end cell). Negative when the handle
+   * or the cell reaches past the edge. `withinCellInline` says whether the handle still lies inside
+   * that cell along the inline axis (an unlifted handle hangs past the cell's bottom by design).
+   */
+  async fillHandleInsetFromHolderEdges(): Promise<{
+    inlineEnd: number, bottom: number, cellInlineEnd: number, cellBottom: number, withinCellInline: boolean,
+  }> {
+    const handleBox = await this.fillHandle().boundingBox();
+
+    if (!handleBox) {
+      throw new Error('The fill handle is not rendered.');
+    }
+
+    return this.page.evaluate((handle) => {
+      const holder = document.querySelector<HTMLElement>('[data-testid="grid"] .ht_master .wtHolder')!;
+      const holderBox = holder.getBoundingClientRect();
+      const { row, col } = window.hot.getSelectedRangeLast()!.getBottomEndCorner();
+      const cellBox = window.hot.getCell(row, col)!.getBoundingClientRect();
+      const rtl = window.hot.isRtl();
+      const handleEnd = rtl ? handle.x : handle.x + handle.width;
+      const cellEnd = rtl ? cellBox.left : cellBox.right;
+      const toEdge = (x: number) => Math.round(rtl ? x - holderBox.left : holderBox.right - x);
+      const handleStart = rtl ? handle.x + handle.width : handle.x;
+      const cellStart = rtl ? cellBox.right : cellBox.left;
+      const insideInline = rtl
+        ? handleStart <= cellStart + 1 && handleEnd >= cellEnd - 1
+        : handleStart >= cellStart - 1 && handleEnd <= cellEnd + 1;
+
+      return {
+        inlineEnd: toEdge(handleEnd),
+        bottom: Math.round(holderBox.bottom - (handle.y + handle.height)),
+        cellInlineEnd: toEdge(cellEnd),
+        cellBottom: Math.round(holderBox.bottom - cellBox.bottom),
+        withinCellInline: insideInline,
+      };
+    }, handleBox);
+  }
+
+  /**
+   * Whether the fill handle overlaps an open scrollbar clearance band (`.htScrollbarClearanceFiller`),
+   * the strip the grid keeps clear for an overlay scrollbar while it shows. `bandShown` is `false`
+   * when no band is open, which makes `overlaps` meaningless.
+   */
+  async fillHandleOverlapsScrollbarBand(): Promise<{ bandShown: boolean, overlaps: boolean }> {
+    const handleBox = await this.fillHandle().boundingBox();
+
+    if (!handleBox) {
+      throw new Error('The fill handle is not rendered.');
+    }
+
+    return this.page.evaluate((handle) => {
+      const bands = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="grid"] .htScrollbarClearanceFiller'))
+        .map(band => band.getBoundingClientRect())
+        .filter(rect => rect.width > 0 && rect.height > 0);
+
+      return {
+        bandShown: bands.length > 0,
+        overlaps: bands.some(rect => handle.x < rect.right && handle.x + handle.width > rect.left &&
+          handle.y < rect.bottom && handle.y + handle.height > rect.top),
+      };
+    }, handleBox);
+  }
+
+  /**
+   * The layout space the master holder gives its vertical and horizontal scrollbars. `0` on both
+   * axes is an overlay ("floating") scrollbar, painted over the cells.
+   */
+  async holderScrollbarGutters(): Promise<{ vertical: number, horizontal: number }> {
+    return this.page.evaluate(() => {
+      const holder = document.querySelector<HTMLElement>('[data-testid="grid"] .ht_master .wtHolder')!;
+
+      return {
+        vertical: holder.offsetWidth - holder.clientWidth,
+        horizontal: holder.offsetHeight - holder.clientHeight,
+      };
+    });
+  }
+
+  /**
+   * What the browser hit-tests at the center of the fill handle, as `<overlay>/<class name>`. A
+   * frozen pane that occludes the handle owns those pixels, so the topmost element there belongs to
+   * that pane rather than to the master. Match on the overlay and treat the class name as detail:
+   * which of the pane's elements is topmost at that point depends on the theme's cell metrics. Pass
+   * `rangeFillHandle()` for a multi-cell range, whose handle belongs to the area border.
+   */
+  async elementAtFillHandleCenter(handle: Locator = this.fillHandle()): Promise<string> {
+    const handleBox = await handle.boundingBox();
+
+    if (!handleBox) {
+      throw new Error('The fill handle is not rendered.');
+    }
+
+    return this.page.evaluate(({ x, y }) => {
+      const element = document.elementFromPoint(x, y);
+
+      if (!element) {
+        return 'none/none';
+      }
+
+      const overlay = element.closest('[class*="ht_clone_"], .ht_master');
+      const overlayName = overlay
+        ? Array.from(overlay.classList).find(name => name.startsWith('ht_')) : 'none';
+
+      return `${overlayName}/${element.className}`;
+    }, { x: handleBox.x + (handleBox.width / 2), y: handleBox.y + (handleBox.height / 2) });
+  }
+
+  /**
+   * Scroll the master viewport until the given cell's inline-end edge, where its fill handle is
+   * drawn, sits a few pixels inside an inline frozen pane: the inline-start pane (row headers and
+   * `fixedColumnsStart`) or the inline-end pane (`fixedColumnsEnd`). Works in both layout
+   * directions. Ends once the redraw reports the column off screen on that side.
+   */
+  async scrollCellEndUnderInlinePane(row: number, col: number, pane: 'start' | 'end'): Promise<void> {
+    const paneInset = 8;
+
+    await this.page.evaluate(({ targetRow, targetCol, targetPane, inset }) => {
+      const holder = document.querySelector('.ht_master .wtHolder');
+      const cell = document.querySelector(`.ht_master [data-testid="cell-${targetRow}-${targetCol}"]`);
+      const paneElement = document.querySelector(`.ht_clone_inline_${targetPane}`);
+
+      if (!holder || !cell || !paneElement) {
+        throw new Error('The master viewport, the target cell or the inline pane is not rendered.');
+      }
+
+      const isRtl = window.hot.isRtl();
+      const cellRect = cell.getBoundingClientRect();
+      const paneRect = paneElement.getBoundingClientRect();
+      // The cell's inline-end edge, and the point inside the pane it has to reach.
+      const cellEnd = isRtl ? cellRect.left : cellRect.right;
+      const paneTarget = (targetPane === 'start') === isRtl ? paneRect.left + inset : paneRect.right - inset;
+
+      // A growing `scrollLeft` moves the content toward the physical left in both directions (RTL
+      // scrolls from 0 into negative values), so one formula covers both.
+      holder.scrollLeft += cellEnd - paneTarget;
+    }, { targetRow: row, targetCol: col, targetPane: pane, inset: paneInset });
+
+    // The redraw is rAF-batched and lands after the scroll offset settles, so wait for the
+    // viewport calculators, which exclude the frozen panes, to stop counting the column.
+    await expect.poll(() => this.page.evaluate(([column, side]) => (side === 'start'
+      ? window.hot.getFirstPartiallyVisibleColumn() > column
+      : window.hot.getLastFullyVisibleColumn() < column), [col, pane] as const)).toBe(true);
+  }
+
+  /**
+   * The last column whose cell in the given row ends at least `margin` pixels before the inline-end
+   * frozen pane (`fixedColumnsEnd`), read from the master's rendered cells. Picked from the DOM, not
+   * hardcoded, because each theme sizes the columns differently. Works in both layout directions: the
+   * pane is on the physical right in LTR and on the physical left in RTL.
+   */
+  async lastColumnClearOfInlineEndPane(row: number, margin = 16): Promise<number> {
+    return this.page.evaluate(({ targetRow, gap }) => {
+      const pane = document.querySelector('.ht_clone_inline_end');
+
+      if (!pane) {
+        throw new Error('The inline-end pane is not rendered.');
+      }
+
+      const isRtl = window.hot.isRtl();
+      const paneRect = pane.getBoundingClientRect();
+      let found = -1;
+
+      document.querySelectorAll(`.ht_master [data-testid^="cell-${targetRow}-"]`).forEach((cell) => {
+        const col = Number(cell.getAttribute('data-testid')!.split('-')[2]);
+        const rect = cell.getBoundingClientRect();
+        const isClear = isRtl ? rect.left >= paneRect.right + gap : rect.right <= paneRect.left - gap;
+
+        if (isClear && col > found) {
+          found = col;
+        }
+      });
+
+      if (found < 0) {
+        throw new Error('No rendered column ends clear of the inline-end pane.');
+      }
+
+      return found;
+    }, { targetRow: row, gap: margin });
+  }
+
+  /**
+   * Scroll the master viewport to the end of its horizontal range, in either layout direction. Ends
+   * once the offset has arrived; the redraw it triggers is rAF-batched, so a caller asserts on what
+   * the redraw draws through `expect.poll`.
+   */
+  async scrollHolderToInlineEnd(): Promise<void> {
+    await this.page.evaluate(() => {
+      const holder = document.querySelector('.ht_master .wtHolder') as HTMLElement;
+      const max = holder.scrollWidth - holder.clientWidth;
+
+      holder.scrollLeft = window.hot.isRtl() ? -max : max;
+    });
+    await expect.poll(() => this.page.evaluate(() => {
+      const holder = document.querySelector('.ht_master .wtHolder') as HTMLElement;
+
+      return holder.scrollWidth - holder.clientWidth - Math.abs(holder.scrollLeft) < 1;
+    })).toBe(true);
+  }
+
+  /**
+   * Hit-tests the row of pixels just below the frozen top rows, across the whole grid, and reports
+   * every place a fill handle (`.wtBorder.corner`) is the topmost element there, as
+   * `<overlay>@<region>`: the overlay that drew it (`top`, `top_inline_start_corner`, ...) and what it
+   * lies over (`inline_start` pane, `inline_end` pane, or the scrollable part, `main`). The `top`
+   * overlay's holder reaches a few pixels below its table so the handle can hang past the frozen rows
+   * (#6937), and that overlay paints above both inline panes, so a handle it draws over a pane covers
+   * that pane's cells or row headers. Only the fill handle is matched: the selection's own edges end
+   * inside the frozen rows, and their thickness differs per theme.
+   */
+  async fillHandlesBelowFrozenRows(): Promise<string[]> {
+    return this.page.evaluate(() => {
+      const root = document.querySelector('[data-testid="grid"]');
+      const topTable = document.querySelector('.ht_clone_top table.htCore');
+
+      if (!root || !topTable) {
+        throw new Error('The grid or the top overlay is not rendered.');
+      }
+
+      const paneRange = (name: string): [number, number] | null => {
+        const pane = document.querySelector(`.ht_clone_${name}`);
+        const rect = pane?.getBoundingClientRect();
+
+        return rect && rect.width > 0 ? [rect.left, rect.right] : null;
+      };
+      const panes: Array<[string, [number, number] | null]> = [
+        ['inline_start', paneRange('inline_start')],
+        ['inline_end', paneRange('inline_end')],
+      ];
+      const rootRect = root.getBoundingClientRect();
+      const y = topTable.getBoundingClientRect().bottom + 1.5;
+      const hits = new Set<string>();
+
+      for (let x = Math.ceil(rootRect.left) + 0.5; x < rootRect.right; x += 1) {
+        const element = document.elementFromPoint(x, y);
+        const overlay = element?.closest('[class*="ht_clone_"]');
+
+        if (element?.matches('.wtBorder.corner') && overlay) {
+          const overlayName = Array.from(overlay.classList)
+            .find(name => name.startsWith('ht_clone_'))!.replace('ht_clone_', '');
+          const [region] = panes.find(([, range]) => range && x >= range[0] && x <= range[1]) ?? ['main'];
+
+          hits.add(`${overlayName}@${region}`);
+        }
+      }
+
+      return Array.from(hits).sort();
+    });
+  }
+
+  /**
+   * The grid's root wrapper carrying the `ht__moving` drag-state class. The
+   * class lands on the wrapper Handsontable creates inside the container, not
+   * on the container itself.
+   */
+  movingRoot(): Locator {
+    return this.page.locator('.handsontable.ht__moving');
+  }
+
+  /**
+   * The grid root carrying an active selection-resize class.
+   */
+  resizingRoot(): Locator {
+    return this.page.locator('[class*="ht__resizing-selection--"]');
+  }
+
+  /** The document-level move preview ghost. */
+  moveGhost(): Locator {
+    return this.page.locator('.wtMoveGhost');
+  }
+
+  /** The union bounding box of a cell range — the selection's visual extent. */
+  async rangeBox(
+    fromRow: number, fromCol: number, toRow: number, toCol: number,
+  ): Promise<{ left: number, right: number, top: number, bottom: number }> {
+    const fromBox = await this.cell(fromRow, fromCol).boundingBox();
+    const toBox = await this.cell(toRow, toCol).boundingBox();
+
+    if (!fromBox || !toBox) {
+      throw new Error('The range corner cells are not rendered.');
+    }
+
+    return {
+      left: Math.min(fromBox.x, toBox.x),
+      right: Math.max(fromBox.x + fromBox.width, toBox.x + toBox.width),
+      top: Math.min(fromBox.y, toBox.y),
+      bottom: Math.max(fromBox.y + fromBox.height, toBox.y + toBox.height),
+    };
+  }
+
+  /**
+   * Press an interaction affordance and move the pointer below the master viewport.
+   */
+  async #dragElementBelowViewport(element: Locator): Promise<void> {
+    const elementBox = await element.boundingBox();
+    const viewportBox = await this.page.locator('.ht_master .wtHolder').boundingBox();
+
+    if (!elementBox || !viewportBox) {
+      throw new Error('The drag affordance or grid viewport is not rendered.');
+    }
+
+    await this.page.mouse.move(
+      elementBox.x + (elementBox.width / 2),
+      elementBox.y + (elementBox.height / 2),
+    );
+    await this.page.mouse.down();
+    await this.page.mouse.move(
+      viewportBox.x + (viewportBox.width / 2),
+      viewportBox.y + viewportBox.height + 40,
+    );
+  }
+
+  /**
+   * Everything a test asserts about the selection drawn over one merged block, read in a single
+   * evaluation so no draw can land between the reads:
+   * - `edgesInside`: the `.wtBorder` edges (selection layers and custom borders) the user can see
+   *   inside the block, as `<overlay>/<layer>`: topmost at one of several points along the part of
+   *   the edge inside the block. The block box is inset by a few pixels, so its real outline, which
+   *   sits on its boundary, never counts.
+   * - `outline`: for each side of the block, one hit test per row or column track along that side,
+   *   half a pixel inside the boundary. An edge straddles the boundary, or sits just inside it where
+   *   a header owns the gridline, and covers that point either way. One probe per track, so the
+   *   slice every overlay owns is checked, not only the one under the side's midpoint.
+   * - `fillHandles`: the fill handles a user can actually grab - displayed, and the topmost element
+   *   at their own center - with that center relative to the block's bottom-end corner (the
+   *   bottom-left one in RTL). A handle under a frozen pane passes a `:visible` count; not this.
+   *
+   * The block box comes from the headers of its first and last rows and columns. A cell element
+   * cannot answer it: every overlay renders only its own part of the block.
+   */
+  async mergedBlockSelection(row: number, col: number): Promise<{
+    edgesInside: string[],
+    outline: { top: boolean[], bottom: boolean[], left: boolean[], right: boolean[] },
+    fillHandles: { overlay: string, dx: number, dy: number }[],
+  }> {
+    return this.page.evaluate(([targetRow, targetCol]) => {
+      const { hot } = window;
+      const OVERLAYS = ['ht_master', 'ht_clone_top_inline_start_corner', 'ht_clone_bottom_inline_start_corner',
+        'ht_clone_inline_start', 'ht_clone_top', 'ht_clone_bottom', 'ht_clone_inline_end',
+        'ht_clone_top_inline_end_corner', 'ht_clone_bottom_inline_end_corner'];
+      const overlayOf = (element: Element) => OVERLAYS.find(name => element.closest(`.${name}`)) ?? 'none';
+      const isDisplayed = (element: Element) => {
+        const rect = element.getBoundingClientRect();
+
+        return getComputedStyle(element).display !== 'none' && rect.width > 0 && rect.height > 0;
+      };
+      const { rowspan = 1, colspan = 1 } = hot.getCellMeta(targetRow, targetCol) as { rowspan?: number, colspan?: number };
+      const rows = Array.from({ length: rowspan }, (_, index) => hot.getCell(targetRow + index, -1, true)!.getBoundingClientRect());
+      const columns = Array.from({ length: colspan }, (_, index) => hot.getCell(-1, targetCol + index, true)!.getBoundingClientRect());
+      const block = {
+        top: rows[0].top,
+        bottom: rows[rows.length - 1].bottom,
+        left: Math.min(...columns.map(rect => rect.left)),
+        right: Math.max(...columns.map(rect => rect.right)),
+      };
+      const isRtl = hot.isRtl();
+      const inset = 3;
+      const grid = document.querySelector('[data-testid="grid"]')!;
+      const edgesInside: string[] = [];
+      const fillHandles: { overlay: string, dx: number, dy: number }[] = [];
+
+      grid.querySelectorAll('.wtBorder').forEach((edge) => {
+        if (!isDisplayed(edge)) {
+          return;
+        }
+
+        const rect = edge.getBoundingClientRect();
+
+        if (edge.classList.contains('corner')) {
+          const x = rect.x + (rect.width / 2);
+          const y = rect.y + (rect.height / 2);
+
+          if (document.elementFromPoint(x, y) === edge) {
+            fillHandles.push({
+              overlay: overlayOf(edge),
+              dx: Math.round(x - (isRtl ? block.left : block.right)),
+              dy: Math.round(y - block.bottom),
+            });
+          }
+
+          return;
+        }
+
+        if (edge.className.includes('Handle')) {
+          return;
+        }
+
+        const inside = {
+          left: Math.max(rect.left, block.left + inset),
+          right: Math.min(rect.right, block.right - inset),
+          top: Math.max(rect.top, block.top + inset),
+          bottom: Math.min(rect.bottom, block.bottom - inset),
+        };
+
+        if (inside.left >= inside.right || inside.top >= inside.bottom) {
+          return;
+        }
+
+        // Sampled along the part inside the block: an edge a frozen pane covers is not drawn for
+        // the user, so only an edge that is topmost somewhere inside the block counts.
+        const isHorizontal = rect.width > rect.height;
+        const showsInside = [0.1, 0.3, 0.5, 0.7, 0.9].some((fraction) => {
+          const x = isHorizontal ? inside.left + ((inside.right - inside.left) * fraction) : (inside.left + inside.right) / 2;
+          const y = isHorizontal ? (inside.top + inside.bottom) / 2 : inside.top + ((inside.bottom - inside.top) * fraction);
+
+          return document.elementFromPoint(x, y) === edge;
+        });
+
+        if (showsInside) {
+          const layer = ['current', 'area', 'fill'].find(name => edge.classList.contains(name)) ?? 'custom';
+
+          edgesInside.push(`${overlayOf(edge)}/${layer}`);
+        }
+      });
+
+      const isSelectionEdge = (x: number, y: number) => {
+        const hit = document.elementFromPoint(x, y);
+
+        return !!hit && hit.classList.contains('wtBorder') && !hit.classList.contains('corner');
+      };
+      const middle = (rect: DOMRect, axis: 'x' | 'y') => (axis === 'x' ? rect.left + (rect.width / 2) : rect.top + (rect.height / 2));
+
+      return {
+        edgesInside: edgesInside.sort(),
+        outline: {
+          top: columns.map(rect => isSelectionEdge(middle(rect, 'x'), block.top + 0.5)),
+          bottom: columns.map(rect => isSelectionEdge(middle(rect, 'x'), block.bottom - 0.5)),
+          left: rows.map(rect => isSelectionEdge(block.left + 0.5, middle(rect, 'y'))),
+          right: rows.map(rect => isSelectionEdge(block.right - 0.5, middle(rect, 'y'))),
+        },
+        fillHandles,
+      };
+    }, [row, col] as const);
+  }
+
+  /**
+   * Whether a selection edge is drawn on the freeze line below the frozen top rows, at the middle of
+   * the given column: hit-tested half a pixel above the line, inside the frozen pane, where a
+   * frozen overlay that drew its slice's bottom edge there would show it.
+   */
+  async isSelectionEdgeOnFrozenRowsLine(col: number): Promise<boolean> {
+    return this.page.evaluate((targetCol) => {
+      const { hot } = window;
+      const lastFrozenRow = (hot.getSettings().fixedRowsTop as number) - 1;
+      const line = hot.getCell(lastFrozenRow, -1, true)!.getBoundingClientRect().bottom;
+      const column = hot.getCell(-1, targetCol, true)!.getBoundingClientRect();
+      const hit = document.elementFromPoint(column.left + (column.width / 2), line - 0.5);
+
+      return !!hit && hit.classList.contains('wtBorder') && !hit.classList.contains('corner');
+    }, col);
+  }
+
+  /**
+   * Whether a selection edge is drawn at the start (left, LTR) boundary of a column, at the middle
+   * of the given row. A positive control for {@link isSelectionEdgeOnFrozenRowsLine}: that method
+   * only ever asserts an edge's ABSENCE, so a check for "no edge on the freeze line" would pass just
+   * as well if the whole outline failed to draw, or if it ran before a pending redraw landed. Poll
+   * this for `true` first, to prove the outline the test expects is actually on screen before
+   * checking that the seam inside it is gone.
+   */
+  async isSelectionEdgeAtColumnStart(row: number, col: number): Promise<boolean> {
+    return this.page.evaluate(([targetRow, targetCol]) => {
+      const { hot } = window;
+      const rowRect = hot.getCell(targetRow, -1, true)!.getBoundingClientRect();
+      const columnRect = hot.getCell(-1, targetCol, true)!.getBoundingClientRect();
+      const hit = document.elementFromPoint(columnRect.left + 0.5, rowRect.top + (rowRect.height / 2));
+
+      return !!hit && hit.classList.contains('wtBorder') && !hit.classList.contains('corner');
+    }, [row, col] as const);
+  }
+
+  /**
+   * Registers a `modifyGetCellCoords` hook that ignores `source` and answers every call with a
+   * short `[row, column]` result - a shape the setting's own type documents as legal
+   * (`core/settings.ts`). Used to prove a plain cell's fill handle does not depend on a hook that
+   * has nothing to do with it (DEV-143 follow-up).
+   */
+  async addNaiveModifyGetCellCoordsHook(): Promise<void> {
+    await this.page.evaluate(() => {
+      window.hot.addHook('modifyGetCellCoords', (row: number, col: number) => [row, col]);
+    });
+  }
+}

@@ -1,0 +1,512 @@
+---
+type: how-to
+title: Focus scopes
+metaTitle: Focus scopes | Handsontable DataGrid for JavaScript
+description: Manage focus boundaries and keyboard shortcuts contexts with focus scopes.
+permalink: /focus-scopes
+canonicalUrl: /focus-scopes
+tags:
+  - focus management
+  - focus scopes
+  - keyboard navigation
+  - accessibility
+  - focus boundaries
+  - shortcuts context
+  - tab navigation
+react:
+  metaTitle: Focus scopes | Handsontable DataGrid for React
+angular:
+  metaTitle: Focus scopes | Handsontable DataGrid for Angular
+vue:
+  metaTitle: Focus scopes | Handsontable DataGrid for Vue
+searchCategory: Guides
+category: Navigation
+menuTag: updated
+---
+Use focus scopes to create isolated focus boundaries within a Handsontable instance and control which keyboard shortcuts are active for each part of the UI. Focus scopes come in two types: `inline` (default) allows natural DOM tab order, and `modal` blocks focus outside the scope -- useful for dialogs and overlays.
+
+[[toc]]
+
+::: only-for react
+::: tip
+
+To use the Handsontable API, you'll need access to the Handsontable instance. You can do that by utilizing a reference to the `HotTable` component, and reading its `hotInstance` property.
+
+For more information, see the [Instance methods](@/guides/getting-started/react-methods/react-methods.md) page.
+
+:::
+:::
+
+::: only-for angular
+::: tip
+
+To use the Handsontable API, you'll need access to the Handsontable instance. You can do that by utilizing a reference to the `HotTable` component, and reading its `hotInstance` property.
+
+For more information, see the [Instance access](@/guides/getting-started/angular-hot-instance/angular-hot-instance.md) page.
+
+:::
+:::
+
+::: only-for vue
+
+::: tip
+
+To use the Handsontable API, use a template ref on `HotTable` and read `hotRef.value.hotInstance`.
+
+For more information, see [Referencing the Handsontable instance in Vue 3](@/guides/getting-started/vue3-hot-reference/vue3-hot-reference.md).
+
+:::
+
+:::
+
+<ol class="sl-steps">
+<li>
+
+**Access the [`FocusScopeManager`](@/api/focusScopeManager.md) API:**
+
+```js
+hot.getFocusScopeManager();
+```
+
+</li>
+<li>
+
+**Register a focus scope with a container element:**
+
+```js
+const focusScopeManager = hot.getFocusScopeManager();
+
+focusScopeManager.registerScope('customScope', containerElement, {
+  shortcutsContextName: 'plugin:customScope',
+  onActivate: (focusSource) => {
+    // Focus the first focusable element in your plugin's UI
+    // container
+  },
+});
+```
+
+</li>
+</ol>
+
+## Inline scopes
+
+Inline scopes allow natural tab navigation through the DOM. Users can  navigate to other parts of the grid using the <kbd>Tab</kbd> or <kbd>Shift</kbd>+<kbd>Tab</kbd> keys.
+
+```js
+const focusScopeManager = hot.getFocusScopeManager();
+
+focusScopeManager.registerScope('pagination', paginationContainer, {
+  type: 'inline',
+  shortcutsContextName: 'plugin:pagination',
+});
+```
+
+The example below demonstrates how the inline focus scope works using the pagination plugin as an example.
+Let's focus on the top text input and press the <kbd>Tab</kbd> key through the grid to see how the focus moves
+to the bottom text input and how the internal state changes.
+
+::: only-for javascript
+::: example #example1 --html 1 --css 2 --js 3 --ts 4
+
+@[code](@/content/guides/navigation/focus-scopes/javascript/example1.html)
+@[code](@/content/guides/navigation/focus-scopes/javascript/example1.css)
+@[code](@/content/guides/navigation/focus-scopes/javascript/example1.js)
+@[code](@/content/guides/navigation/focus-scopes/javascript/example1.ts)
+
+:::
+:::
+
+::: only-for react
+::: example #example1 :react --js 1 --css 2 --ts 3
+
+@[code](@/content/guides/navigation/focus-scopes/react/example1.jsx)
+@[code](@/content/guides/navigation/focus-scopes/react/example1.css)
+@[code](@/content/guides/navigation/focus-scopes/react/example1.tsx)
+
+:::
+:::
+
+::: only-for angular
+::: example #example1 :angular --ts 1 --html 2
+
+@[code](@/content/guides/navigation/focus-scopes/angular/example1.ts)
+@[code](@/content/guides/navigation/focus-scopes/angular/example1.html)
+
+:::
+:::
+
+::: only-for vue
+
+::: example #example1 :vue3 --css 1
+
+@[code](@/content/guides/navigation/focus-scopes/vue/example1.css)
+@[code collapse={17-118,145-147,220-222}](@/content/guides/navigation/focus-scopes/vue/example1.vue)
+
+:::
+
+:::
+
+### Modal scopes
+
+Modal scopes have a priority over inline scopes. If a modal scope is active, the inline scopes will not be activated. This is useful for dialogs, popups, or any UI that may overlap other inline scopes and need to be activated first.
+
+```js
+const focusScopeManager = hot.getFocusScopeManager();
+
+focusScopeManager.registerScope('dialog', dialogContainerElement, {
+  type: 'modal',
+  shortcutsContextName: 'plugin:dialog',
+  // Only activate the scope if the dialog is open
+  runOnlyIf: () => isDialogOpen(),
+});
+```
+
+The example below demonstrates how the modal focus scope works using the dialog plugin as an example. The dialog scope
+takes over focus management for all inline scopes (`grid` and `pagination`) automatically, even when the dialog element
+appears after the inline scope elements in the DOM.
+
+::: only-for javascript
+::: example #example2 --html 1 --css 2 --js 3 --ts 4
+
+@[code](@/content/guides/navigation/focus-scopes/javascript/example2.html)
+@[code](@/content/guides/navigation/focus-scopes/javascript/example2.css)
+@[code](@/content/guides/navigation/focus-scopes/javascript/example2.js)
+@[code](@/content/guides/navigation/focus-scopes/javascript/example2.ts)
+
+:::
+:::
+
+::: only-for react
+::: example #example2 :react --js 1 --css 2 --ts 3
+
+@[code](@/content/guides/navigation/focus-scopes/react/example2.jsx)
+@[code](@/content/guides/navigation/focus-scopes/react/example2.css)
+@[code](@/content/guides/navigation/focus-scopes/react/example2.tsx)
+
+:::
+:::
+
+::: only-for angular
+::: example #example2 :angular --ts 1 --html 2
+
+@[code](@/content/guides/navigation/focus-scopes/angular/example2.ts)
+@[code](@/content/guides/navigation/focus-scopes/angular/example2.html)
+
+:::
+:::
+
+::: only-for vue
+
+::: example #example2 :vue3 --css 1
+
+@[code](@/content/guides/navigation/focus-scopes/vue/example2.css)
+@[code collapse={17-118,145-147,228-236}](@/content/guides/navigation/focus-scopes/vue/example2.vue)
+
+:::
+
+:::
+
+## Register a focus scope
+
+To register a focus scope:
+
+<ol class="sl-steps">
+<li>
+
+**Access the [`FocusScopeManager`](@/api/focusScopeManager.md) API:**
+
+```js
+const focusScopeManager = hot.getFocusScopeManager();
+```
+
+</li>
+<li>
+
+**Use the [`registerScope()`](@/api/focusScopeManager.md#registerscope) method:**
+
+```js
+focusScopeManager.registerScope('customScope', containerElement);
+```
+
+</li>
+</ol>
+
+### Connect a scope with a shortcuts context
+
+To connect a scope with a shortcuts context, use the `shortcutsContextName` option. When the scope is activated, the shortcuts context automatically switches to the scope's specified context name. This allows you to define custom shortcuts that work only within that scope. For more information, see the [Custom shortcuts](@/guides/navigation/custom-shortcuts/custom-shortcuts.md) page. If no context name is specified, the scope uses the `grid` context name by default.
+
+```js
+const focusScopeManager = hot.getFocusScopeManager();
+const shortcutManager = hot.getShortcutManager();
+
+focusScopeManager.registerScope('customScope', containerElement, {
+  shortcutsContextName: 'plugin:customScope',
+});
+
+// Add shortcuts to the customScope context
+const customScopeContext = shortcutManager.getContext('plugin:customScope');
+
+customScopeContext.addShortcut({
+  group: 'customScope',
+  keys: [['enter']],
+  callback: () => {
+    console.log('Enter pressed within the customScope scope');
+  },
+});
+```
+
+### Inherit another context's shortcuts
+
+A scope that *covers* the grid rather than replacing it can keep the grid's shortcuts working while it
+is active. Set `fallbackShortcutsContextName` to `'grid'`. When a key arrives, Handsontable looks in the
+scope's own context first, and moves on to the fallback only when nothing there answers the key. The
+scope therefore answers everything the grid answers, including shortcuts added to the grid later, and
+you never maintain a list of keys.
+
+```js
+const focusScopeManager = hot.getFocusScopeManager();
+
+focusScopeManager.registerScope('customOverlay', containerElement, {
+  shortcutsContextName: 'plugin:customOverlay',
+  fallbackShortcutsContextName: 'grid',
+  coversGridBody: true,
+});
+```
+
+Set `shortcutsContextName` as well. It defaults to `'grid'`, so a scope that declares only the fallback
+names the same context twice, and Handsontable throws.
+
+The fallback belongs to the shortcuts context, not to the scope. Several scopes may share one context,
+and they must all name the same fallback. Register a second scope on a shared context with a different
+`fallbackShortcutsContextName` and Handsontable throws, because the second registration would otherwise
+replace the first one's fallback without a word.
+
+A shortcut in the scope's own context wins over the fallback's shortcut for the same keys, as long as its
+`runOnlyIf` returns `true`. When `runOnlyIf` returns `false`, the fallback answers instead. Use that to
+override one key without shadowing it the rest of the time.
+
+Leave the option unset for a modal scope. A modal blocks the rest of the grid, so letting the grid's
+shortcuts through it defeats the point. The fallback may declare a fallback of its own, and Handsontable
+walks the chain; a chain that loops back on itself stops rather than repeating.
+
+Set `coversGridBody` to `true` when the scope's container is painted over the grid body. A shortcut that
+writes cell content then refuses to run, both while the grid draws no cells and while your scope covers
+the cells it does draw. Those are different states: an overlay shown during a data fetch covers rows that
+are still on screen, and without this flag a shortcut would ask only "does the grid draw a cell", get
+`yes`, and change data the user cannot reach.
+
+Covering and inheriting are separate questions, which is why they are separate options. A pagination bar
+may inherit the grid's shortcuts without covering the body — the cells stay visible and usable.
+
+Two write paths sit outside the shortcut manager and are not affected by either option: the clipboard
+`paste` and `cut` handlers, which listen for the browser's own events, and anything your own code calls
+through the API.
+
+### Add conditional scope activation
+
+To add conditional scope activation, use the `runOnlyIf` option. This allows you to enable or disable the scope based on custom logic. The option is useful for situations where your UI depends on whether it has any focusable elements, or when you want to prevent the scope from activating for a particular part of the UI. For cases where focus should bypass the scope activation after <kbd>Tab</kbd> or <kbd>Shift</kbd>+<kbd>Tab</kbd> key presses, the logic should return `false`.
+
+```js
+const focusScopeManager = hot.getFocusScopeManager();
+
+focusScopeManager.registerScope('customScope', containerElement, {
+  runOnlyIf: () => isPluginActive(),
+});
+```
+
+### Custom focus detection
+
+By default, a scope is considered active if the focused element is within the scope's container element. However, there are cases where you need to provide custom logic to determine if the scope should be active. You can provide custom logic using the `contains` option.
+
+```js
+const focusScopeManager = hot.getFocusScopeManager();
+
+focusScopeManager.registerScope('myPlugin', containerElement, {
+  contains: (target) => {
+    // check if the target is within the scope's container element or
+    // if its parent has the 'my-plugin' class
+    return containerElement.contains(target) || target.closest('.my-plugin');
+  },
+  onActivate: (focusSource) => {
+    console.log('MyPlugin scope activated');
+  },
+});
+```
+
+### Scope callbacks
+
+You can provide a callback function to be called when the scope is activated using the `onActivate` option. The callback function is called with the source of the activation as the first argument. You can also provide a callback function to be called when the scope is deactivated using the `onDeactivate` option.
+
+The `focusSource` argument can be one of the following values:
+- `unknown`: The scope is activated by an unknown source.
+- `click`: The scope is activated by a click event.
+- `tab_from_above`: The scope is activated by a <kbd>Tab</kbd> key press.
+- `tab_from_below`: The scope is activated by a <kbd>Shift</kbd>+<kbd>Tab</kbd> key press.
+
+The `onActivate` callback also runs when the focus comes back into a scope that is already active through its focus catcher (a `tab_from_above` or `tab_from_below` source). For example, the focus returns to the page after a <kbd>Tab</kbd> key press moved it to the browser UI. Write the callback so that it is safe to run more than once.
+
+```js
+const focusScopeManager = hot.getFocusScopeManager();
+
+focusScopeManager.registerScope('customScope', containerElement, {
+  onActivate: (focusSource) => {
+    console.log('Custom scope activated');
+  },
+  onDeactivate: () => {
+    console.log('Custom scope deactivated');
+  },
+});
+```
+
+## Manage focus scopes
+
+### Get the active scope
+
+To get the currently active scope ID:
+
+```js
+const focusScopeManager = hot.getFocusScopeManager();
+const activeScopeId = focusScopeManager.getActiveScopeId();
+
+if (activeScopeId) {
+  console.log(`Active scope: ${activeScopeId}`);
+} else {
+  console.log('No active scope');
+}
+```
+
+### Activate a scope
+
+The focus manager automatically tries to activate the appropriate scope based on the focused element. However, there are cases where you need to manually activate a scope. For example, you might need to activate a scope after programmatically triggering an action. An example is the [Dialog](@/guides/dialog/dialog/dialog.md) plugin: when the [`show()`](@/api/dialog.md#show) method is called, it manually activates its focus scope as there is no event triggered that would activate the scope.
+
+```js
+const focusScopeManager = hot.getFocusScopeManager();
+
+focusScopeManager.activateScope('myPlugin');
+```
+
+### Deactivate a scope
+
+To manually deactivate a scope by its ID:
+
+```js
+const focusScopeManager = hot.getFocusScopeManager();
+
+focusScopeManager.deactivateScope('myPlugin');
+```
+
+### Unregister a scope
+
+To remove a scope from the collection:
+
+```js
+const focusScopeManager = hot.getFocusScopeManager();
+
+focusScopeManager.unregisterScope('myPlugin');
+```
+
+## Automatic focus management
+
+The focus scope manager automatically:
+
+- Listens to document events and activates the appropriate scope based on the focused element
+- Updates the [`Core#isListening`](@/api/core.md#islistening) state based on scope activity
+- Switches the shortcuts context to the scope's specified context name when the scope is activated
+- Handles tab navigation between scopes
+
+## Keyboard listening state
+
+Only one Handsontable instance at a time listens to keyboard input on the document. When a grid is not listening, it ignores keyboard events -- navigation and shortcuts stop working until the grid becomes active again. You can check the current state with [`isListening()`](@/api/core.md#islistening).
+
+When the user clicks or tabs to an element outside the table -- an external input, a button, or a custom panel -- the grid stops listening automatically. This is the most common cause of keyboard navigation issues in applications that combine Handsontable with external UI elements.
+
+To hand keyboard input back to the grid without forcing the user to click a cell, call [`listen()`](@/api/core.md#listen):
+
+```js
+// return keyboard input to the grid
+// after the user interacts with an external element
+hot.listen();
+```
+
+Calling `listen()` also deactivates listening on every other Handsontable instance on the page, so on multi-grid pages exactly one grid receives keyboard input. To make the grid ignore keyboard input explicitly, call [`unlisten()`](@/api/core.md#unlisten).
+
+::: only-for react
+
+::: tip
+
+To use the Handsontable API, you'll need access to the Handsontable instance. You can do that by utilizing a reference to the `HotTable` component, and reading its `hotInstance` property.
+
+For more information, see the [Instance methods](@/guides/getting-started/react-methods/react-methods.md) page.
+
+:::
+
+:::
+
+For UI elements registered as [focus scopes](#register-a-focus-scope), you don't need to call these methods -- the focus scope manager updates the listening state automatically as scopes activate and deactivate.
+
+## Result
+
+After registering a focus scope, Handsontable automatically activates it when the user clicks inside the container or tabs to it. The associated shortcuts context switches accordingly, and tab navigation flows through your registered scopes in the correct order.
+
+## API reference
+
+For the complete API reference, see the following pages:
+
+**APIs**
+
+<div class="boxes-list">
+
+- [FocusScopeManager](@/api/focusScopeManager.md)
+
+</div>
+
+**Configuration options**
+
+<div class="boxes-list">
+
+- [tabMoves](@/api/options.md#tabmoves)
+- [tabNavigation](@/api/options.md#tabnavigation)
+- [navigableHeaders](@/api/options.md#navigableheaders)
+
+</div>
+
+**Core methods**
+
+<div class="boxes-list">
+
+- [getFocusScopeManager()](@/api/core.md#getfocusscopemanager)
+- [isListening()](@/api/core.md#islistening)
+- [listen()](@/api/core.md#listen)
+- [unlisten()](@/api/core.md#unlisten)
+
+</div>
+
+**Hooks**
+
+<div class="boxes-list">
+
+- [afterDocumentKeyDown](@/api/hooks.md#afterdocumentkeydown)
+- [beforeKeyDown](@/api/hooks.md#beforekeydown)
+
+</div>
+
+## Related blog articles
+
+<div class="boxes-list gray">
+
+- [Handsontable 14.3.0: Enhanced navigation and bug fixes](https://handsontable.com/blog/handsontable-14.3.0-enhanced-navigation-and-bug-fixes)
+
+</div>
+
+## Troubleshooting
+
+Didn't find what you need? Try this:
+
+<div class="boxes-list">
+
+- [View related topics](https://github.com/handsontable/handsontable/issues) on GitHub
+- [Report an issue](https://github.com/handsontable/handsontable/issues/new/choose) on GitHub
+- [Start a discussion](https://forum.handsontable.com/c/getting-help/questions) on Handsontable's forum
+- [Contact our technical support](https://handsontable.com/contact?category=technical_support) to get help
+
+</div>

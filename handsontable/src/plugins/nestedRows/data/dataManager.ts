@@ -1,0 +1,1570 @@
+import type { HotInstance } from '../../../core/types';
+import { rangeEach } from '../../../helpers/number';
+import { objectEach } from '../../../helpers/object';
+import { arrayEach } from '../../../helpers/array';
+import { warnOnce } from '../../../helpers/console';
+import type { NestedRows } from '../nestedRows';
+import { recordMetaRowsShift } from '../../../dataMap/dataJournal';
+
+type ReadTreeResult = number | { result: unknown; end: boolean };
+
+export interface RowObject {
+  __children?: RowObject[];
+  [key: string]: unknown;
+}
+
+interface NodeInfo {
+  parent: RowObject | null;
+  row: number;
+  level: number;
+  position: number;
+  setSize: number;
+}
+
+/**
+ * Where a row sits among its siblings, 1-based, as the `aria-posinset` and `aria-setsize`
+ * attributes need it.
+ */
+export interface RowSetPosition {
+  position: number;
+  setSize: number;
+}
+
+/**
+ * What a row's `__children` held when a shape was taken: a copy of its child list, or the value
+ * itself when it was not an array.
+ */
+type ChildrenState = RowObject[] | { readonly value: unknown };
+
+/**
+ * The shape of the nested source at one moment, as `DataManager#captureShape()` returns it.
+ */
+export interface NestedRowsShape {
+  /**
+   * The cache version the shape was taken at. The cache is rebuilt after every change of the shape.
+   */
+  readonly version: number;
+  /**
+   * The source array the shape belongs to.
+   */
+  readonly data: RowObject[];
+  /**
+   * The top-level rows, in order.
+   */
+  readonly roots: RowObject[];
+  /**
+   * What `__children` held, for every row that had the key.
+   */
+  readonly children: ReadonlyMap<RowObject, ChildrenState>;
+}
+
+/**
+ * Tells whether a value is a shape `DataManager#captureShape()` returned.
+ *
+ * @param {*} value The value to test.
+ * @returns {boolean}
+ */
+export function isNestedRowsShape(value: unknown): value is NestedRowsShape {
+  return typeof value === 'object' && value !== null &&
+    'version' in value && typeof value.version === 'number' &&
+    'roots' in value && Array.isArray(value.roots) &&
+    'children' in value && value.children instanceof Map;
+}
+
+/**
+ * Replaces the contents of an array with the items of another one, keeping the array itself.
+ *
+ * @param {Array} target The array to refill.
+ * @param {Array} items The new contents.
+ */
+function refillArray<T>(target: T[], items: readonly T[]) {
+  target.length = 0;
+  items.forEach((item) => {
+    target.push(item);
+  });
+}
+
+interface CacheStructure {
+  levels: RowObject[][];
+  levelCount: number;
+  rows: RowObject[];
+  nodeInfo: WeakMap<object, NodeInfo>;
+}
+
+/**
+ * Class responsible for making data operations.
+ *
+ * @private
+ */
+class DataManager {
+  /**
+   * Main Handsontable instance reference.
+   *
+   * @type {object}
+   */
+  declare hot: HotInstance;
+  /**
+   * Reference to the source data object.
+   *
+   * @type {Handsontable.CellValue[][]|Handsontable.RowObject[]}
+   */
+  data: RowObject[] | null = null;
+  /**
+   * Reference to the NestedRows plugin.
+   *
+   * @type {object}
+   */
+  declare plugin: NestedRows;
+  /**
+   * Map of row object parents.
+   *
+   * @type {WeakMap}
+   */
+  parentReference = new WeakMap<RowObject, RowObject | null>();
+  /**
+   * Nested structure cache.
+   *
+   * @type {object}
+   */
+  cache: CacheStructure = {
+    levels: [],
+    levelCount: 0,
+    rows: [],
+    nodeInfo: new WeakMap<object, NodeInfo>()
+  };
+  /**
+   * Advances every time the cache is rebuilt, which every change of the tree's shape does, so a
+   * shape capture can tell whether anything moved since the previous one.
+   */
+  #shapeVersion = 0;
+
+  /**
+   * Per sibling list: the number of untrimmed siblings and the position of each. Filled lazily by
+   * `getRowSetPosition()` while rows are trimmed, so a rendered header reads in O(1) after one pass.
+   */
+  #reachableSiblings = new WeakMap<RowObject[], { setSize: number; positions: Map<RowObject, number> }>();
+
+  /**
+   * Initializes the data manager with references to the NestedRows plugin and the Handsontable instance.
+   */
+  constructor(nestedRowsPlugin: NestedRows, hotInstance: HotInstance) {
+    this.hot = hotInstance;
+    this.plugin = nestedRowsPlugin;
+  }
+
+  /**
+   * Set the data for the manager.
+   *
+   * @param {Handsontable.CellValue[][]|Handsontable.RowObject[]} data Data for the manager.
+   */
+  setData(data: RowObject[]) {
+    this.data = data;
+  }
+
+  /**
+   * Get the data cached in the manager.
+   *
+   * @returns {Handsontable.CellValue[][]|Handsontable.RowObject[]}
+   */
+  getData() {
+    return this.data;
+  }
+
+  /**
+   * Load the "raw" source data, without NestedRows' modifications.
+   *
+   * @returns {Handsontable.CellValue[][]|Handsontable.RowObject[]}
+   */
+  getRawSourceData() {
+    let rawSourceData = null;
+
+    this.plugin.disableCoreAPIModifiers();
+    rawSourceData = this.hot.getSourceData();
+    this.plugin.enableCoreAPIModifiers();
+
+    return rawSourceData;
+  }
+
+  /**
+   * Update the Data Manager with new data and refresh cache.
+   *
+   * @param {Handsontable.CellValue[][]|Handsontable.RowObject[]} data Data for the manager.
+   */
+  updateWithData(data: RowObject[]) {
+    this.setData(data);
+    this.rewriteCache();
+  }
+
+  /**
+   * Returns the shape of the nested source – the top-level rows and the child list of every row, by
+   * reference – for UndoRedo. When the shape did not change since the previous capture, the previous
+   * one itself is returned. The rows' values are not copied: they travel in the undo journal, so
+   * restoring a shape never brings an old cell value back.
+   *
+   * @param {*} previous The value the previous capture returned.
+   * @returns {object|undefined}
+   */
+  captureShape(previous: unknown): NestedRowsShape | undefined {
+    const data = this.data;
+
+    if (data === null) {
+      return undefined;
+    }
+
+    if (isNestedRowsShape(previous) && previous.version === this.#shapeVersion && previous.data === data) {
+      return previous;
+    }
+
+    const children = new Map<RowObject, ChildrenState>();
+    const visit = (node: RowObject) => {
+      if (typeof node !== 'object' || node === null || !('__children' in node) || children.has(node)) {
+        return;
+      }
+
+      const value: unknown = node.__children;
+
+      if (Array.isArray(value)) {
+        children.set(node, value.slice());
+        value.forEach(visit);
+      } else {
+        children.set(node, { value });
+      }
+    };
+
+    data.forEach(visit);
+
+    return { version: this.#shapeVersion, data, roots: data.slice(), children };
+  }
+
+  /**
+   * Puts the nested source back into a shape `captureShape()` returned. The arrays the host holds are
+   * refilled in place, so the host keeps seeing the grid's data.
+   *
+   * @param {object} shape The shape to restore.
+   */
+  restoreShape(shape: NestedRowsShape) {
+    const data = this.data;
+
+    if (data === null || shape.data !== data) {
+      return;
+    }
+
+    refillArray(data, shape.roots);
+
+    const visit = (node: RowObject) => {
+      const state = shape.children.get(node);
+
+      if (state === undefined) {
+        // The row had no child list when the shape was taken – a child added since created it.
+        if (typeof node === 'object' && node !== null && '__children' in node) {
+          Reflect.deleteProperty(node, '__children');
+        }
+
+        return;
+      }
+
+      if (!Array.isArray(state)) {
+        Reflect.set(node, '__children', state.value);
+
+        return;
+      }
+
+      if (Array.isArray(node.__children)) {
+        refillArray(node.__children, state);
+      } else {
+        node.__children = state.slice();
+      }
+
+      state.forEach(visit);
+    };
+
+    shape.roots.forEach(visit);
+    this.rewriteCache();
+  }
+
+  /**
+   * Rewrite the nested structure cache.
+   *
+   * @private
+   */
+  rewriteCache() {
+    this.#shapeVersion += 1;
+    this.invalidateSetPositions();
+    this.cache = {
+      levels: [],
+      levelCount: 0,
+      rows: [],
+      nodeInfo: new WeakMap<object, NodeInfo>()
+    };
+
+    this.#cacheSiblings(this.data!, 0, null);
+  }
+
+  /**
+   * Cache a data node.
+   *
+   * @private
+   * @param {object} node Node to cache.
+   * @param {number} level Level of the node.
+   * @param {object} parent Parent of the node.
+   * @param {number} [index=0] Position of the node among its siblings, 0-based.
+   * @param {number} [setSize=1] Number of siblings, the node included.
+   */
+  cacheNode(node: RowObject, level: number, parent: RowObject | null, index = 0, setSize = 1) {
+    if (!node || typeof node !== 'object') {
+      return;
+    }
+    if (!this.cache.levels[level]) {
+      this.cache.levels[level] = [];
+      this.cache.levelCount += 1;
+    }
+    this.cache.levels[level].push(node);
+    this.cache.rows.push(node);
+    this.cache.nodeInfo.set(node, {
+      parent,
+      row: this.cache.rows.length - 1,
+      level,
+      position: index + 1,
+      setSize,
+    });
+
+    if (this.hasChildren(node) && node.__children) {
+      this.#cacheSiblings(node.__children, level + 1, node);
+    }
+  }
+
+  /**
+   * Caches a list of sibling nodes. Only object entries become rows, so only those count towards a
+   * node's position and the size of its set - a `null` among the children would otherwise make the
+   * last row report a position past the number of rows. A string or an array-like `__children` goes
+   * through `Array.from()` first, as `arrayEach()` did, so it keeps loading instead of throwing; an
+   * array is filtered without that extra copy.
+   *
+   * @param {Array} siblings The nodes to cache.
+   * @param {number} level Level of the nodes.
+   * @param {object} parent Parent of the nodes.
+   */
+  #cacheSiblings(siblings: RowObject[], level: number, parent: RowObject | null) {
+    const list = Array.isArray(siblings) ? siblings : Array.from<RowObject>(siblings);
+    const rows = list.filter(node => node !== null && typeof node === 'object');
+
+    arrayEach(rows, (node: RowObject, index: number) => {
+      this.cacheNode(node, level, parent, index, rows.length);
+    });
+  }
+
+  /**
+   * Get the date for the provided visual row number.
+   *
+   * @param {number} row Row index.
+   * @returns {object}
+   */
+  getDataObject(row: number): RowObject | null | undefined {
+    // Safety guard: preserve null return for callers that pass null/undefined at runtime.
+    if ((row as unknown) === null || (row as unknown) === undefined) {
+      return null;
+    }
+
+    return this.cache.rows[row];
+  }
+
+  /**
+   * Read the row tree in search for a specific row index or row object.
+   *
+   * @private
+   * @param {object} parent The initial parent object.
+   * @param {number} readCount Number of read nodes.
+   * @param {number} neededIndex The row index we search for.
+   * @param {object} neededObject The row object we search for.
+   * @returns {number|object}
+   */
+  readTreeNodes(
+    parent: RowObject | null, readCount: ReadTreeResult, neededIndex: number, neededObject: Record<string, unknown>
+  ): ReadTreeResult {
+    let rootLevel = false;
+    let readNodesCount: ReadTreeResult = readCount;
+
+    if (typeof readNodesCount !== 'number') {
+      return readNodesCount;
+    }
+
+    let parentObj: RowObject | null = parent;
+
+    if (!parentObj) {
+      parentObj = {
+        __children: this.data!
+      };
+      rootLevel = true;
+      readNodesCount -= 1;
+    }
+
+    if (neededIndex !== null && neededIndex !== undefined && readNodesCount === neededIndex) {
+      return { result: parentObj, end: true };
+    }
+
+    if (neededObject !== null && neededObject !== undefined && parentObj === neededObject) {
+      return { result: readNodesCount, end: true };
+    }
+
+    readNodesCount += 1;
+
+    if (parentObj.__children) {
+      arrayEach(parentObj.__children, (val: RowObject) => {
+
+        this.parentReference.set(val, rootLevel ? null : parentObj);
+
+        readNodesCount = this.readTreeNodes(val, readNodesCount, neededIndex, neededObject);
+
+        if (typeof readNodesCount !== 'number') {
+          return false;
+        }
+      });
+    }
+
+    return readNodesCount;
+  }
+
+  /**
+   * Mock a parent node.
+   *
+   * @private
+   * @returns {*}
+   */
+  mockParent(): RowObject {
+    const fakeParent = this.mockNode();
+
+    fakeParent.__children = this.data!;
+
+    return fakeParent;
+  }
+
+  /**
+   * Mock a data node.
+   *
+   * @private
+   * @returns {{}}
+   */
+  mockNode(): RowObject {
+    const fakeNode: RowObject = {};
+
+    objectEach(this.data![0], (val: unknown, key: string) => {
+      fakeNode[key] = null;
+    });
+
+    return fakeNode;
+  }
+
+  /**
+   * Get the row index for the provided row object.
+   *
+   * Returns `null` when the object is not part of the current nested structure - for example when it
+   * comes from a dataset that has since been replaced by `loadData` or `updateData`.
+   *
+   * @param {object} rowObj The row object.
+   * @returns {number|null} Row index, or `null` when the object is unknown.
+   */
+  getRowIndex(rowObj: unknown): number | null {
+    if (rowObj === null || rowObj === undefined || typeof rowObj !== 'object') {
+      return null;
+    }
+
+    const nodeInfo = this.cache.nodeInfo.get(rowObj);
+
+    return nodeInfo ? nodeInfo.row : null;
+  }
+
+  /**
+   * Get the index of the provided row index/row object within its parent.
+   *
+   * @param {number|object} row Row index / row object.
+   * @returns {number}
+   */
+  getRowIndexWithinParent(row: number | RowObject): number {
+    let rowObj: RowObject | null | undefined = null;
+
+    if (typeof row !== 'number') {
+      rowObj = row;
+    } else {
+      rowObj = this.getDataObject(row);
+    }
+
+    const parent = this.getRowParent(row);
+
+    if (parent === null || parent === undefined) {
+      return this.data!.indexOf(rowObj as RowObject);
+    }
+
+    return parent.__children!.indexOf(rowObj as RowObject);
+  }
+
+  /**
+   * Get the position of a row within the nested structure, expressed as the chain of child indexes
+   * that leads from the top level down to that row.
+   *
+   * A physical row index shifts as soon as any other node gains or loses children. A tree path does
+   * not, so it can be used to find the same node again after the data is replaced.
+   *
+   * Assumes each row object appears in the tree once. The path is built with `indexOf`, on object
+   * identity, while `getRowIndexByTreePath()` finishes through the `cache.nodeInfo` WeakMap, which
+   * keeps only a node's last occurrence - so the same object placed at two spots makes the two
+   * disagree.
+   *
+   * @param {number} row Physical row index.
+   * @returns {number[]|null} The path, or `null` when the row is not part of the current structure.
+   */
+  getRowTreePath(row: number): number[] | null {
+    let rowObject: RowObject | null | undefined = this.getDataObject(row);
+
+    if (!rowObject) {
+      return null;
+    }
+
+    const path: number[] = [];
+
+    while (rowObject) {
+      const indexWithinParent = this.getRowIndexWithinParent(rowObject);
+
+      if (indexWithinParent === -1) {
+        return null;
+      }
+
+      path.unshift(indexWithinParent);
+      rowObject = this.getRowObjectParent(rowObject);
+    }
+
+    return path;
+  }
+
+  /**
+   * Find the physical row index of the node that the provided tree path points at.
+   *
+   * @param {number[]|null} path Chain of child indexes, as returned by
+   * {@link DataManager#getRowTreePath} - which returns `null` for a row it does not know, so the
+   * `null` is accepted here rather than filtered at every call site.
+   * @returns {number|null} Physical row index, or `null` when the path leads outside the structure.
+   */
+  getRowIndexByTreePath(path: number[] | null): number | null {
+    if (!Array.isArray(path) || path.length === 0) {
+      return null;
+    }
+
+    let siblings: RowObject[] | null | undefined = this.data;
+    let node: RowObject | null = null;
+
+    for (let i = 0; i < path.length; i++) {
+      node = siblings?.[path[i]] ?? null;
+
+      if (node === null) {
+        return null;
+      }
+
+      siblings = node.__children;
+    }
+
+    return this.getRowIndex(node);
+  }
+
+  /**
+   * Count all rows (including all parents and children).
+   *
+   * @returns {number}
+   */
+  countAllRows(): number {
+    const rootNodeMock: RowObject = {
+      __children: this.data!
+    };
+
+    return this.countChildren(rootNodeMock);
+  }
+
+  /**
+   * Count children of the provided parent.
+   *
+   * @param {object|number} parent Parent node.
+   * @returns {number} Children count.
+   */
+  countChildren(parent: RowObject | number): number {
+    let rowCount = 0;
+    const parentNode: RowObject | null | undefined = typeof parent === 'number' ? this.getDataObject(parent) : parent;
+
+    if (!parentNode || !parentNode.__children) {
+      return 0;
+    }
+
+    arrayEach(parentNode.__children, (elem: RowObject) => {
+      rowCount += 1;
+
+      if (elem.__children) {
+        rowCount += this.countChildren(elem);
+      }
+    });
+
+    return rowCount;
+  }
+
+  /**
+   * Get the parent of the row at the provided index.
+   *
+   * @param {number|object} row Physical row index.
+   * @returns {object}
+   */
+  getRowParent(row: number | RowObject): RowObject | null {
+    let rowObject;
+
+    if (typeof row !== 'number') {
+      rowObject = row;
+    } else {
+      rowObject = this.getDataObject(row);
+    }
+
+    return this.getRowObjectParent(rowObject);
+  }
+
+  /**
+   * Get the parent of the provided row object.
+   *
+   * @private
+   * @param {object} rowObject The row object (tree node).
+   * @returns {object|null}
+   */
+  getRowObjectParent(rowObject: unknown): RowObject | null {
+    if (!rowObject || typeof rowObject !== 'object') {
+      return null;
+    }
+
+    const nodeInfo = this.cache.nodeInfo.get(rowObject);
+
+    return nodeInfo ? nodeInfo.parent : null;
+  }
+
+  /**
+   * Get the nesting level for the row with the provided row index.
+   *
+   * @param {number} row Row index.
+   * @returns {number|null} Row level or null, when row doesn't exist.
+   */
+  getRowLevel(row: number | RowObject): number | null {
+    let rowObject: RowObject | null | undefined = null;
+
+    if (typeof row !== 'number') {
+      rowObject = row;
+    } else {
+      rowObject = this.getDataObject(row);
+    }
+
+    return rowObject ? this.getRowObjectLevel(rowObject) : null;
+  }
+
+  /**
+   * Get the nesting level for the row with the provided row index.
+   *
+   * @private
+   * @param {object} rowObject Row object.
+   * @returns {number} Row level.
+   */
+  getRowObjectLevel(rowObject: unknown): number | null {
+    if (rowObject === null || rowObject === undefined || typeof rowObject !== 'object') {
+      return null;
+    }
+
+    const nodeInfo = this.cache.nodeInfo.get(rowObject);
+
+    return nodeInfo ? nodeInfo.level : null;
+  }
+
+  /**
+   * Gets the rows a filter keeps for the provided matching rows, so the tree stays whole: each
+   * matching row, every ancestor of it, and every descendant of it (DEV-512). Both walks read the
+   * flatten cache, never the live `__children` arrays, so a source changed without a re-cache cannot
+   * stretch a subtree over its next sibling. A matching row the cache has no level for stays, but
+   * its subtree and ancestors are not walked.
+   *
+   * A row that matches only through blank cells keeps its ancestors but not its subtree: a parent
+   * with an empty cell must not bring back the children the filter excluded (DEV-512).
+   *
+   * @private
+   * @param {number[]} matchedRows Physical indexes of the matching rows.
+   * @param {number[]} [blankMatchedRows] Physical indexes of the matching rows whose every
+   * conditioned column reads empty.
+   * @returns {number[]} Physical indexes of the rows to keep, ascending.
+   */
+  getRowsToKeepForMatches(matchedRows: number[], blankMatchedRows: number[] = []): number[] {
+    const cachedRowCount = this.cache.rows.length;
+    const isBlankMatch = new Set(blankMatchedRows);
+    // A match past the cache (an empty or stale cache) still stays, so the range covers it too. The
+    // Filters plugin bounds the answer by the source row count.
+    const rowCount = matchedRows.reduce((count, row) => Math.max(count, row + 1), cachedRowCount);
+    const isKept = new Uint8Array(rowCount);
+    // Set for a match and its descendants, whose subtrees are kept already. An ancestor is only in
+    // `isKept`, because its other children are not kept with it.
+    const isSubtreeKept = new Uint8Array(rowCount);
+
+    matchedRows.forEach((matchedRow) => {
+      if (matchedRow < 0 || isSubtreeKept[matchedRow] === 1) {
+        return;
+      }
+
+      // A match always stays, whatever the cache knows about it.
+      isKept[matchedRow] = 1;
+
+      const level = matchedRow < cachedRowCount ? this.getRowLevel(matchedRow) : null;
+
+      if (level === null) {
+        return;
+      }
+
+      if (!isBlankMatch.has(matchedRow)) {
+        isSubtreeKept[matchedRow] = 1;
+
+        // The cache is flattened depth-first, so the descendants are the rows right after the match
+        // that sit deeper than it.
+        for (let row = matchedRow + 1; row < cachedRowCount; row++) {
+          const rowLevel = this.getRowLevel(row);
+
+          if (rowLevel === null || rowLevel <= level) {
+            break;
+          }
+
+          isKept[row] = 1;
+          isSubtreeKept[row] = 1;
+        }
+      }
+
+      let parentRow = this.getRowIndex(this.getRowParent(matchedRow));
+
+      // An ancestor already kept had its own ancestors kept with it.
+      while (parentRow !== null && isKept[parentRow] !== 1) {
+        isKept[parentRow] = 1;
+        parentRow = this.getRowIndex(this.getRowParent(parentRow));
+      }
+    });
+
+    const rowsToKeep: number[] = [];
+
+    for (let row = 0; row < rowCount; row++) {
+      if (isKept[row] === 1) {
+        rowsToKeep.push(row);
+      }
+    }
+
+    return rowsToKeep;
+  }
+
+  /**
+   * Gets where the row with the provided physical index sits among its siblings.
+   *
+   * While no row is trimmed, the answer comes straight from the structure cache. While any trimming
+   * map (a filter, for example) hides rows, only the siblings that are not trimmed count: they are the
+   * ones a user can reach, so they are the ones a screen reader should count.
+   *
+   * @private
+   * @param {number} row Physical row index.
+   * @returns {RowSetPosition|null} The 1-based position and the number of siblings, or `null` for a
+   * row the cache does not know.
+   */
+  getRowSetPosition(row: number): RowSetPosition | null {
+    const rowObject = this.getDataObject(row);
+    const nodeInfo = rowObject ? this.cache.nodeInfo.get(rowObject) : undefined;
+
+    if (!rowObject || !nodeInfo) {
+      return null;
+    }
+
+    const { rowIndexMapper } = this.hot;
+
+    if (rowIndexMapper.getNotTrimmedIndexesLength() === rowIndexMapper.getNumberOfIndexes()) {
+      return { position: nodeInfo.position, setSize: nodeInfo.setSize };
+    }
+
+    const siblings: RowObject[] = nodeInfo.parent ? nodeInfo.parent.__children! : this.data!;
+    let reachable = this.#reachableSiblings.get(siblings);
+
+    if (!reachable) {
+      reachable = { setSize: 0, positions: new Map<RowObject, number>() };
+
+      for (let i = 0; i < siblings.length; i++) {
+        const sibling = siblings[i];
+        const siblingInfo = sibling && typeof sibling === 'object' ? this.cache.nodeInfo.get(sibling) : undefined;
+
+        if (siblingInfo && !rowIndexMapper.isTrimmed(siblingInfo.row)) {
+          reachable.setSize += 1;
+          reachable.positions.set(sibling, reachable.setSize);
+        }
+      }
+
+      this.#reachableSiblings.set(siblings, reachable);
+    }
+
+    const position = reachable.positions.get(rowObject);
+
+    // The row itself is trimmed (so it is not rendered): keep the structural answer.
+    return position === undefined ?
+      { position: nodeInfo.position, setSize: nodeInfo.setSize } :
+      { position, setSize: reachable.setSize };
+  }
+
+  /**
+   * Forgets the reachable-sibling counts that `getRowSetPosition()` keeps while rows are trimmed.
+   * The plugin calls it whenever the row index mapper's cache changes, and `rewriteCache()` calls it
+   * when the tree changes.
+   *
+   * @private
+   */
+  invalidateSetPositions() {
+    this.#reachableSiblings = new WeakMap();
+  }
+
+  /**
+   * Check if the provided row/row element has children.
+   *
+   * @param {number|object} row Row number or row element.
+   * @returns {boolean}
+   */
+  hasChildren(row: number | RowObject): boolean {
+    const rowObj: RowObject | null | undefined = typeof row === 'number' ? this.getDataObject(row) : row;
+
+    return !!(rowObj && rowObj.__children && rowObj.__children.length);
+  }
+
+  /**
+   * Returns `true` if the row at the provided index has a parent.
+   *
+   * @param {number} index Row index.
+   * @returns {boolean} `true` if the row at the provided index has a parent, `false` otherwise.
+   */
+  isChild(index: number): boolean {
+    return this.getRowParent(index) !== null;
+  }
+
+  /**
+   * Get child at a provided index from the parent element.
+   *
+   * @param {object} parent The parent row object.
+   * @param {number} index Index of the child element to be retrieved.
+   * @returns {object|null} The child element or `null` if the child doesn't exist.
+   */
+  getChild(parent: RowObject, index: number): RowObject | null {
+    return parent.__children?.[index] || null;
+  }
+
+  /**
+   * Return `true` of the row at the provided index is located at the topmost level.
+   *
+   * @param {number} index Row index.
+   * @returns {boolean} `true` of the row at the provided index is located at the topmost level, `false` otherwise.
+   */
+  isRowHighestLevel(index: number): boolean {
+    return !this.isChild(index);
+  }
+
+  /**
+   * Return `true` if the provided row index / row object represents a parent in the nested structure.
+   *
+   * @param {number|object} row Row index / row object.
+   * @returns {boolean} `true` if the row is a parent, `false` otherwise.
+   */
+  isParent(row: number | RowObject): boolean {
+    const rowObj: RowObject | null | undefined = typeof row === 'number' ? this.getDataObject(row) : row;
+
+    return !!(rowObj && (rowObj.__children && rowObj.__children.length !== 0));
+  }
+
+  /**
+   * Add a child to the provided parent. It's optional to add a row object as the "element".
+   *
+   * @param {object} parent The parent row object.
+   * @param {object} [element] The element to add as a child.
+   */
+  addChild(parent: RowObject, element?: RowObject) {
+    this.plugin.runOperation('insert_row', () => this.#addChild(parent, element));
+  }
+
+  /**
+   * The body of `addChild()`, run inside its operation.
+   *
+   * @param {object} parent The parent row object.
+   * @param {object} [element] The element to add as a child.
+   */
+  #addChild(parent: RowObject, element?: RowObject) {
+    let childElement = element;
+
+    this.hot.runHooks('beforeAddChild', parent, childElement);
+
+    let parentIndex: number | null = null;
+
+    if (parent) {
+      parentIndex = this.getRowIndex(parent);
+    }
+
+    this.hot.runHooks('beforeCreateRow', parentIndex! + this.countChildren(parent) + 1, 1);
+    let functionalParent: RowObject = parent;
+
+    if (!parent) {
+      functionalParent = this.mockParent();
+    }
+    if (!functionalParent.__children) {
+      functionalParent.__children = [];
+    }
+
+    if (!childElement) {
+      childElement = this.mockNode();
+    }
+
+    functionalParent.__children.push(childElement);
+
+    this.rewriteCache();
+
+    const newPhysicalIndex = this.getRowIndex(childElement);
+    const newRowIndex = newPhysicalIndex ?? 0;
+
+    this.hot.rowIndexMapper.insertIndexes(newRowIndex, 1);
+
+    this.shiftCellsMeta(newPhysicalIndex);
+
+    this.hot.runHooks('afterCreateRow', newRowIndex, 1);
+    this.hot.runHooks('afterAddChild', parent, childElement);
+  }
+
+  /**
+   * Inserts one empty cell meta row, so meta stored below the new row moves down with its data.
+   *
+   * The methods that build a row by hand have to do this themselves - only `DataMap#createRow`
+   * does it on the regular insert path, and it is never reached from here (#7727). `MetaManager`
+   * takes a physical index, which is what `getRowIndex()` returns, and it does not render.
+   *
+   * @param {number|null} physicalRow Physical index of the new row. `null` skips the shift, so an
+   * unknown row object cannot move every meta row from index 0 down.
+   */
+  shiftCellsMeta(physicalRow: number | null) {
+    if (physicalRow === null) {
+      return;
+    }
+
+    // Journaled as the row insertion it completes, the way `DataMap#createRow` journals its own, so
+    // an undo reports the row it takes away through the row hooks.
+    // Every caller has already inserted the row's index into the index mapper.
+    this.hot._getOperationScope().record({
+      type: 'insertRows',
+      physicalIndex: physicalRow,
+      amount: 1,
+      atAxisEnd: physicalRow === this.hot.rowIndexMapper.getNumberOfIndexes() - 1,
+    });
+    this.hot._getMetaManager().createRow(physicalRow, 1);
+    // The index-mapper insert before this one is not always at the row's physical index (the parent branch of
+    // `addChildAtIndex()` passes a position inside the parent, or one past the last row), so the declared row
+    // heights are moved to it, and a row that does not end the rows gets no entry.
+    this.hot._alignInsertedRowSizes(physicalRow, 1);
+  }
+
+  /**
+   * Captures, by row object, which entry of an array `rowHeights` or `minRowHeights` each row was declared
+   * at, for a hand-built change that renumbers rows without the index mapper (a detach, a row move). The
+   * index mapper keeps those entries on their rows for an insert or a removal, but a rewrite of the tree
+   * moves the data under fixed physical indexes, so the entries have to follow the row objects.
+   *
+   * @returns {Function|null} Puts each row's entry back at the row's new physical index; `null` when neither
+   * option is an array.
+   */
+  captureRowSizeOrigins(): (() => void) | null {
+    const origins = this.hot._readRowSizeOrigins();
+
+    if (origins === null) {
+      return null;
+    }
+
+    // The cache lists every row object by its physical index, so a copy of it needs no walk of the tree.
+    const rows: (RowObject | null)[] = this.cache.rows.slice();
+
+    return () => {
+      const moved = new Map<'rowHeights' | 'minRowHeights', unknown[]>();
+
+      origins.forEach((values, option) => {
+        const next: unknown[] = new Array(values.length).fill(null);
+
+        rows.forEach((row, physicalRow) => {
+          const newPhysicalRow = row === null ? null : this.getRowIndex(row);
+
+          if (newPhysicalRow !== null && newPhysicalRow < next.length) {
+            next[newPhysicalRow] = values[physicalRow] ?? null;
+          }
+        });
+
+        moved.set(option, next);
+      });
+
+      this.hot._writeRowSizeOrigins(moved);
+    };
+  }
+
+  /**
+   * Moves the cell meta of a relocated block of rows, so meta stored between the block's old and
+   * new position moves with its data.
+   *
+   * `detachFromParent` restructures the tree by hand, so it needs both halves of the move, not just
+   * the insert side `shiftCellsMeta` covers: the block is removed at its old physical index and
+   * re-inserted at its new one. `MetaManager` takes physical indexes, which is what `getRowIndex()`
+   * returns, and neither call renders.
+   *
+   * The moved block's own meta is reset rather than carried across. `LazyFactoryMap` has no move
+   * primitive, and the alternative – snapshotting through `getCellMetas()` – takes visual indexes,
+   * materializes meta for every column, and fires `afterSetCellMeta` per cell. Leaving the meta
+   * behind is worse than resetting it: it would land on whatever row took the old index.
+   *
+   * @param {number|null} fromPhysicalRow Physical index the block sat at before the move.
+   * @param {number|null} toPhysicalRow Physical index the block sits at after the move. A `null` on
+   * either side skips the move, so an unknown row object cannot splice meta from index 0. An
+   * unchanged index also skips it – nothing shifted, so resetting the block's meta would drop meta
+   * that is still on the right cells.
+   * @param {number} amount Number of rows in the moved block.
+   */
+  moveCellsMeta(fromPhysicalRow: number | null, toPhysicalRow: number | null, amount: number) {
+    if (fromPhysicalRow === null || toPhysicalRow === null || fromPhysicalRow === toPhysicalRow) {
+      return;
+    }
+
+    const metaManager = this.hot._getMetaManager();
+
+    recordMetaRowsShift(this.hot, false, fromPhysicalRow, amount);
+    metaManager.removeRow(fromPhysicalRow, amount);
+    recordMetaRowsShift(this.hot, true, toPhysicalRow, amount);
+    metaManager.createRow(toPhysicalRow, amount);
+  }
+
+  /**
+   * Find the physical row a new top-level row inserted at the provided top-level position lands on.
+   *
+   * A top-level row does not sit in the grid at the position it holds in the top-level array: every
+   * preceding parent's subtree sits between the two. The two agree only while no preceding top-level
+   * row has children, which is why a top-level position cannot be handed to anything that counts in
+   * grid rows (#7727, DEV-2625).
+   *
+   * @private
+   * @param {number} topLevelIndex Position within the top-level array.
+   * @returns {number} Physical row index the new row takes.
+   */
+  getTopLevelInsertionRow(topLevelIndex: number): number {
+    const displacedRow = this.data![topLevelIndex];
+
+    // Past the last top-level row there is nothing to displace, so the new row goes to the end.
+    if (displacedRow === null || displacedRow === undefined) {
+      return this.countAllRows();
+    }
+
+    return this.getRowIndex(displacedRow) ?? 0;
+  }
+
+  /**
+   * Add a child node to the provided parent at a specified index.
+   *
+   * A row with no parent is a top-level row, and that branch builds the insert by hand rather than
+   * through `hot.alter()`, which cannot serve both halves of it. `hot.alter()` also used to fire
+   * `beforeAlter` and `beforeDataSplice` here; neither does any more. The plugin's `AGENTS.md`
+   * holds why, and what is still wrong next door.
+   *
+   * @param {object} parent Parent node.
+   * @param {number} index Index to insert the child element at.
+   * @param {object} [element] Element (node) to insert.
+   */
+  addChildAtIndex(parent: RowObject | null, index: number, element: RowObject | null) {
+    this.plugin.runOperation('insert_row', () => this.#addChildAtIndex(parent, index, element));
+  }
+
+  /**
+   * Tells the developer that `addChildAtIndex()` was given a parent row object the grid no longer
+   * holds, once per grid, because nothing else in the call shows it.
+   */
+  #warnStaleParent() {
+    warnOnce(
+      this.hot.rootElement,
+      'nestedRows.addChildAtIndex.staleParent',
+      'The parent row object passed to `addChildAtIndex()` is not in the grid (for example, it was kept '
+      + 'across a data load), so no row was added. Read the parent again with `getDataObject()`.'
+    );
+  }
+
+  /**
+   * The body of `addChildAtIndex()`, run inside its operation.
+   *
+   * @param {object} parent Parent node.
+   * @param {number} index Index to insert the child element at.
+   * @param {object} [element] Element (node) to insert.
+   */
+  #addChildAtIndex(parent: RowObject | null, index: number, element: RowObject | null) {
+    let childElement = element;
+    let flattenedIndex: number;
+
+    // A parent object the cache does not know (one an app kept across a data load) has no row to
+    // insert under. Falling back to row 0 wrote its children onto the first top-level row and left an
+    // index slot with no data behind it.
+    if (parent && this.getRowIndex(parent) === null) {
+      this.#warnStaleParent();
+
+      return;
+    }
+
+    if (!childElement) {
+      childElement = this.mockNode();
+    }
+
+    this.hot.runHooks('beforeAddChild', parent, childElement, index);
+
+    // Read after the hook: a listener may have moved the parent (removed a row above it, detached
+    // it), and a row number taken earlier would address whatever row holds that position now.
+    const parentIndex = parent ? this.getRowIndex(parent) : null;
+
+    // A listener removed the parent itself. `beforeAddChild` has opened the collapsed-rows stash,
+    // and only `afterAddChild` closes it, so the hook still fires, as it does for a cancelled insert.
+    if (parent && parentIndex === null) {
+      this.#warnStaleParent();
+      this.hot.runHooks('afterAddChild', parent, null, index);
+
+      return;
+    }
+
+    if (parent && parentIndex !== null) {
+      const finalChildIndex = parentIndex + index + 1;
+
+      this.hot.runHooks('beforeCreateRow', finalChildIndex, 1);
+
+      parent.__children!.splice(index, 0, childElement);
+
+      this.rewriteCache();
+
+      // The plugin's modifiers stay on: `parentIndex` is a flattened row, and with them off the write
+      // would address the top-level array by that number and hand the parent's `__children` to an
+      // unrelated top-level row.
+      this.hot.setSourceDataAtCell(
+        parentIndex,
+        '__children',
+        parent.__children,
+        'NestedRows.addChildAtIndex'
+      );
+
+      this.hot.rowIndexMapper.insertIndexes(finalChildIndex, 1);
+
+      // Read the real index instead of reusing `finalChildIndex`: that one assumes every preceding
+      // sibling is a leaf, so a sibling with descendants would splice the meta above the new row.
+      this.shiftCellsMeta(this.getRowIndex(childElement));
+
+      this.hot.runHooks('afterCreateRow', finalChildIndex, 1);
+
+      flattenedIndex = finalChildIndex;
+
+    } else {
+      // `Array#splice` reads a negative index from the end, while everything below reports an
+      // append, so a caller that lost track of its row - `getRowIndexWithinParent()` answers -1 for
+      // a row object the cache does not know - would otherwise put the data, the meta and the index
+      // maps in three different places. Normalize once, here, and use it for both halves.
+      const topLevelIndex = Math.max(index, 0);
+      const finalRowIndex = this.getTopLevelInsertionRow(topLevelIndex);
+      // Read before the splice, so both still mean the row the new one displaces. The index maps
+      // count in visual indexes; the cell meta counts in physical ones. Appending is its own case:
+      // no physical row holds `finalRowIndex` yet, so it has no visual index to read, and the new
+      // row goes one past the last *visible* row rather than past the physical count. A displaced
+      // row that is itself trimmed cannot be addressed at all - see the plugin's `AGENTS.md`.
+      const visualRowIndex = topLevelIndex >= this.data!.length
+        ? this.hot.countRows()
+        : (this.hot.rowIndexMapper.getVisualFromPhysicalIndex(finalRowIndex) ?? finalRowIndex);
+
+      // A `false` here cancels the insert, and it has to keep doing so: `Formulas` answers `false`
+      // whenever HyperFormula cannot extend the sheet, and its own `afterCreateRow` listener would
+      // then call `engine.addRows()` on the state HyperFormula just refused. `afterAddChild` still
+      // has to fire - `beforeAddChild` opened the collapsed-rows stash, and only that hook closes
+      // it again, so returning without it leaves the grid expanded for the rest of its life.
+      if (this.hot.runHooks('beforeCreateRow', visualRowIndex, 1, 'NestedRows.addChildAtIndex') === false) {
+        this.hot.runHooks('afterAddChild', parent, null, index);
+
+        return;
+      }
+
+      // `this.data` is the source array itself, so this splice already is the source data change -
+      // no `setSourceDataAtCell()` needed, unlike the branch above, which writes a `__children` key.
+      this.data!.splice(topLevelIndex, 0, childElement);
+
+      this.rewriteCache();
+
+      this.hot.rowIndexMapper.insertIndexes(visualRowIndex, 1);
+
+      this.shiftCellsMeta(this.getRowIndex(childElement));
+
+      this.hot.runHooks('afterCreateRow', visualRowIndex, 1, 'NestedRows.addChildAtIndex');
+
+      // Kept from `hot.alter()`, now with the right index: a selection at or below the new row still
+      // addresses the same rows.
+      this.hot.selection.shiftRows(visualRowIndex, 1);
+
+      flattenedIndex = finalRowIndex;
+    }
+
+    // Workaround for refreshing cache losing the reference to the mocked row.
+    childElement = this.getDataObject(flattenedIndex) ?? null;
+
+    this.hot.runHooks('afterAddChild', parent, childElement, index);
+  }
+
+  /**
+   * Add a sibling element at the specified index.
+   *
+   * @param {number} index New element sibling's index.
+   * @param {('above'|'below')} where Direction in which the sibling is to be created.
+   */
+  addSibling(index: number, where = 'below') {
+    const translatedIndex = this.translateTrimmedRow(index);
+    const parent = this.getRowParent(translatedIndex);
+    const indexWithinParent = this.getRowIndexWithinParent(translatedIndex);
+
+    switch (where) {
+      case 'below':
+        this.addChildAtIndex(parent, indexWithinParent + 1, null);
+        break;
+      case 'above':
+        this.addChildAtIndex(parent, indexWithinParent, null);
+        break;
+      default:
+        break;
+    }
+  }
+
+  /**
+   * Detach the provided element from its parent and add it right after it.
+   *
+   * @param {object|Array} elements Row object or an array of selected coordinates.
+   * @param {boolean} [forceRender=true] If true (default), it triggers render after finished.
+   * @param {string} [source] Source emitted with the row mutation hooks.
+   */
+  detachFromParent(elements: RowObject | number[], forceRender = true, source = this.plugin.pluginName) {
+    this.plugin.runOperation('nested_rows_detach', () => this.#detachFromParent(elements, forceRender, source));
+  }
+
+  /**
+   * The body of `detachFromParent()`, run inside its operation.
+   *
+   * @param {object|Array} elements Row object or an array of selected coordinates.
+   * @param {boolean} forceRender If true, it triggers render after finished.
+   * @param {string|null} source Source emitted with the row mutation hooks.
+   */
+  #detachFromParent(elements: RowObject | number[], forceRender: boolean, source: string | null) {
+    let element: RowObject | null = null;
+    const rowObjects: (RowObject | null | undefined)[] = [];
+
+    if (Array.isArray(elements)) {
+      rangeEach(elements[0], elements[2], (i: number) => {
+        const translatedIndex = this.translateTrimmedRow(i);
+
+        rowObjects.push(this.getDataObject(translatedIndex));
+      });
+
+      rangeEach(0, rowObjects.length - 2, (i: number) => {
+        const rowObj = rowObjects[i];
+
+        if (rowObj !== null && rowObj !== undefined) {
+          this.detachFromParent(rowObj, false, source);
+        }
+      });
+
+      element = rowObjects[rowObjects.length - 1] ?? null;
+    } else {
+      element = elements;
+    }
+
+    if (!element) {
+      return;
+    }
+
+    // Kept separate from `childRowIndex`: that `?? 0` fallback is pre-existing and is left reporting
+    // the hook arguments exactly as it did. As a meta index the `0` would splice from the top of the
+    // grid, so `moveCellsMeta()` reads the raw result instead.
+    const childPhysicalIndex = this.getRowIndex(element);
+    const childRowIndex = childPhysicalIndex ?? 0;
+    const childCount = this.countChildren(element);
+    const indexWithinParent = this.getRowIndexWithinParent(element);
+    const parent = this.getRowParent(element);
+    const grandparent = this.getRowParent(parent!);
+    const grandparentRowIndex = this.getRowIndex(grandparent) ?? 0;
+    let movedElementRowIndex: number | null = null;
+    // Set inside the branch that actually restructures the tree, so the cell meta move below can
+    // never run on its own. Re-testing `indexWithinParent` there would be a second copy of this
+    // condition, free to drift away from the one the data operation is gated on.
+    let hasMovedTheRow = false;
+
+    // Captured only for a detach that moves the row, which is the only one the restore below runs for.
+    let restoreRowSizeOrigins: (() => void) | null = null;
+
+    this.hot.runHooks('beforeDetachChild', parent, element, source);
+
+    if (indexWithinParent !== null && indexWithinParent !== undefined) {
+      restoreRowSizeOrigins = this.captureRowSizeOrigins();
+
+      const removedRowIndexes = Array.from(
+        new Array(childRowIndex + childCount + 1).keys()
+      ).splice(-1 * (childCount + 1));
+
+      this.hot.runHooks(
+        'beforeRemoveRow',
+        childRowIndex,
+        childCount + 1,
+        removedRowIndexes,
+        source
+      );
+
+      parent!.__children!.splice(indexWithinParent, 1);
+
+      this.rewriteCache();
+
+      this.hot.runHooks(
+        'afterRemoveRow',
+        childRowIndex,
+        childCount + 1,
+        removedRowIndexes,
+        source
+      );
+
+      if (grandparent) {
+        movedElementRowIndex = grandparentRowIndex + this.countChildren(grandparent);
+
+        const lastGrandparentChild = this.getChild(grandparent, this.countChildren(grandparent) - 1);
+        const lastGrandparentChildIndex = this.getRowIndex(lastGrandparentChild) ?? 0;
+
+        this.hot.runHooks('beforeCreateRow', lastGrandparentChildIndex + 1, childCount + 1, source);
+
+        grandparent.__children!.push(element);
+
+      } else {
+        movedElementRowIndex = this.hot.countRows() + 1;
+        this.hot.runHooks('beforeCreateRow', movedElementRowIndex - 2, childCount + 1, source);
+
+        this.data!.push(element);
+      }
+
+      hasMovedTheRow = true;
+    }
+
+    this.rewriteCache();
+
+    if (hasMovedTheRow) {
+      // Read the destination instead of reusing `movedElementRowIndex`: that one is derived
+      // arithmetically from the grandparent position, and a sibling that owns descendants breaks
+      // the formula.
+      this.moveCellsMeta(childPhysicalIndex, this.getRowIndex(element), childCount + 1);
+      restoreRowSizeOrigins?.();
+    }
+
+    this.hot.runHooks('afterCreateRow', movedElementRowIndex! - 2, childCount + 1, source);
+
+    this.hot.runHooks('afterDetachChild', parent, element, this.getRowIndex(element), source);
+
+    if (forceRender) {
+      this.hot.render();
+    }
+  }
+
+  /**
+   * Filter the data by the `logicRows` array.
+   *
+   * @private
+   * @param {number} index Index of the first row to remove.
+   * @param {number} amount Number of elements to remove.
+   * @param {Array} logicRows Array of indexes to remove.
+   */
+  filterData(index: number, amount: number, logicRows: number[]) {
+    // TODO: why are the first 2 arguments not used?
+
+    const elementsToRemove: RowObject[] = [];
+
+    arrayEach(logicRows, (elem: number) => {
+      const elemObj = this.getDataObject(elem);
+
+      if (elemObj !== null && elemObj !== undefined) {
+        elementsToRemove.push(elemObj);
+      }
+    });
+
+    arrayEach(elementsToRemove, (elem: RowObject) => {
+      const indexWithinParent = this.getRowIndexWithinParent(elem);
+      const tempParent = this.getRowParent(elem);
+
+      if (tempParent === null) {
+        this.data!.splice(indexWithinParent, 1);
+      } else {
+        tempParent.__children!.splice(indexWithinParent, 1);
+      }
+    });
+
+    this.rewriteCache();
+  }
+
+  /**
+   * Appends row objects to the parent of the provided row, right after its last child. Used for an insert
+   * below the last row of the tree, so the anchor is always the last child of its parent and the new rows
+   * land at the end of the flattened tree.
+   *
+   * @private
+   * @param {object} anchor The row object the new rows become siblings of.
+   * @param {object[]} elements Row objects to add.
+   */
+  appendSiblings(anchor: RowObject, elements: RowObject[]) {
+    const parent = this.getRowParent(anchor);
+    const siblings = parent === null ? this.data! : parent.__children!;
+
+    elements.forEach(element => siblings.push(element));
+
+    this.rewriteCache();
+  }
+
+  /**
+   * Used to splice the source data. Needed to properly modify the nested structure, which wouldn't work with the
+   * default script.
+   *
+   * @private
+   * @param {number} index Physical index of the element at the splice beginning.
+   * @param {number} amount Number of elements to be removed.
+   * @param {object[]} elements Array of row objects to add.
+   */
+  spliceData(index: number, amount: number, elements: RowObject[] | null) {
+    const previousElement = this.getDataObject(index - 1);
+    let newRowParent: RowObject | null = null;
+    let indexWithinParent = index;
+
+    if (previousElement && previousElement.__children && previousElement.__children.length === 0) {
+      newRowParent = previousElement;
+      indexWithinParent = 0;
+
+    } else if (index < this.countAllRows()) {
+      newRowParent = this.getRowParent(index);
+      indexWithinParent = this.getRowIndexWithinParent(index);
+    }
+
+    if (newRowParent) {
+      if (elements) {
+        newRowParent.__children!.splice(indexWithinParent, amount, ...elements);
+
+      } else {
+        newRowParent.__children!.splice(indexWithinParent, amount);
+      }
+
+    } else if (elements) {
+      this.data!.splice(indexWithinParent, amount, ...elements);
+
+    } else {
+      this.data!.splice(indexWithinParent, amount);
+    }
+
+    this.rewriteCache();
+  }
+
+  /**
+   * Update the `__children` key of the upmost parent of the provided row object.
+   *
+   * @private
+   * @param {object} rowElement Row object.
+   */
+  syncRowWithRawSource(rowElement: RowObject) {
+    let upmostParent: RowObject = rowElement;
+    let tempParent: RowObject | null = upmostParent;
+
+    do {
+      tempParent = this.getRowParent(tempParent);
+
+      if (tempParent !== null) {
+        upmostParent = tempParent;
+      }
+
+    } while (tempParent !== null);
+
+    this.plugin.disableCoreAPIModifiers();
+    this.hot.setSourceDataAtCell(
+      this.getRowIndexWithinParent(upmostParent),
+      '__children',
+      upmostParent.__children,
+      'NestedRows.syncRowWithRawSource',
+    );
+    this.plugin.enableCoreAPIModifiers();
+  }
+
+  /* eslint-disable jsdoc/require-param */
+  /**
+   * Move a single row.
+   *
+   * @param {number} fromIndex Index of the row to be moved.
+   * @param {number} toIndex Index of the destination.
+   * @param {boolean} moveToCollapsed `true` if moving a row to a collapsed parent.
+   * @param {boolean} moveToLastChild `true` if moving a row to be a last child of the new parent.
+   */
+
+  /* eslint-enable jsdoc/require-param */
+  /**
+   *
+   */
+  moveRow(fromIndex: number, toIndex: number, moveToCollapsed: boolean, moveToLastChild: boolean) {
+    const moveToLastRow = toIndex === this.hot.countRows();
+    const fromParent = this.getRowParent(fromIndex)!;
+    const indexInFromParent = this.getRowIndexWithinParent(fromIndex);
+    const elemToMove = fromParent.__children!.slice(indexInFromParent, indexInFromParent + 1);
+    const movingUp = fromIndex > toIndex;
+    let toParent: RowObject | null | undefined = moveToLastRow
+      ? this.getRowParent(toIndex - 1)
+      : this.getRowParent(toIndex);
+
+    if (toParent === null || toParent === undefined) {
+      toParent = this.getRowParent(toIndex - 1);
+    }
+
+    if (toParent === null || toParent === undefined) {
+      toParent = this.getDataObject(toIndex - 1);
+    }
+
+    if (!toParent) {
+      toParent = this.getDataObject(toIndex);
+      toParent!.__children = [];
+
+    } else if (!toParent.__children) {
+      toParent.__children = [];
+    }
+
+    const indexInTargetParent = moveToLastRow || moveToCollapsed || moveToLastChild ?
+      toParent!.__children!.length : this.getRowIndexWithinParent(toIndex);
+    const sameParent = fromParent === toParent;
+
+    toParent!.__children!.splice(indexInTargetParent, 0, elemToMove[0]);
+    fromParent.__children!.splice(indexInFromParent + (movingUp && sameParent ? 1 : 0), 1);
+
+    // Sync the changes in the cached data with the actual data stored in HOT.
+    this.syncRowWithRawSource(fromParent);
+
+    if (!sameParent) {
+      this.syncRowWithRawSource(toParent!);
+    }
+  }
+
+  /**
+   * Translate the visual row index to the physical index, taking into consideration the state of collapsed rows.
+   *
+   * @private
+   * @param {number} row Row index.
+   * @returns {number}
+   */
+  translateTrimmedRow(row: number): number {
+    if (this.plugin.collapsingUI) {
+      return this.plugin.collapsingUI.translateTrimmedRow(row);
+    }
+
+    return row;
+  }
+
+  /**
+   * Translate the physical row index to the visual index, taking into consideration the state of collapsed rows.
+   *
+   * @private
+   * @param {number} row Row index.
+   * @returns {number}
+   */
+  untranslateTrimmedRow(row: number): number {
+    if (this.plugin.collapsingUI) {
+      return this.plugin.collapsingUI.untranslateTrimmedRow(row);
+    }
+
+    return row;
+  }
+}
+
+export default DataManager;

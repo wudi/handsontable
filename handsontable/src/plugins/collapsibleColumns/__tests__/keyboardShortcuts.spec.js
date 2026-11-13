@@ -13,7 +13,7 @@ describe('CollapsibleColumns keyboard shortcut', () => {
   });
 
   describe('"Enter"', () => {
-    it('should be possible to collapse all columns', () => {
+    it('should be possible to collapse all columns', async() => {
       handsontable({
         data: createSpreadsheetData(1, 10),
         colHeaders: true,
@@ -28,8 +28,8 @@ describe('CollapsibleColumns keyboard shortcut', () => {
         collapsibleColumns: true,
       });
 
-      selectCell(-1, 3); // D3
-      keyDownUp('enter');
+      await selectCell(-1, 3); // D3
+      await keyDownUp('enter');
 
       expect(`
         |   ║                                   |
@@ -39,8 +39,8 @@ describe('CollapsibleColumns keyboard shortcut', () => {
         |   ║   :   :   :   :   :   :   :   :   |
       `).toBeMatchToSelectionPattern();
 
-      selectCell(-1, 2); // B3
-      keyDownUp('enter');
+      await selectCell(-1, 2); // B3
+      await keyDownUp('enter');
 
       expect(`
         |   ║                               |
@@ -50,8 +50,8 @@ describe('CollapsibleColumns keyboard shortcut', () => {
         |   ║   :   :   :   :   :   :   :   |
       `).toBeMatchToSelectionPattern();
 
-      selectCell(-2, 7); // F2
-      keyDownUp('enter');
+      await selectCell(-2, 7); // F2
+      await keyDownUp('enter');
 
       expect(`
         |   ║                       |
@@ -61,8 +61,8 @@ describe('CollapsibleColumns keyboard shortcut', () => {
         |   ║   :   :   :   :   :   |
       `).toBeMatchToSelectionPattern();
 
-      selectCell(-3, 1); // A1
-      keyDownUp('enter');
+      await selectCell(-3, 1); // A1
+      await keyDownUp('enter');
 
       expect(`
         |   ║ # |
@@ -73,7 +73,7 @@ describe('CollapsibleColumns keyboard shortcut', () => {
       `).toBeMatchToSelectionPattern();
     });
 
-    it('should be possible to collapse a single column when a range columns are selected', () => {
+    it('should be possible to collapse a single column column header is selected', async() => {
       handsontable({
         data: createSpreadsheetData(1, 10),
         colHeaders: true,
@@ -88,20 +88,48 @@ describe('CollapsibleColumns keyboard shortcut', () => {
         collapsibleColumns: true,
       });
 
-      selectColumns(3, 6, -1); // D3-F3
-      listen();
-      keyDownUp('enter');
+      await selectCell(-1, 5);
+      await listen();
+      await keyDownUp('enter');
 
       expect(`
         |   ║                                   |
-        |   ║   :           :               :   |
-        |   ║   :       : # : *   * :       :   |
+        |   ║   :               :           :   |
+        |   ║   :       :       : # :       :   |
         |===:===:===:===:===:===:===:===:===:===|
-        | - ║   :   :   : 0 : 0 : 0 :   :   :   |
+        |   ║   :   :   :   :   :   :   :   :   |
       `).toBeMatchToSelectionPattern();
     });
 
-    it('should be possible to expand all columns', () => {
+    it('should not be possible to collapse a single column when a range columns are selected', async() => {
+      handsontable({
+        data: createSpreadsheetData(1, 10),
+        colHeaders: true,
+        rowHeaders: true,
+        navigableHeaders: true,
+        nestedHeaders: [
+          [{ label: 'A1', colspan: 10 }],
+          ['A2', { label: 'B2', colspan: 4 }, { label: 'F2', colspan: 4 }, 'J2'],
+          ['A3', { label: 'B3', colspan: 2 }, { label: 'D3', colspan: 2 }, { label: 'F3', colspan: 2 },
+            { label: 'H3', colspan: 2 }, 'J3'],
+        ],
+        collapsibleColumns: true,
+      });
+
+      await selectColumns(3, 6, -1); // D3-F3
+      await listen();
+      await keyDownUp('enter');
+
+      expect(`
+        |   ║                                       |
+        |   ║   :               :               :   |
+        |   ║   :       : *   * : *   * :       :   |
+        |===:===:===:===:===:===:===:===:===:===:===|
+        | - ║   :   :   : A : 0 : 0 : 0 :   :   :   |
+      `).toBeMatchToSelectionPattern();
+    });
+
+    it('should be possible to expand all columns', async() => {
       handsontable({
         data: createSpreadsheetData(1, 10),
         colHeaders: true,
@@ -122,8 +150,8 @@ describe('CollapsibleColumns keyboard shortcut', () => {
       getPlugin('collapsibleColumns').collapseSection({ row: -2, col: 5 }); // F2
       getPlugin('collapsibleColumns').collapseSection({ row: -3, col: 0 }); // A1
 
-      selectCell(-3, 0); // A1
-      keyDownUp('enter');
+      await selectCell(-3, 0); // A1
+      await keyDownUp('enter');
 
       expect(`
         |   ║ #   #   #   # |
@@ -133,8 +161,8 @@ describe('CollapsibleColumns keyboard shortcut', () => {
         |   ║   :   :   :   |
       `).toBeMatchToSelectionPattern();
 
-      selectCell(-2, 5); // F2
-      keyDownUp('enter');
+      await selectCell(-2, 5); // F2
+      await keyDownUp('enter');
 
       expect(`
         |   ║                       |
@@ -144,8 +172,8 @@ describe('CollapsibleColumns keyboard shortcut', () => {
         |   ║   :   :   :   :   :   |
       `).toBeMatchToSelectionPattern();
 
-      selectCell(-1, 1); // B3
-      keyDownUp('enter');
+      await selectCell(-1, 1); // B3
+      await keyDownUp('enter');
 
       expect(`
         |   ║                           |
@@ -155,8 +183,8 @@ describe('CollapsibleColumns keyboard shortcut', () => {
         |   ║   :   :   :   :   :   :   |
       `).toBeMatchToSelectionPattern();
 
-      selectCell(-1, 5); // F3
-      keyDownUp('enter');
+      await selectCell(-1, 5); // F3
+      await keyDownUp('enter');
 
       expect(`
         |   ║                               |
@@ -166,8 +194,8 @@ describe('CollapsibleColumns keyboard shortcut', () => {
         |   ║   :   :   :   :   :   :   :   |
       `).toBeMatchToSelectionPattern();
 
-      selectCell(-2, 1); // B2
-      keyDownUp('enter');
+      await selectCell(-2, 1); // B2
+      await keyDownUp('enter');
 
       expect(`
         |   ║                                       |
@@ -178,7 +206,7 @@ describe('CollapsibleColumns keyboard shortcut', () => {
       `).toBeMatchToSelectionPattern();
     });
 
-    it('should be possible to expand a single column when a range columns are selected', () => {
+    it('should be possible to expand a single column when a column header is selected', async() => {
       handsontable({
         data: createSpreadsheetData(1, 10),
         colHeaders: true,
@@ -196,20 +224,51 @@ describe('CollapsibleColumns keyboard shortcut', () => {
       getPlugin('collapsibleColumns').collapseSection({ row: -1, col: 3 }); // D3
       getPlugin('collapsibleColumns').collapseSection({ row: -1, col: 5 }); // F3
 
-      selectColumns(3, 6, -1); // D3-F3
-      listen();
-      keyDownUp('enter');
+      await selectCell(-1, 3);
+      await listen();
+      await keyDownUp('enter');
 
       expect(`
         |   ║                                   |
         |   ║   :               :           :   |
-        |   ║   :       : #   # : * :       :   |
+        |   ║   :       : #   # :   :       :   |
         |===:===:===:===:===:===:===:===:===:===|
-        | - ║   :   :   : 0 : 0 : 0 :   :   :   |
+        |   ║   :   :   :   :   :   :   :   :   |
       `).toBeMatchToSelectionPattern();
     });
 
-    it('should be possible to collapse/expand only collapsible headers', () => {
+    it('should not be possible to expand a single column when a range columns are selected', async() => {
+      handsontable({
+        data: createSpreadsheetData(1, 10),
+        colHeaders: true,
+        rowHeaders: true,
+        navigableHeaders: true,
+        nestedHeaders: [
+          [{ label: 'A1', colspan: 10 }],
+          ['A2', { label: 'B2', colspan: 4 }, { label: 'F2', colspan: 4 }, 'J2'],
+          ['A3', { label: 'B3', colspan: 2 }, { label: 'D3', colspan: 2 }, { label: 'F3', colspan: 2 },
+            { label: 'H3', colspan: 2 }, 'J3'],
+        ],
+        collapsibleColumns: true,
+      });
+
+      getPlugin('collapsibleColumns').collapseSection({ row: -1, col: 3 }); // D3
+      getPlugin('collapsibleColumns').collapseSection({ row: -1, col: 5 }); // F3
+
+      await selectColumns(3, 6, -1); // D3-F3
+      await listen();
+      await keyDownUp('enter');
+
+      expect(`
+        |   ║                               |
+        |   ║   :           :           :   |
+        |   ║   :       : * : * :       :   |
+        |===:===:===:===:===:===:===:===:===|
+        | - ║   :   :   : A : 0 :   :   :   |
+      `).toBeMatchToSelectionPattern();
+    });
+
+    it('should be possible to collapse/expand only collapsible headers', async() => {
       handsontable({
         data: createSpreadsheetData(1, 10),
         colHeaders: true,
@@ -226,10 +285,10 @@ describe('CollapsibleColumns keyboard shortcut', () => {
         ],
       });
 
-      selectCell(-1, 1); // B3
-      selectCell(-1, 3); // D3
-      selectCell(-2, 1); // B2
-      keyDownUp('enter');
+      await selectCell(-1, 1); // B3
+      await selectCell(-1, 3); // D3
+      await selectCell(-2, 1); // B2
+      await keyDownUp('enter');
 
       expect(`
         |   ║                                       |
@@ -239,8 +298,8 @@ describe('CollapsibleColumns keyboard shortcut', () => {
         |   ║   :   :   :   :   :   :   :   :   :   |
       `).toBeMatchToSelectionPattern();
 
-      selectCell(-3, 0); // A1
-      keyDownUp('enter'); // collapse
+      await selectCell(-3, 0); // A1
+      await keyDownUp('enter'); // collapse
 
       expect(`
         |   ║ # |
@@ -250,8 +309,8 @@ describe('CollapsibleColumns keyboard shortcut', () => {
         |   ║   |
       `).toBeMatchToSelectionPattern();
 
-      selectCell(-3, 0); // A1
-      keyDownUp('enter'); // expand
+      await selectCell(-3, 0); // A1
+      await keyDownUp('enter'); // expand
 
       expect(`
         |   ║ #   #   #   #   #   #   #   #   #   # |
@@ -262,7 +321,7 @@ describe('CollapsibleColumns keyboard shortcut', () => {
       `).toBeMatchToSelectionPattern();
     });
 
-    it('should not trigger the editor to be opened', () => {
+    it('should not trigger the editor to be opened', async() => {
       handsontable({
         data: createSpreadsheetData(1, 10),
         colHeaders: true,
@@ -277,9 +336,9 @@ describe('CollapsibleColumns keyboard shortcut', () => {
         collapsibleColumns: true,
       });
 
-      selectCell(-1, 3); // D3
-      listen();
-      keyDownUp('enter');
+      await selectCell(-1, 3); // D3
+      await listen();
+      await keyDownUp('enter');
 
       expect(getActiveEditor()).toBeUndefined();
     });

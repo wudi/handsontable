@@ -12,61 +12,88 @@ describe('TimeRenderer', () => {
     }
   });
 
-  it('should render string', () => {
-    handsontable({
-      renderer: 'time',
-    });
-    setDataAtCell(2, 2, 'string');
+  it('should internally call base renderer once', async() => {
+    const originalBaseRenderer = Handsontable.renderers.BaseRenderer;
 
-    expect(getCell(2, 2).innerHTML).toEqual('string');
+    const renderedCellCalls = [];
+
+    spyOn(Handsontable.renderers, 'BaseRenderer').and.callFake((...args) => {
+      const TD = args[1];
+
+      // The GhostTable that AutoColumnSize measures in renders its own cells, flagged with the
+      // `ghost-table` attribute, and those go through the same renderer contract. They are a
+      // separate render pass, not a second call on the rendered cell this spec is about.
+      if (!TD.hasAttribute('ghost-table')) {
+        renderedCellCalls.push(TD);
+      }
+    });
+
+    Handsontable.renderers.registerRenderer('base', Handsontable.renderers.BaseRenderer);
+    handsontable({
+      data: [['test']],
+      type: 'time',
+    });
+
+    expect(renderedCellCalls.length).toBe(1);
+
+    Handsontable.renderers.registerRenderer('base', originalBaseRenderer);
   });
 
-  it('should render number', () => {
+  it('should render #bad-value# for a non-time string', async() => {
     handsontable({
       renderer: 'time',
     });
-    setDataAtCell(2, 2, 13);
+    await setDataAtCell(2, 2, 'string');
 
-    expect(getCell(2, 2).innerHTML).toEqual('13');
+    expect(getCell(2, 2).innerHTML).toEqual('#bad-value#');
   });
 
-  it('should render boolean true', () => {
+  it('should render #bad-value# for a number', async() => {
     handsontable({
       renderer: 'time',
     });
-    setDataAtCell(2, 2, true);
+    await setDataAtCell(2, 2, 13);
 
-    expect(getCell(2, 2).innerHTML).toEqual('true');
+    expect(getCell(2, 2).innerHTML).toEqual('#bad-value#');
   });
 
-  it('should render boolean false', () => {
+  it('should render #bad-value# for boolean true', async() => {
     handsontable({
       renderer: 'time',
     });
-    setDataAtCell(2, 2, false);
+    await setDataAtCell(2, 2, true);
 
-    expect(getCell(2, 2).innerHTML).toEqual('false');
+    expect(getCell(2, 2).innerHTML).toEqual('#bad-value#');
   });
 
-  it('should render null', () => {
+  it('should render #bad-value# for boolean false', async() => {
     handsontable({
       renderer: 'time',
     });
-    setDataAtCell(2, 2, null);
+    await setDataAtCell(2, 2, false);
+
+    expect(getCell(2, 2).innerHTML).toEqual('#bad-value#');
+  });
+
+  it('should render null', async() => {
+    handsontable({
+      renderer: 'time',
+    });
+    await setDataAtCell(2, 2, null);
 
     expect(getCell(2, 2).innerHTML).toEqual('');
   });
 
-  it('should render undefined', () => {
+  it('should render undefined', async() => {
     handsontable({
       renderer: 'time',
     });
-    setDataAtCell(2, 2, undefined);
+    await setDataAtCell(2, 2, undefined);
 
     expect(getCell(2, 2).innerHTML).toEqual('');
   });
 
-  it('should render the cell without messing with "dir" attribute', () => {
+  it('should render the cell without messing with "dir" attribute', async() => {
     handsontable({
       data: [['foo']],
       renderer: 'time'
@@ -75,64 +102,26 @@ describe('TimeRenderer', () => {
     expect(getCell(0, 0).getAttribute('dir')).toBe('ltr');
   });
 
-  it('should add class name `htDimmed` to a read only cell', () => {
-    const DIV = document.createElement('DIV');
-    const instance = new Handsontable.Core(DIV, {
+  it('should add class name `htDimmed` to a read only cell', async() => {
+    handsontable({
+      data: [['foo']],
       renderer: 'time',
-    });
-
-    const TD = document.createElement('TD');
-
-    TD.className = 'someClass';
-    Handsontable.renderers.TimeRenderer(instance, TD, 0, 0, 0, '', {
       readOnly: true,
       readOnlyCellClassName: 'htDimmed',
+      className: 'someClass',
     });
-    expect(TD.className).toEqual('someClass htDimmed');
 
-    instance.destroy();
+    expect(getCell(0, 0).className).toEqual('someClass htDimmed');
   });
 
-  it('should render a multiline string', () => {
+  it('should format a valid ISO time string using valueFormatter', async() => {
     handsontable({
-      renderer: 'time',
+      data: [['14:30']],
+      type: 'time',
+      timeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
     });
-    setDataAtCell(1, 2, 'a b');
-    setDataAtCell(2, 2, 'a\nb');
 
-    expect($(getCell(2, 2)).height()).toBeGreaterThan($(getCell(1, 2)).height());
+    expect(getCell(0, 0).innerText).toBe('14:30');
   });
 
-  it('should wrap text when column width is limited', () => {
-    handsontable({
-      renderer: 'time',
-      colWidths: [100],
-    });
-    setDataAtCell(0, 0, 'short text');
-    setDataAtCell(1, 0, 'long long long long long long long text');
-
-    expect($(getCell(1, 0)).height()).toBeGreaterThan($(getCell(0, 0)).height());
-  });
-
-  it('should wrap text when trimWhitespace option is false', () => {
-    const HOT = handsontable({
-      renderer: 'time',
-      trimWhitespace: false,
-      wordWrap: true,
-      data: [
-        ['text', 'long long long long long text']
-      ],
-      colWidths: [100, 500],
-    });
-
-    const oldRowHeight = $(getCell(0, 1)).height();
-
-    HOT.updateSettings({
-      colWidths: [100, 100]
-    });
-
-    const newRowHeight = $(getCell(0, 1)).height();
-
-    expect(newRowHeight).toBeGreaterThan(oldRowHeight);
-  });
 });

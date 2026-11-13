@@ -1,0 +1,208 @@
+/**
+ * @preserve
+ * Authors: Domagoj Lončarić & Ante Živković
+ * Last updated: Jan 31, 2024
+ *
+ * Description: Definition file for Croatian - Croatia language-country.
+ */
+import * as C from '../constants';
+
+const dictionary = {
+  languageCode: 'hr-HR',
+
+  [C.OK]: 'U redu',
+  [C.CANCEL]: 'Odustani',
+
+  [C.CONTEXTMENU_ITEMS_NO_ITEMS]: 'Nema dostupnih mogućnosti',
+  [C.CONTEXTMENU_ITEMS_ROW_ABOVE]: 'Umetni redak iznad',
+  [C.CONTEXTMENU_ITEMS_ROW_BELOW]: 'Umetni redak ispod',
+  [C.CONTEXTMENU_ITEMS_INSERT_LEFT]: 'Umetni stupac lijevo',
+  [C.CONTEXTMENU_ITEMS_INSERT_RIGHT]: 'Umetni stupac desno',
+  [C.CONTEXTMENU_ITEMS_REMOVE_ROW]: ['Ukloni redak', 'Ukloni retke'],
+  [C.CONTEXTMENU_ITEMS_REMOVE_COLUMN]: ['Ukloni stupac', 'Ukloni stupce'],
+  [C.CONTEXTMENU_ITEMS_UNDO]: 'Poništi',
+  [C.CONTEXTMENU_ITEMS_REDO]: 'Ponovi',
+  [C.CONTEXTMENU_ITEMS_READ_ONLY]: 'Samo za čitanje',
+  [C.CONTEXTMENU_ITEMS_CLEAR_COLUMN]: 'Očisti stupac',
+
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT]: 'Poravnanje',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_LEFT]: 'Lijevo',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_CENTER]: 'Centar',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_RIGHT]: 'Desno',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_JUSTIFY]: 'Obostrano',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_TOP]: 'Gore',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_MIDDLE]: 'Sredina',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_BOTTOM]: 'Dolje',
+
+  [C.CONTEXTMENU_ITEMS_FREEZE_COLUMN]: 'Zamrzni stupac',
+  [C.CONTEXTMENU_ITEMS_UNFREEZE_COLUMN]: 'Odmrzni stupac',
+
+  [C.CONTEXTMENU_ITEMS_BORDERS]: 'Granice',
+  [C.CONTEXTMENU_ITEMS_BORDERS_TOP]: 'Gore',
+  [C.CONTEXTMENU_ITEMS_BORDERS_RIGHT]: 'Desno',
+  [C.CONTEXTMENU_ITEMS_BORDERS_BOTTOM]: 'Dolje',
+  [C.CONTEXTMENU_ITEMS_BORDERS_LEFT]: 'Lijevo',
+  [C.CONTEXTMENU_ITEMS_REMOVE_BORDERS]: 'Ukloni granicu(e)',
+
+  [C.CONTEXTMENU_ITEMS_ADD_COMMENT]: 'Dodaj komentar',
+  [C.CONTEXTMENU_ITEMS_EDIT_COMMENT]: 'Uredi komentar',
+  [C.CONTEXTMENU_ITEMS_REMOVE_COMMENT]: 'Izbriši komentar',
+  [C.CONTEXTMENU_ITEMS_READ_ONLY_COMMENT]: 'Komentar samo za čitanje',
+
+  [C.CONTEXTMENU_ITEMS_MERGE_CELLS]: 'Spoji čelije',
+  [C.CONTEXTMENU_ITEMS_UNMERGE_CELLS]: 'Razdijeli čelije',
+
+  [C.CONTEXTMENU_ITEMS_COPY]: 'Kopiraj',
+  [C.CONTEXTMENU_ITEMS_COPY_WITH_COLUMN_HEADERS]: [
+    'Kopiraj sa zaglavljem',
+    'Kopiraj sa zaglavljima',
+  ],
+  [C.CONTEXTMENU_ITEMS_COPY_WITH_COLUMN_GROUP_HEADERS]: [
+    'Kopiraj sa grupnim zaglavljem',
+    'Kopiraj sa grupnim zaglavljima',
+  ],
+  [C.CONTEXTMENU_ITEMS_COPY_COLUMN_HEADERS_ONLY]: [
+    'Kopiraj samo zaglavlje',
+    'Kopiraj samo zaglavlja',
+  ],
+  [C.CONTEXTMENU_ITEMS_CUT]: 'Izreži',
+
+  [C.CONTEXTMENU_ITEMS_EXPORT]: 'Izvezi',
+  [C.CONTEXTMENU_ITEMS_EXPORT_FILE_CSV]: 'Kao CSV',
+  [C.CONTEXTMENU_ITEMS_EXPORT_FILE_XLSX]: 'Kao Excel',
+  [C.EXPORT_FILE_DIALOG_TITLE]: 'Izvoz…',
+
+  [C.CONTEXTMENU_ITEMS_NESTED_ROWS_INSERT_CHILD]: 'Umetni ugniježđeni redak',
+  [C.CONTEXTMENU_ITEMS_NESTED_ROWS_DETACH_CHILD]: 'Odvoji ugniježđeni redak',
+
+  [C.CONTEXTMENU_ITEMS_HIDE_COLUMN]: ['Sakrij stupac', 'Sakrij stupce'],
+  [C.CONTEXTMENU_ITEMS_SHOW_COLUMN]: ['Prikaži stupac', 'Prikaži stupce'],
+
+  [C.CONTEXTMENU_ITEMS_HIDE_ROW]: ['Sakrij redak', 'Sakrij retke'],
+  [C.CONTEXTMENU_ITEMS_SHOW_ROW]: ['Prikaži redak', 'Prikaži retke'],
+
+  [C.FILTERS_CONDITIONS_NONE]: 'Ništa',
+  [C.FILTERS_CONDITIONS_EMPTY]: 'Prazno',
+  [C.FILTERS_CONDITIONS_NOT_EMPTY]: 'Nije prazno',
+  [C.FILTERS_CONDITIONS_EQUAL]: 'Jednako',
+  [C.FILTERS_CONDITIONS_NOT_EQUAL]: 'Nije jednako',
+  [C.FILTERS_CONDITIONS_BEGINS_WITH]: 'Počinje s',
+  [C.FILTERS_CONDITIONS_ENDS_WITH]: 'Završava s',
+  [C.FILTERS_CONDITIONS_CONTAINS]: 'Sadrži',
+  [C.FILTERS_CONDITIONS_NOT_CONTAIN]: 'Ne sadrži',
+  [C.FILTERS_CONDITIONS_GREATER_THAN]: 'Veće od',
+  [C.FILTERS_CONDITIONS_GREATER_THAN_OR_EQUAL]: 'Veće ili jednako od',
+  [C.FILTERS_CONDITIONS_LESS_THAN]: 'Manje od',
+  [C.FILTERS_CONDITIONS_LESS_THAN_OR_EQUAL]: 'Manje ili jednako od',
+  [C.FILTERS_CONDITIONS_BETWEEN]: 'Između',
+  [C.FILTERS_CONDITIONS_NOT_BETWEEN]: 'Nije između',
+  [C.FILTERS_CONDITIONS_AFTER]: 'Nakon',
+  [C.FILTERS_CONDITIONS_AFTER_OR_EQUAL]: 'Nakon ili jednako',
+  [C.FILTERS_CONDITIONS_BEFORE]: 'Prije',
+  [C.FILTERS_CONDITIONS_BEFORE_OR_EQUAL]: 'Prije ili jednako',
+  [C.FILTERS_CONDITIONS_TODAY]: 'Danas',
+  [C.FILTERS_CONDITIONS_TOMORROW]: 'Sutra',
+  [C.FILTERS_CONDITIONS_YESTERDAY]: 'Jučer',
+
+  [C.FILTERS_VALUES_BLANK_CELLS]: 'Prazna polja',
+
+  [C.FILTERS_DIVS_FILTER_BY_CONDITION]: 'Filtriraj po uvjetu',
+  [C.FILTERS_DIVS_FILTER_BY_VALUE]: 'Filtriraj po vrijednosti',
+
+  [C.FILTERS_LABELS_CONJUNCTION]: 'I',
+  [C.FILTERS_LABELS_DISJUNCTION]: 'Ili',
+
+  [C.FILTERS_BUTTONS_SELECT_ALL]: 'Odaberi sve',
+  [C.FILTERS_BUTTONS_CLEAR]: 'Poništi odabir',
+  [C.FILTERS_BUTTONS_OK]: 'U redu',
+  [C.FILTERS_BUTTONS_CANCEL]: 'Odustani',
+
+  [C.FILTERS_BUTTONS_PLACEHOLDER_SEARCH]: 'Pretraži',
+  [C.FILTERS_BUTTONS_PLACEHOLDER_VALUE]: 'Vrijednost',
+  [C.FILTERS_BUTTONS_PLACEHOLDER_SECOND_VALUE]: 'Druga vrijednost',
+
+  [C.PAGINATION_SECTION]: 'Paginacija',
+  [C.PAGINATION_PAGE_SIZE_SECTION]: 'Broj redaka',
+  [C.PAGINATION_PAGE_SIZE_AUTO]: 'Auto',
+  [C.PAGINATION_COUNTER_SECTION]: '[start] - [end] od [total]',
+  [C.PAGINATION_NAV_SECTION]: 'Stranica [currentPage] od [totalPages]',
+  [C.PAGINATION_FIRST_PAGE]: 'Idi na prvu stranicu',
+  [C.PAGINATION_PREV_PAGE]: 'Idi na prethodnu stranicu',
+  [C.PAGINATION_NEXT_PAGE]: 'Idi na sljedeću stranicu',
+  [C.PAGINATION_LAST_PAGE]: 'Idi na posljednju stranicu',
+
+  [C.SHEETS_BAR_SECTION]: 'Listovi',
+  [C.SHEETS_BAR_ADD_SHEET]: 'Dodaj list',
+  [C.SHEETS_BAR_ALL_SHEETS]: 'Svi listovi',
+  [C.SHEETS_BAR_SHEET_MENU]: 'Radnje lista: [name]',
+  [C.SHEETS_BAR_RENAME_SHEET]: 'Naziv lista',
+  [C.SHEETS_BAR_ITEMS_DELETE]: 'Izbriši',
+  [C.SHEETS_BAR_ITEMS_DUPLICATE]: 'Dupliciraj',
+  [C.SHEETS_BAR_ITEMS_RENAME]: 'Preimenuj',
+  [C.SHEETS_BAR_ITEMS_MOVE_RIGHT]: 'Pomakni desno',
+  [C.SHEETS_BAR_ITEMS_MOVE_LEFT]: 'Pomakni lijevo',
+  [C.SHEETS_BAR_PAGE_PREV]: 'Pomakni listove unazad',
+  [C.SHEETS_BAR_PAGE_NEXT]: 'Pomakni listove naprijed',
+  [C.SHEETS_BAR_SHEET_CHANGED]: 'List [name] aktiviran',
+  [C.SHEETS_BAR_RENAME_REJECTED]: 'Naziv lista nije promijenjen: [name] se već koristi',
+  [C.SHEETS_BAR_RENAME_NOT_CHANGED]: 'Naziv lista nije promijenjen',
+  [C.SHEETS_BAR_SHEET_DUPLICATED]: 'List [name] dupliciran kao [copy]',
+  [C.SHEETS_BAR_SHEET_MOVED]: 'List [name] premješten na položaj [position] od [count]',
+  [C.SHEETS_BAR_DEFAULT_SHEET_NAME]: 'List',
+
+  [C.CHECKBOX_CHECKED]: 'Označeno',
+  [C.CHECKBOX_UNCHECKED]: 'Nije označeno',
+
+  [C.LOADING_TITLE]: 'Učitavanje...',
+  [C.NOTIFICATION_BUTTONS_CLOSE]: 'Zatvori',
+
+  [C.EMPTY_DATA_STATE_TITLE]: 'Nema dostupnih podataka',
+  [C.EMPTY_DATA_STATE_DESCRIPTION]: 'Još nema ništa za prikaz.',
+  [C.EMPTY_DATA_STATE_TITLE_FILTERS]: 'Nema pronađenih rezultata',
+  [C.EMPTY_DATA_STATE_DESCRIPTION_FILTERS]: 'Čini se da vaši trenutni filtri skrivaju sve rezultate.',
+  [C.EMPTY_DATA_STATE_BUTTONS_FILTERS_RESET]: 'Resetiraj filtre',
+  [C.EMPTY_DATA_STATE_TITLE_LOADING]: 'Učitavanje podataka',
+  [C.EMPTY_DATA_STATE_DESCRIPTION_LOADING]: 'Pričekajte.',
+
+  [C.DATA_PROVIDER_ERRORS_FETCH]: 'Nije moguće učitati podatke',
+  [C.DATA_PROVIDER_ERRORS_CREATE]: 'Nije moguće stvoriti retke',
+  [C.DATA_PROVIDER_ERRORS_UPDATE]: 'Nije moguće ažurirati retke',
+  [C.DATA_PROVIDER_ERRORS_REMOVE]: 'Nije moguće ukloniti retke',
+  [C.DATA_PROVIDER_ERRORS_REQUEST_FAILED]: 'Zahtjev nije uspio',
+  [C.DATA_PROVIDER_BUTTONS_REFETCH]: 'Ponovno učitaj',
+  [C.ROW_SELECTION_SELECT_ROW]: 'Odaberi redak [row]',
+  [C.ROW_SELECTION_SELECT_ALL]: 'Odaberi sve retke (odabrano [selected] od [total])',
+  [C.CHECKBOX_HEADER_CHECK_ALL]: 'Označi sve (označeno [checked] od [total])',
+  [C.ROW_SELECTION_ANNOUNCE_ROW_SELECTED]: 'Redak [row] odabran',
+  [C.ROW_SELECTION_ANNOUNCE_ROW_DESELECTED]: 'Odabir retka [row] poništen',
+  [C.ROW_SELECTION_ANNOUNCE_COUNT]: 'Odabrano [selected] od [total] redaka',
+  [C.ROW_SELECTION_MENU_REMOVE]: 'Ukloni odabrane retke ([count])',
+  [C.ROW_SELECTION_MENU_CLEAR]: 'Poništi odabir redaka',
+  [C.FREEZE_BAR_ROWS_TOP]: 'Zamrznuti retci na vrhu',
+  [C.FREEZE_BAR_ROWS_BOTTOM]: 'Zamrznuti retci na dnu',
+  [C.FREEZE_BAR_COLUMNS_START]: 'Zamrznuti stupci na početku',
+  [C.FREEZE_BAR_COLUMNS_END]: 'Zamrznuti stupci na kraju',
+  [C.NESTED_ROWS_ANNOUNCEMENT_EXPANDED]: 'Proširen redak [label], prikazani prošireni retci: [count]',
+  [C.NESTED_ROWS_ANNOUNCEMENT_COLLAPSED]: 'Sažet redak [label]',
+  [C.FORMULA_BUILDER_EDITOR]: 'Uređivač formula',
+  [C.FORMULA_BUILDER_INPUT]: 'Unos formule',
+  [C.FORMULA_BUILDER_CELL_ADDRESS]: 'Adresa ćelije',
+  [C.FORMULA_BUILDER_SUGGESTIONS]: 'Prijedlozi formula',
+  [C.FORMULA_BUILDER_ACCEPT_HINT]: 'za prihvaćanje.',
+  [C.FORMULA_BUILDER_NAVIGATE_HINT]: 'za kretanje',
+  [C.FORMULA_BUILDER_FUNCTION_HELP]: 'Pomoć za funkciju',
+  [C.FORMULA_BUILDER_FUNCTION_HELP_FOR]: 'Pomoć za funkciju [name]',
+  [C.FORMULA_BUILDER_FUNCTION_EXAMPLE]: 'Primjer',
+  [C.FORMULA_BUILDER_FUNCTION_DESCRIPTION]: 'Opis',
+  [C.FORMULA_BUILDER_OPTIONAL_ARGUMENT]: 'neobavezno',
+  [C.FORMULA_BUILDER_REPEATABLE_ARGUMENT]: 'ponovljivo',
+  [C.FORMULA_BUILDER_LEARN_MORE]: 'Saznajte više',
+  [C.FORMULA_BUILDER_CLOSE]: 'Zatvori',
+  [C.FORMULA_BUILDER_INVALID_ADDRESS]: 'Nevažeća adresa ćelije: [text]',
+  [C.FORMULA_BUILDER_CELL_UNAVAILABLE]: 'Nije moguće odabrati [text]',
+  [C.FORMULA_BUILDER_CELL_ERROR]: 'Pogreška u [cell]: [message].',
+  [C.FORMULA_BUILDER_DEPENDENT_ERROR]: 'Još [count] ćelija sada sadrži pogrešku.',
+  [C.FORMULA_BUILDER_DEPENDENT_ERRORS]: 'Broj drugih ćelija s pogreškom: [count].',
+};
+
+export default dictionary;

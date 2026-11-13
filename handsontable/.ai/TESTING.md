@@ -1,0 +1,757 @@
+# Testing Patterns
+
+> **Paradigm (read first):** new E2E is **Playwright**, in the `tests/` package (`tests/e2e/*.spec.ts`) — see the `handsontable-playwright-e2e` skill. The **Jasmine + Puppeteer** `*.spec.js` suite documented below is the **frozen legacy** suite: keep it running, edit existing specs, but add no new ones — migrate broken/flaky ones to Playwright. Unit tests stay Jest. Which framework a change needs is decided in "What to test, and in which framework" below and machine-enforced by the presence gate.
+
+## Test Framework
+
+**Runners:**
+- Jest for unit tests (configured in `handsontable/jest.config.js`; `jest-jasmine2` runner)
+- **Playwright for new E2E** (`tests/` package; the current paradigm — skill: `handsontable-playwright-e2e`)
+- Jasmine with Puppeteer for the **frozen legacy** E2E suite (headless Chrome via `test/scripts/run-puppeteer.mjs`)
+- Separate test runner for Walkontable's specs (`npm run test:walkontable`); Walkontable's unit tests run in the core Jest suite
+
+**Assertion Library:**
+- Jest's built-in `expect()` for unit tests
+- Playwright's web-first `expect()` for new E2E (auto-retrying)
+- Jasmine's `expect()` for the legacy E2E suite
+- Custom matchers from `test/helpers/custom-matchers.js` (shared between unit and legacy E2E)
+
+**Run Commands:**
+```bash
+# From handsontable/ directory:
+npm run test:unit                  # Run all Jest unit tests (~448 files, Walkontable's test/unit/ included)
+npm run test:e2e                   # Build + run the LEGACY Jasmine E2E suite (~946 spec files)
+npm run test:walkontable           # Run Walkontable-specific tests
+npm run test:types                 # TypeScript type checking only
+# New Playwright E2E (from the repo root):
+cd tests && npm test               # Playwright functional E2E (visual regression is the separate visual-tests/ package)
+cd tests && npm run test:a11y      # axe-core scan over the curated fixture pages, three themes, compared with tests/a11y/axe-baseline.json
+cd tests && npm run test:a11y-checks  # the accessibility checks beyond axe (keyboard walker, ...): one evidence document per check
+cd tests && npm run test:a11y-docs    # axe-core scan over the deployed docs site, light and dark, compared with tests/a11y/docs/docs-baseline.json
+
+# From monorepo root (npm --prefix):
+npm --prefix handsontable run test:unit
+npm --prefix handsontable run test:e2e
+
+# Run specific unit test pattern (must be run from handsontable/ directory):
+npm run test:unit --testPathPattern=cellMeta
+
+# Run specific E2E test pattern (must be run from handsontable/ directory):
+# The pattern is baked into the Rspack bundle at dump time via __ENV_ARGS__.testPathPattern.
+# Step 1: rebuild the test bundle with the pattern (skips full UMD build):
+npm run test:e2e.dump --testPathPattern=filters
+# Step 2: run puppeteer against the filtered bundle:
+npm run test:e2e.puppeteer
+# Or, to do both in one command (also rebuilds UMD bundles):
+npm run test:e2e --testPathPattern=filters
+# NOTE: changing the pattern requires re-running test:e2e.dump — the pattern is compiled in.
+# NOTE: when invoking the two steps separately, pass --testPathPattern AND --theme to BOTH
+# commands. Each `npm run` is a separate npm process with its own env; puppeteer computes
+# the same hash as dump to locate the runner HTML, so the flags must match.
+
+# Coverage:
+npm run test:unit -- --coverage
+```
+
+**Parallel E2E runs:**
+`test:e2e.dump` hashes `--testPathPattern` + `--theme` into a short `runId`. Each run's bundle and runner HTML are suffixed with that ID, so runs with different inputs do not clobber each other:
+
+- Rspack output: `handsontable/test/dist/main.entry.<runId>.js`
+- Per-run Puppeteer runner: `handsontable/test/E2ERunner-<runId>.html`
+- Generic dev runner (always regenerated alongside): `handsontable/test/E2ERunner.html`
+
+`run-puppeteer.mjs` computes the same hash from `npm_config_testpathpattern` / `npm_config_theme` (env vars set by the `test-e2e.mjs` wrapper) and opens the matching HTML. It also binds the local HTTP server to the first free port starting at `8086` (retries on `EADDRINUSE`, up to 100 ports), so each concurrent run gets its own port. Any number of `npm run test:e2e --testPathPattern=<X>` invocations with distinct patterns (or themes) can run in parallel without further configuration -- the practical limit is machine resources, not the tooling.
+
+The helper that derives the hash lives in `handsontable/.config/helper/run-id.js` -- used by both the Rspack config and the Puppeteer script so they stay in lockstep.
+
+### What a red run leaves behind
+
+`run-puppeteer.mjs` receives every Jasmine result as data through the page bridge (`test/helpers/jasmine-bridge-reporter.js`), so a failure is reported by name rather than parsed out of the log. After a red run it:
+
+1. re-runs each failing spec file alone, up to `ISOLATION_PROBE_MAX_FILES` (5) of them, by reloading the runner page with a `specFile=` filter that selects only that file (`specFile`, not `spec`: Jasmine's own boot reads `spec` as a filter on spec *names*, so a file path there loads the file and runs none of its specs). A file that **passes alone** failed because of the specs that ran before it (shared state, a leaked timer, an unrestored global); one that **fails alone** is broken on its own. The probe drops `random` and `seed`, so the verdict describes the file in its natural order, not one shuffle of it. A probe that hits an uncaught page error, runs past five minutes, or matches no spec at all (the file filter selected nothing) is reported as "could not be probed";
+2. writes `test/e2e-results/failed-specs-<runId>.json` (gitignored). `e2e.yml` uploads it on failure as the `puppeteer-failed-specs-<bundle>-<theme>` artifact -- the input for the cross-run flake ledger (`.github/workflows/test-health.yml`, published at <https://handsontable.github.io/handsontable/test-health/>);
+3. on GitHub Actions, prints one `::error` annotation per failed spec, attached to the spec file, and appends a Markdown block to the step summary. GitHub shows at most 10 annotations per step, so from the tenth failure on a single line says how many more there are and points at the summary. `HOT_E2E_LEG` (set by `e2e.yml` from the bundle label) names the leg in all three outputs.
+
+The spec file is known because `test/e2e/index.js` records which `require.context` key added each top-level suite (`window.__hotSpecFiles`), and the bridge reporter stamps it on every result as `filePath`. A top-level `it()` outside any `describe`, and `MemoryLeakTest`, carry no file and are reported without a verdict. An uncaught page error still aborts the run as before; it now also gets its own annotation, and the specs that failed before it are still reported, without probing.
+
+**A throw inside a `describe` body is NOT reported, and it silently deletes every spec after it in that block.** Jasmine records the throw as a suite-level failure, but the `jasmineSuiteDone` binding in `run-puppeteer.mjs` ignores the suite's result, so the run stays green with fewer specs. `it.skip(...)` is the case that shipped: Jasmine has no `it.skip`, so in `nestedHeaders/__tests__/rowspan.spec.js` the first one threw a `TypeError` and five specs after it never ran, from the day the file was added. Three of them failed once they did run, all on their own mistakes rather than on the grid (one measured the master copy of a header that the top overlay paints over), because a spec that never runs never has its mistakes caught. They now live in Playwright as `tests/e2e/nested-headers-rowspan.spec.ts`. Only the spec count gives it away, and only after one correction: `test/e2e/index.js` adds `MemoryLeakTest` to every run, filtered or not, which is 5 specs from the command line. So a `--testPathPattern` run of one file must report the file's `it(` calls **plus 5**. The rowspan file hid its gap this way: 15 registered specs plus the 5 from `MemoryLeakTest` printed 20, exactly its 20 `it(` calls.
+
+To reproduce a verdict locally, re-run one file alone against the same dump: `npm run test:e2e.puppeteer -- --specFile=<path-pattern>` (`--spec=<pattern>` also exists, but it has to match the spec names as well as the file path). With a `--testPathPattern` baked into the dump, either parameter narrows it rather than replacing it. The helpers behind the report are pure and unit-tested with `node:test` (`test/scripts/lib/failed-specs.mjs`, `test/scripts/__tests__/`), part of the root `npm run test:tooling`.
+
+**Test Environment:**
+- Unit tests: jsdom (JavaScript DOM implementation)
+- New E2E: Playwright (real Chromium, plus Firefox and WebKit for tests tagged `@cross-browser`; `tests/` package)
+- Legacy E2E: Puppeteer with real headless Chrome
+- Default legacy-Jasmine timeout: 15000ms (set in `test/bootstrap.js`)
+
+## Test File Organization
+
+**Location:**
+- **Unit tests**: Co-located with source in `src/**/__tests__/` directories; also `test/__tests__/`, Walkontable's `src/3rdparty/walkontable/test/unit/`, and `src/3rdparty/SheetClip/test/`
+- **Helper unit tests**: `handsontable/test/helpers/__tests__/` (for shared test helpers like themeLayoutFromTokens and its contract tests)
+- **E2E core method tests**: `src/__tests__/core/` — filename matches the method name (e.g., `selectCell.spec.js`)
+- **E2E hook tests**: `src/__tests__/hooks/` — filename matches the hook name (e.g., `afterChange.spec.js`)
+- **E2E settings tests**: `src/__tests__/settings/` — filename matches the setting name (e.g., `colWidths.spec.js`)
+- **E2E keyboard shortcut tests**: `src/shortcuts/__tests__/keyboardShortcuts/`
+- **E2E i18n tests**: `src/i18n/__tests__/`
+- **E2E mobile tests**: `src/__tests__/mobile/`
+- **Plugin E2E tests**: `src/plugins/{pluginName}/__tests__/` (alongside plugin source)
+
+**Naming:**
+- Unit tests: `{feature}.unit.js` or `{feature}.unit.ts` (e.g., `cellMeta.unit.js`, `dataFilter.unit.js`)
+- E2E tests: `{featureName}.spec.js` — the filename must match the method, hook, or setting name exactly (e.g., `selectCell.spec.js`, `afterChange.spec.js`, `height.spec.js`)
+- Type tests: `*.types.ts` in a `src/**/__tests__/` dir (`test/types/tsconfig.json` compiles them)
+
+**Structure Examples:**
+```
+src/dataMap/metaManager/metaLayers/
+├── cellMeta.ts
+├── columnMeta.ts
+├── globalMeta.ts
+├── tableMeta.ts
+└── __tests__/
+    ├── cellMeta.unit.js
+    ├── columnMeta.unit.js
+    ├── globalMeta.unit.js
+    └── tableMeta.unit.js
+```
+
+```
+src/plugins/filters/
+├── filters.ts
+├── index.ts
+├── conditionCollection.ts
+└── __tests__/
+    ├── filters.spec.js
+    ├── filtersUI.spec.js
+    ├── conditionCollection.unit.js
+    ├── dataFilter.unit.js
+    ├── filters.types.ts
+    ├── helpers/
+    │   ├── fixtures.js          # Test data factories
+    │   └── utils.js             # Plugin-specific helpers (auto-loaded)
+    ├── hooks/
+    ├── methods/
+    ├── component/
+    └── a11y/
+```
+
+```
+src/__tests__/
+├── core/                         # Per-method Core API tests
+│   ├── selectCell.spec.js
+│   ├── getData.spec.js
+│   ├── insertColEnd.spec.js      # alter/* flattened here
+│   └── ...
+├── hooks/                        # Hook-specific tests
+│   ├── afterChange.spec.js
+│   └── ...
+├── settings/                     # Per-setting tests
+│   ├── colWidths.spec.js
+│   ├── fixedColumnsStart.spec.js
+│   └── ...
+├── mobile/                       # Mobile-specific tests
+└── tableView/
+
+src/shortcuts/__tests__/
+└── keyboardShortcuts/            # Keyboard shortcut tests
+
+src/i18n/__tests__/               # i18n tests
+```
+
+## Test Structure
+
+**E2E Suite Organization (Jasmine) -- Standard Boilerplate:**
+```javascript
+describe('MyPlugin', () => {
+  const id = 'testContainer';
+
+  beforeEach(function() {
+    this.$container = $(`<div id="${id}"></div>`).appendTo('body');
+  });
+
+  afterEach(function() {
+    if (this.$container) {
+      destroy();
+      this.$container.remove();
+    }
+  });
+
+  it('should do something', async() => {
+    handsontable({
+      data: createSpreadsheetData(5, 5),
+      myPlugin: true,
+    });
+
+    await selectCell(0, 0);
+
+    expect(getDataAtCell(0, 0)).toBe('A1');
+  });
+});
+```
+
+**Critical patterns:**
+- `beforeEach` uses `function()` (not arrow) to access `this` for `$container`
+- `afterEach` always calls `destroy()` then `this.$container.remove()`
+- `it()` callbacks must be `async` in `*.spec.js` (ESLint enforced)
+- All HOT API calls must be `await`-ed (ESLint enforced)
+- No imports needed for test helpers -- they are global
+
+**Unit Test Structure (Jest):**
+```javascript
+import GlobalMeta from '../globalMeta';
+import ColumnMeta from '../columnMeta';
+import CellMeta from '../cellMeta';
+import { registerAllCellTypes } from '../../../../cellTypes';
+
+registerAllCellTypes();
+
+describe('CellMeta', () => {
+  it('should reflect changes when global meta properties changed', () => {
+    const globalMeta = new GlobalMeta();
+    const columnMeta = new ColumnMeta(globalMeta);
+    const meta = new CellMeta(columnMeta);
+
+    globalMeta.getMeta().copyable = false;
+
+    expect(meta.getMeta(2, 0)).toHaveProperty('copyable', false);
+  });
+});
+```
+
+**Key differences between unit and E2E tests:**
+- Unit tests use explicit imports; E2E tests use global helpers
+- Unit tests are synchronous; E2E tests must be async
+- Unit tests test classes/functions in isolation; E2E tests create full HOT instances
+
+## Async Testing
+
+**E2E Tests Must Be `async`:**
+Enforced by ESLint rule `handsontable/require-async-in-it` in `*.spec.js` (applies to `it()`, `it.flaky()`, and `fit.flaky()` calls):
+
+```javascript
+// CORRECT
+it('should do something', async() => {
+  handsontable(config);
+  await render();
+  await selectCell(0, 0);
+  expect(getDataAtCell(0, 0)).toBe('A1');
+});
+
+// INCORRECT -- ESLint error
+it('should do something', () => {
+  handsontable(config);
+  render(); // Must be await-ed
+});
+```
+
+**Flaky Test Retries:**
+Use `it.flaky()` (or `fit.flaky()`) to mark tests that fail intermittently due to timing or environment issues. The test is retried up to 3 times before reporting a failure. Between retries, any existing Handsontable instance is destroyed and the container is cleaned up.
+
+```javascript
+it.flaky('should handle a timing-sensitive operation', async() => {
+  handsontable({ data: createSpreadsheetData(5, 5) });
+  await selectCell(0, 0);
+  expect(getDataAtCell(0, 0)).toBe('A1');
+});
+```
+
+The test description is prefixed with `[flaky]` in CI output for visibility. Defined in `test/helpers/it-themes-extension.js`. New `it.flaky()` sites are lint-warned (`handsontable/no-new-it-flaky`): a retry hides a race, it does not remove one — a spec that needs one migrates to Playwright (see "The Jasmine suite is frozen" below).
+
+**HOT Methods Requiring `await` (from `handsontable/.eslintrc.js`):**
+
+Core API: `alter`, `clear`, `deselectCell`, `emptySelectedCells`, `listen`, `loadData`, `populateFromArray`, `refreshDimensions`, `render`, `scrollToFocusedCell`, `scrollViewportTo`, `unlisten`
+
+Selection: `selectAll`, `selectCell`, `selectColumns`, `selectRows`
+
+Data mutation: `setDataAtCell`, `setDataAtRowProp`, `spliceCellsMeta`, `spliceCol`, `spliceRow`
+
+Settings: `updateData`, `updateSettings`, `useTheme`
+
+Validation: `validateCell`, `validateCells`, `validateColumns`, `validateRows`
+
+Rendering control: `suspendExecution`, `suspendRender`
+
+Scroll helpers: `scrollViewportVertically`, `scrollViewportHorizontally`, `scrollWindowTo`, `scrollWindowBy`
+
+Context menu: `contextMenu`, `selectContextMenuOption`, `openContextSubmenuOption`, `selectContextSubmenuOption`
+
+Dropdown menu: `dropdownMenu`, `selectDropdownMenuOption`, `openDropdownSubmenuOption`, `openDropdownByConditionMenu`, `selectDropdownByConditionMenuOption`
+
+Column/row operations: `resizeColumn`, `resizeRow`, `moveSecondDisplayedRowBeforeFirstRow`, `moveFirstDisplayedRowAfterSecondRow`, `swapDisplayedColumns`
+
+Mouse events: `simulateTouch`, `triggerTouchEvent`, `mouseDown`, `mouseOver`, `mouseUp`, `mouseClick`, `contextMenuEvent`, `simulateClick`, `mouseDoubleClick`, `mouseRightDown`, `mouseRightUp`
+
+Keyboard events: `keyDownUp`, `keyDown`, `keyUp`
+
+**Scroll-Awaiting Pattern (`test/helpers/utils.js`):**
+Many helpers (e.g., `selectCell`, `scrollViewportTo`, `selectAll`) are wrapped with `waitOnScroll()`, which returns a Promise that resolves after any triggered scroll completes. This is why they must be `await`-ed.
+
+**Waiting — condition-based, never a fixed delay (rule):**
+Do **not** add `await sleep(100)` / `sleep(200)`, a `setTimeout(fn, 100)`, or `await waitForNextAnimationFrames(2)` to new or edited tests. A fixed delay — in milliseconds or in frames — is either too short (flaky) or too long (slow), and it is the root of this suite's flakiness. Wait for the *condition* with the `waitUntil()` spec global instead:
+```javascript
+// legacy Jasmine E2E: await the state, not the clock
+await selectCell(0, 0);                             // helpers already await the scroll they trigger
+await waitUntil(() => getPlugin('filters').isEnabled());   // polls every frame, rejects after 4000ms (2nd arg)
+await waitUntil(() => onAfterValidate.calls.count() === 1); // a spy having fired
+await sleep(...);                                   // ← never; root-cause it and name the condition
+await waitForNextAnimationFrames(2);                // ← never; a frame count is a delay, not a state
+```
+`waitUntil(condition, timeout = 4000)` (`test/helpers/common.js`) resolves as soon as the condition is truthy and rejects with a named reason when it never arrives, so a state that is genuinely missing fails the test instead of passing a stale assertion later. All three fixed-delay shapes are flagged by `handsontable/no-fixed-sleep-in-spec` in `*.spec.js`, `*.unit.js`, and `*.unit.ts` (at `warn`, so the existing debt surfaces without blocking); the two zero-duration hand-offs — `setTimeout(fn, 0)` and `waitForNextAnimationFrames(0)` — pass, because neither waits any time. For new Playwright tests use web-first, auto-retrying assertions (`await expect(locator).toBeVisible()`, `expect.poll`); see the `handsontable-playwright-e2e` skill. Existing sites are baselined by lint (`warn`), but a `sleep()`, `setTimeout(fn, <ms>)`, `waitForNextAnimationFrames()`, `it.flaky()`, or skip on a line your branch **adds** fails pre-push and CI — the determinism ratchet, `.ai/LOCAL-ENFORCEMENT.md`. A broken or flaky legacy test is a signal to migrate it (see below), not to add another delay.
+
+**Unit tests are synchronous:** `handsontable/require-async-in-it` and `handsontable/require-await` are both off for `*.unit.js`.
+
+## What to test, and in which framework (Pillar 1)
+
+**Aim for a low number of extremely meaningful tests.** Coverage is the **floor**, not the goal: new code must be exercised (the unit changed-line coverage floor reports it on the PR, warn-only; SonarCloud measures no coverage, because `sonar-project.properties` excludes all of it), but coverage only proves a line *ran* — a test that executes it while asserting nothing, or asserting the *buggy* output, is worse than none. So: **hit the coverage floor with tests that meaningfully assert behavior** — never pad coverage with hollow tests, and never skip it either. Two principles govern every test here (full discipline in the `test-writing-discipline` skill):
+
+- **Green is not the goal — correct behavior is.** Write the test from the *intended* behavior (ideally before the code). When it is red, **diagnose which is actually wrong — the code or the test's expectation — and fix whichever genuinely is.** The code is the prime *suspect*, not a rule: if the test mis-encoded the intended behavior, fix the test (tighten it toward the real behavior). What is never allowed is reaching green by weakening/skipping/loosening a test to match output you have not confirmed is correct.
+- **Handsontable is a library, not an app** — it *implements* the low-level interactions, so tests validate **granular user actions**: scroll (incl. momentum), hover, drag / fill-handle / resize / move, keyboard, IME, touch, RTL, virtualization edges — not app happy-paths. Judge a test by whether it would **catch a real bug in the code it covers**, not only by whether it covers the line.
+
+Machine-enforced by the presence gate (`.github/scripts/test-presence-gate.mjs`): a change to `handsontable/src/**` or `wrappers/**` must ship a matching test change. Which kind:
+
+- **A user could see or do it** (rendering, editing, selection, keyboard, menus, overlays) → **E2E**. New E2E is **Playwright** in `tests/e2e/` — see the `handsontable-playwright-e2e` skill.
+- **Only pixels can prove it** (a theme token, geometry, compositing) → a **visual spec** in `visual-tests/tests/`, **in addition to, never instead of** the E2E above — a screenshot proves pixels only, and the presence gate counts it as coverage, so the reviewer holds this line. The rule is `visual-tests/AGENTS.md` → Decision rule.
+- **Behavior changed but is invisible to users** (data, indexing, algorithms, internal state) → a **Jest unit test** (`*.unit.js` or `*.unit.ts`). Still mandatory — "not user-facing" is not a free pass.
+- **The public type surface changed** (an exported type, a `GridSettings` option, a wrapper prop or input) → a **type test** (`*.types.ts`) in the package whose types changed. Core and Vue run them (`test:types`). React and Angular have no type-test harness yet, so declare a type change there (next bullet) until they do.
+- **No behavior change** (pure refactor) or **internal non-runtime** (types no consumer imports, config, internal re-exports) → **no new test**; declare it with a `Refactor-only: <reason>` trailer on the commit that makes it (a trailer covers only its own commit's files), or, once that commit is pushed, with `[refactor-only: <reason>]` as plain text in the PR description; the reason needs at least three words. A comment-only edit and a translation dictionary (`src/i18n/languages/`) need no declaration.
+
+**New spec vs modify existing:** new public API / plugin / editor → a new spec; a bug fix → add a case to the closest existing spec (its test must fail without the fix).
+
+**The gate warns when only a screenshot covers a source change:** a source change draws the non-blocking `visual-only-coverage` advisory when every change the gate counts as *coverage* is a capture spec under `visual-tests/tests/`. It is not "the only test change" — a deleted `tests/e2e` spec or a new Jasmine `*.spec.js` is not coverage to the gate, so either can sit beside the capture spec and the advisory still fires. The criterion that decides whether such a spec keeps counting as coverage, and the recipe that tallies the warning, are in `.ai/LOCAL-ENFORCEMENT.md`.
+
+**The Jasmine suite is frozen — and migrates by attrition:**
+- Adding a **new** `*.spec.js` is blocked; new E2E goes to Playwright.
+- **Editing** an existing `*.spec.js` for routine maintenance is fine.
+- But if a legacy Jasmine test is **broken or flaky, fix it by migrating it to Playwright** (delete the `*.spec.js`, write the equivalent `tests/e2e/*.spec.ts`) rather than patching Jasmine. That is how the suite gradually migrates — the tests that hurt most move first.
+- **Migrate, don't patch — and if you must edit, `waitUntil()`.** A routine edit to a frozen spec that has to wait for state uses `waitUntil(condition, timeout)` (a spec global from `test/helpers/common.js`) — never a new `sleep()`, and never `waitForNextAnimationFrames()`, which is a fixed sleep denominated in frames (it awaits at most 2 real frames and pads the rest of the request with 16 ms per frame). A rendered-DOM count assertion pins the viewport first (`containerHeightForRows()`, or `scrollViewportTo()` the target into view).
+- **The flake ledger.** A legacy spec that is red or flaky across **two or more distinct CI runs** gets a migration ticket the next sprint. That is the trigger — not a third failure and not a reviewer's patience. The RefreshDimensions and display-none rerender specs both waited on the ledger until this rule existed (#13334, #13336).
+- **One CI leg on a pull request.** A pull request and a develop push run the suite on `E2E / UMD (theme: main)` only — plain UMD on the main theme, the shape `npm run test:e2e` defaults to. The six legs (three themes × UMD / the minified bundle of `test:production`) run on the `E2E nightly`, the rc/stable publish path and a master push (`.ai/CI.md`, the Jasmine single-leg entry). A spec red on another theme or on the minified bundle alone therefore first shows on the nightly, with `branch: develop` and the runner's isolation verdict in the ledger, and the verdict decides the answer: `passes alone` (the file passes when run alone — an order-dependent flake) is a migration ticket under the ledger rule above; `fails alone` is a deterministic theme- or bundle-only failure, fixed or migrated **before the next RC cut**, because the rc/stable publish path runs the six legs (`test-all`) and its publish needs them green; an unprobed red counts as `fails alone` until a local run on that theme (`--theme=<name>`) says otherwise. Neither is a reason to put a leg back on pull requests. A change you suspect is theme-sensitive is checked before the push with `--theme=horizon` / `--theme=classic`, and against the minified bundle with `npm run test:production` (same flags as `test:e2e`).
+
+## Mocking
+
+**Framework:** Mocks provided via Jest config and test bootstrap
+
+**Available Mocks** in `test/__mocks__/`:
+- `resizeObserverMock.js` -- `ResizeObserverMock` class with no-op `observe()`, `unobserve()`, `disconnect()`
+- `intersectionObserverMock.js` -- `IntersectionObserverMock` class
+- `styleMock.js` -- Returns empty object `{}` for CSS/SCSS imports (Jest `moduleNameMapper`)
+- `cssPolyfill.js` -- CSS polyfill mock
+
+**Mock Setup in `test/bootstrap.js`:**
+```javascript
+import { ResizeObserverMock } from './__mocks__/resizeObserverMock';
+import { IntersectionObserverMock } from './__mocks__/intersectionObserverMock';
+
+beforeAll(() => {
+  window.IntersectionObserver = window.IntersectionObserver ?? IntersectionObserverMock;
+  window.ResizeObserver = window.ResizeObserver ?? ResizeObserverMock;
+});
+```
+
+**Spy Pattern for Hooks:**
+```javascript
+const onAfterValidate = jasmine.createSpy('onAfterValidate');
+
+handsontable({
+  data: arrayOfObjects(),
+  columns: [{ data: 'id', validator(value, cb) { cb(true); } }],
+  afterValidate: onAfterValidate
+});
+
+await setDataAtCell(2, 0, 123);
+// Wait on the condition (the spy firing), never on a fixed delay — see the "Waiting" rule above.
+await waitUntil(() => onAfterValidate.calls.count() === 1);
+
+expect(onAfterValidate).toHaveBeenCalledWith(true, 123, 2, 'id');
+```
+
+**What to Mock:**
+- Browser APIs not in jsdom (ResizeObserver, IntersectionObserver)
+- CSS imports (handled by styleMock.js)
+- Callbacks and hooks (use Jasmine spies)
+
+**What NOT to Mock:**
+- Core Handsontable code and logic
+- Plugin implementations
+- Selection and rendering engine
+- Data mutation and state management
+
+## Fixtures and Factories
+
+**Test Data Creation:**
+```javascript
+// Generate spreadsheet data with cell coordinates as values
+const data = createSpreadsheetData(5, 5);
+// Returns: [['A1', 'B1', 'C1', ...], ['A2', 'B2', 'C2', ...], ...]
+
+handsontable({
+  data: createSpreadsheetData(10, 10),
+  colHeaders: true
+});
+```
+
+**Plugin-Specific Test Data:**
+Plugins define their own fixtures in `src/plugins/{name}/__tests__/helpers/fixtures.js`:
+```javascript
+// Example: src/plugins/filters/__tests__/helpers/fixtures.js
+export function getDataForFilters() { /* ... */ }
+export function getColumnsForFilters() { /* ... */ }
+```
+
+**Auto-Loading of Plugin Helpers:**
+`test/helpers/index.js` uses `require.context` to auto-discover and export all files in `src/plugins/**/helpers/*.js` to the global scope:
+```javascript
+[
+  require.context('./../../src/plugins', true, /^\.\/.*\/helpers\/.*\.js$/),
+].forEach((req) => {
+  req.keys().forEach((key) => {
+    exportToWindow(req(key));
+  });
+});
+```
+
+**Location Summary:**
+- `test/helpers/common.js` -- Core test helpers (HOT API wrappers, data factories)
+- `test/helpers/mouseEvents.js` -- Mouse event simulation
+- `test/helpers/keyboardEvents.js` -- Keyboard event simulation
+- `test/helpers/asciiTable.js` -- ASCII table generation for selection assertions
+- `test/helpers/custom-matchers.js` -- Custom Jasmine/Jest matchers
+- `test/helpers/utils.js` -- `waitOnScroll()` decorator and utilities
+- `test/helpers/focusNavigator.js` -- Focus navigation helpers
+- `test/helpers/htmlNormalize.js` -- HTML normalization for assertions
+- `test/helpers/it-themes-extension.js` -- Theme-specific and flaky test extensions
+- `src/plugins/{name}/__tests__/helpers/` -- Plugin-specific test data and utilities
+
+## Custom Matchers
+
+**From `test/helpers/custom-matchers.js`:**
+
+- `toBeInArray(expected)` -- Check if value is in an array
+- `toBeFunction()` -- Check if value is a function
+- `toEqualCellRange(pattern)` -- Compact cell range comparison:
+  ```javascript
+  expect(hot.getSelectedRangeLast()).toEqualCellRange('highlight: 3,2 from: 3,2 to: 5,5');
+  expect(hot.getSelectedRange()).toEqualCellRange([
+    'highlight: 2,3 from: 1,2 to: 4,4',
+    'highlight: 3,2 from: 3,2 to: 5,5',
+  ]);
+  ```
+- `toBeVisible()` -- Check CSS visibility/display of element
+- `toBeAroundValue(expected, diff)` -- Fuzzy numeric comparison within margin
+- `toBeVisibleAsSelection()` -- ASCII table-based selection visualization assertion
+
+**ASCII Table Selection Testing** (from `test/helpers/asciiTable.js`):
+Tests selection patterns by rendering an ASCII representation of the table's selection state using symbols like `#` (current), `0` (area), `r` (row), `c` (column).
+
+## Data-Driven Theme Assertions
+
+Theme-dependent expected values in E2E tests come from a single resolver:
+
+| File | Role |
+| --- | --- |
+| `test/helpers/themeLayoutFromTokens.js` | **Public entry point** -- token-backed primitives (`defaultDataRowHeight`, `overlayHeight`, …) plus scenario-specific `e2e*` regression helpers with descriptive names (e.g. `e2eGcrEditedCellOuterHeight`, `e2eManualRowResizerPositionFixedTopMasterFourthRow`); auto-discovers themes from `src/themes/theme/index.ts`; call via global `getThemeLayout()` in specs |
+
+### Entry point
+
+`themeLayoutFromTokens(themeName)` reads `density` and `tokens` from `handsontable/src/themes/theme/<name>.js`.
+Changing a theme's `density` in that module propagates to all tests automatically -- no edits to test helpers are needed.
+
+### Fundamental rule
+
+All expectations must be **pure expressions over tokens + density tokens + sizing tokens**, or derived from live DOM measurements. Numeric density triplets (`{ compact: N, default: N, comfortable: N }`) are not used anywhere -- they were the old pattern and have been eliminated.
+
+### Non-token-derivable values
+
+When a value cannot be derived from tokens (text shaping, autosize widths, pixel rounding), the spec uses one of:
+
+- **Live DOM measurement**: `getCell(r, c).offsetWidth`, `hot().getColWidth(col)`, `hot().getPlugin('autoColumnSize').getColumnWidth(col)`
+- **Relational assertion**: `expect(widthAfter).toBeGreaterThan(widthBefore)`, `expect(inputWidth).toBeLessThanOrEqual(menuWidth)`
+- **Tolerance-based comparison**: `toBeAroundValue(expected, 2)` or `Math.abs(actual - expected) <= 1`
+
+### Adding a new theme -- checklist
+
+See the `handsontable-css-dev` skill for the full four-layer token process. The steps specific to E2E test infrastructure are:
+
+1. Token JS: `src/themes/static/variables/tokens/<name>.js` -- camelCase token keys, values reference other tokens or primitives.
+2. Colors JS: `src/themes/static/variables/colors/<name>.js` -- color palette for the theme.
+3. Icons JS: `src/themes/static/variables/icons/<name>.js` -- icon definitions (or re-export an existing one if icons are shared).
+4. CSS source: `src/themes/static/css/theme/ht-theme-<name>.css` + `ht-theme-<name>-no-icons.css` -- declare all `--ht-*` variables for the new theme.
+5. Theme module: `src/themes/theme/<name>.js` -- exports `{ name, density, icons, colors, tokens }`.
+6. Re-export from `src/themes/theme/index.ts` so auto-discovery picks it up.
+7. Validation allow-list: `src/themes/engine/utils/validation.ts` (`VALID_TOKEN_KEYS` Set) -- add any new token keys introduced by the theme.
+8. `TokenKey` union: `types/themes.d.ts` -- add any new token keys so TypeScript consumers get correct types.
+9. Add E2E matrix jobs in `.github/workflows/test.yml`.
+
+No edits needed to `themeLayoutFromTokens.js`, `common.js`, unit tests, or any spec file. Auto-discovery handles the rest.
+
+**Iframe `doc.write` shells** must use absolute stylesheet URLs (`about:blank` iframes). Use globals from `test/helpers/common.js`: `getE2eThemeStylesheetLinkTagsHtml()` (all themes in `E2E_REGISTERED_THEME_KEYS` order), `getE2eThemeStylesheetLinkTagHtml(key)` for a single theme, and `getE2eNormalizeStylesheetLinkTagHtml()` when tests need `lib/normalize.css`. `E2E_REGISTERED_THEME_KEYS` is derived automatically from `src/themes/theme/index.ts` -- no manual registration required.
+
+### Usage in specs
+
+```js
+const layout = getThemeLayout(); // global, backed by themeLayoutFromTokens(getLoadedTheme())
+
+expect(getRowHeight(0)).toBe(layout.defaultDataRowHeight);
+expect(getMaster().height()).toBe(layout.overlayHeight({ rows: 3 }));
+expect(topOverlay().getScrollPosition()).toBe(layout.verticalScrollForRow(250));
+```
+
+### Available metrics
+
+From `getThemeLayout()`:
+
+- `defaultDataRowHeight` -- outer height of a data row (content + 1px border)
+- `defaultColumnHeaderHeight` -- content height of column header (no border)
+- `firstRenderedRowDefaultHeight` -- first row in an overlay (extra 1px compensation)
+- `defaultColumnWidth` -- 50px (Walkontable constant)
+- `defaultRowHeaderWidth` -- 50px for every theme (Walkontable default row-header column width; used for E2E container width math so horizontal viewport matches across themes)
+- `cellContentHeight` -- same as defaultColumnHeaderHeight (TD clientHeight)
+- `lineHeight`, `cellVerticalPadding`, `cellHorizontalPadding`, `cellBorderWidth` -- token primitives to compose formulas from
+- `densityLevel` -- `'compact' | 'default' | 'comfortable'` read from the theme module (exposed for diagnostic access; **do not branch on it** -- primitives already vary per theme)
+- `overlayHeight({ rows, includeFirstRowCompensation })` -- compute overlay section height
+- `verticalScrollForRow(rowIndex)` -- compute vertical scroll for row-at-top snap
+- **`e2e*()` helpers** -- shared regression geometry with descriptive names (e.g. `e2eGcrEditedCellOuterHeight()`, `e2eManualRowResizerPositionFixedTopMasterFourthRow()`) expressed as pure arithmetic expressions over the primitives above. No density-name branching, no hardcoded per-theme literals. Add new scenarios in `themeLayoutFromTokens.js` (in the `buildThemeLayoutE2eHelpers` function) when multiple specs would otherwise embed the same formula. Add **targeted** unit tests in `themeLayoutFromTokens.unit.js` for token-derived formulas (not bulk loops that only restate helper return values).
+
+Additional viewport helpers in `common.js` (globals in E2E):
+
+- `expectedVisibleRows(containerHeight, colHeaderRows = 1)` -- number of fully visible data rows for a given container height
+- `expectedLastFullyVisibleRow(containerHeight, colHeaderRows = 1)` -- 0-based index of the last fully visible data row
+- `containerHeightForRows(rowCount, colHeaderRows = 1)` -- container height that guarantees exactly `rowCount` fully visible data rows (prefer this over hardcoded `height:` literals when the test's intent is "N rows visible")
+- `scaleHeight(mainThemeHeight)` / `scaleHeightWithScrollbar(mainThemeHeight)` -- scale a main-theme pixel height proportionally to the current theme's row height
+- `getPaginationContainerHeight()` -- returns the pagination bar's rendered `offsetHeight` measured live from the DOM once per run; theme/density/token independent
+
+### Preferred patterns
+
+- **Scroll unchanged:** Capture position before action, assert same after
+- **Scroll to row:** `layout.verticalScrollForRow(rowIndex)`
+- **Overlay heights:** `layout.overlayHeight({ rows: N })`
+- **Cell clientHeight:** `layout.cellContentHeight`
+- **Named E2E expectations:** `layout.e2e*()` helpers with descriptive names (e.g. `layout.e2eGcrEditedCellOuterHeight()`) instead of `if (getLoadedTheme() === '…')` branches in spec files
+
+### Do not use
+
+- Numeric density triplets `{ compact: N, default: N, comfortable: N }` -- the legacy pattern; derive from tokens or measure from DOM instead
+- `getLoadedTheme() !== 'main'` guards in spec files -- every test should run under every theme
+- Per-theme `switch` / `getLoadedTheme()` comparisons in spec files for layout numbers -- derive from tokens or add a token-formula helper in `themeLayoutFromTokens.js`
+- Per-theme `switch` statements in helpers for values derivable from tokens
+
+## Coverage
+
+**Requirements:** No enforced minimum coverage target
+
+**View Coverage:**
+```bash
+npm run test:unit -- --coverage    # Show coverage after Jest run
+```
+
+**Coverage Output:**
+- Formats: json, lcov, clover
+- Location: `handsontable/coverage/`
+- Covers only `src/` directory
+
+**Coverage Goals:**
+- Every new or modified line runs under a test. That is the floor, not the goal: what proves the change is an assertion that fails when the code is broken (the `test-writing-discipline` skill).
+- Cover the states the change can break, not every possible state.
+
+## Test Types
+
+**Unit Tests (`*.unit.js`, `*.unit.ts`):**
+- Framework: Jest with jsdom (`jest-jasmine2` runner)
+- Location: mostly `src/**/__tests__/`; also `test/__tests__/` and `test/helpers/__tests__/`, Walkontable's `src/3rdparty/walkontable/test/unit/`, and `src/3rdparty/SheetClip/test/`
+- CI: the `Unit` job runs on a pull request only when `test-handsontable-unit` in `.github/workflows/checks.yml` matches a changed file. A pin that reads a file outside that route belongs in the root tooling suite (see the root `.ai/CI.md`).
+- Scope: Individual functions and classes in isolation
+- Synchronous (no async/await required)
+- Explicit imports needed
+
+**E2E Tests (`*.spec.js`):**
+- Framework: Jasmine with Puppeteer (headless Chrome)
+- Location: `test/e2e/` and `src/plugins/{name}/__tests__/`
+- Scope: Full HOT instances with real DOM rendering
+- Must be async with await on HOT API calls
+- Global helpers available (no imports needed)
+- ~946 spec files
+
+**Type Tests (`*.types.ts`):**
+- Tool: tsc (TypeScript compiler only)
+- Location: `src/**/__tests__/` (82 files); `npm run test:types` compiles them with `test/types/tsconfig.json`
+- Purpose: Verify TypeScript type definitions generated into `handsontable/tmp/` from the `.ts` sources
+
+**Walkontable Tests:**
+- Specs (`test/spec/`): separate test pipeline (`npm run test:walkontable`) with its own spec runner (`SpecRunner.html`)
+- Unit tests (`test/unit/`): Jest tests that the core `npm run test:unit` runs, not `test:walkontable`
+- Location: `src/3rdparty/walkontable/test/`
+- Do not mix the specs with main E2E tests
+- The runner page sizes its scrollbars to a fixed 15px (`::-webkit-scrollbar` in `css/walkontable.test.css`), so the geometry of a theme-less holder does not depend on the OS scrollbar setting. A holder that a theme styles with `scrollbar-width` or `scrollbar-color` ignores the rule. Never add `--hide-scrollbars` to `test/scripts/run-puppeteer.mjs`: it zeroes the width, and about 60 specs fail (measured on Chrome 156, macOS; the "Test page scrollbar" block of `spec/overlay.spec.js` guards it). The Handsontable E2E page does not size them; its grids take the theme's scrollbar styles.
+
+**Visual Regression Tests:**
+- Framework: Playwright
+- Location: `visual-tests/`
+- Config: `visual-tests/playwright.config.ts` and `playwright-cross-browser.config.ts`
+- Screenshots stored in `visual-tests/screenshots/`
+- What earns a capture, and why a visual spec is in addition to, never instead of a Playwright assertion: `visual-tests/AGENTS.md` → Decision rule
+
+**Accessibility scan (axe):**
+- Framework: Playwright + `@axe-core/playwright` (axe-core, WCAG 2.2 A and AA rule tags – the target level; the published conformance report states conformance per criterion)
+- Location: `tests/a11y/` — `axe.spec.ts` (the scan), `pages.mjs` (the curated fixture pages, one per accessible surface, each on the three themes), `axe-baseline.json` (the catalog of known issues, and where each shows: one entry per page, theme, rule and element, with its node count), `coverage.mjs` (how the scan covers each plugin and editor folder, enforced by `tests/lib/__tests__/a11y-coverage.test.mjs`)
+- Config: `tests/playwright.a11y.config.ts`; the comparator is `tests/lib/a11y-baseline.mjs`, the reporter `tests/reporters/a11y.ts`
+- CI: one job, `A11y / axe`, in warn mode — a finding that needs action is an annotation and a summary row, never a red job; the job's only reds are tooling failures. The `A11y / axe report` check run follows the severity rule (red on a new or grown critical or serious finding, neutral on a moderate or minor one; `tests/AGENTS.md` → "A11y: the verdict of a check run"). An HTML report that locates every element (fixture, steps, selector, DOM path, screenshot) opens from the run page, a sticky pull request comment links it, and `a11y-findings.json` gives an implementer agent the same findings, concise. The baseline moves only with the code: the change that fixes a finding deletes its entry
+- It is not a test of a change: a pull request that touches an accessible surface still proves its behavior with a Playwright spec in `tests/e2e/`. How to add a page, baseline a finding, and when warn mode flips: `tests/AGENTS.md` → "A11y: the axe scan and its baseline"
+
+**Docs site accessibility scan (axe):**
+- The same rule set and comparator as the scan above, over a deployed docs site: `tests/a11y/docs/` (`docs-axe.spec.ts`, `pages.mjs` from the docs visual list plus the header's keyboard-opened states, `docs-baseline.json`), in the site's light and dark color schemes; config `tests/playwright.a11y-docs.config.ts`
+- Report-only, on demand: `.github/workflows/docs-a11y.yml` (`Docs a11y`: a dispatch, a caller, or a pull request that changes the scan's own code; never a docs change); a develop dispatch feeds the findings ledger's `docs` source. Locally: `cd tests && npm run test:a11y-docs` (`DOCS_A11Y_BASE_URL` picks the deploy). Policy: `tests/AGENTS.md`, "A11y: the docs site scan"
+- The docs site checks beyond axe run beside it on a dispatch or a call (the `checks` job): `tests/a11y/sites/` (structure, keyboard, focus and contrast, reflow, forced colors and motion), config `tests/playwright.a11y-sites.config.ts` (`HOT_A11Y_SITE=docs`), the registry `SITE_CHECKS` in `tests/lib/a11y-site-checks.mjs`, one `A11y / docs-<check> report` check run each. Locally: `cd tests && npm run test:a11y-sites`. Policy: `tests/AGENTS.md`, "A11y: the site checks beyond axe"
+
+**Accessibility checks beyond axe:**
+- Framework: Playwright, over the same catalog pages and keyboard-reached states as the axe scan (`tests/a11y/harness.ts`), one project per check
+- Location: `tests/a11y/checks/` (the specs), `tests/a11y/evidence.ts` (what a test declares and attaches); the evidence shape, the WCAG 2.2 criteria table, the summary and the check run are `tests/lib/a11y-evidence.mjs`, the reporter `tests/reporters/a11y-checks.ts`
+- Output: one evidence document per check, `tests/test-results/a11y-checks/<check>.json`, that the conformance report generator cites per criterion (the targets each criterion was evaluated on, and the findings against it), plus a detail file per target
+- CI: the `A11y nightly` only (a dispatch, no schedule; every check on develop, evidence kept 30 days, a subset's 7): the `checks` job of `a11y.yml` runs when its caller asks for it, which the pull-request pipeline does not, so a pull request runs the axe scan alone; the short suite (the checks that finish in under two minutes) is for a local run or a dispatch of the nightly, and the `checks` input runs the named checks alone (a proof run from a branch; `tests/AGENTS.md` → "A11y: the audit and the proof runs")
+- Checks: the keyboard walker (`keyboard-walker`: Tab walks with traps, focus order, Escape out of popups, the APG grid keys, every documented shortcut from `tests/a11y/checks/keyboard-shortcuts.mjs`, character keys, focus and input context changes; tab-order goldens in `tests/a11y/tab-order-goldens/`); the accessibility-tree snapshots (`tree-snapshots`: Chromium's tree of the grid and its portal in reading order, its structure, names and roles; goldens in `tests/a11y/tree-goldens/`); the axe discovery run (`axe-discovery`, nightly only: best-practice, AAA and experimental rules over the catalog, extra states, the dark scheme, right to left and a second phone, every "needs review" result with its reason, for triage); focus appearance and non-text contrast (`focus-contrast`: focus indicators, checkboxes, icons, selection outline and grid lines measured from pixels on every theme, light and dark, and the focus kept in view behind frozen panes); zoom, reflow, text spacing, and hover content (`reflow`: the surfaces around the grid at 320 px, at 200%, and under the text-spacing override, the comment shown on hover, both orientations); forced colors and reduced motion (`forced-colors-motion`, nightly only: every state watched at rest for five seconds, four interactions watched with and without `prefers-reduced-motion`, the focus, selection, menu highlight, grid lines, and icons captured in forced colors); pointer and drag alternatives (`pointer`: every control pressed and released away from it, compared with its click, every drag of `tests/a11y/checks/drag-operations.mjs` performed with each of its alternatives, and the inventory itself as the 2.5.1 target)
+- Report-only: a finding is a summary row and an annotation, never a red job; the `A11y / <check> report` check run follows the severity rule (`tests/AGENTS.md` → "A11y: the verdict of a check run"), and the nightly's run follows its worst check run; a test fails for tooling only, and a flaky check is a finding against the check. Product findings are recorded, never fixed in the check's change. How to add a check: `tests/AGENTS.md` → "A11y: the checks beyond axe"
+
+**Screen reader lanes (NVDA and VoiceOver, through Guidepup):**
+- Framework: Playwright + `@guidepup/playwright` (a real NVDA or VoiceOver driven over the fixture pages, one Playwright project per screen reader and browser)
+- Location: `tests/screenreader/` — `screenreader.spec.ts` (the runner), `scenarios/<surface>.scenario.json` (data: the catalog page or fixture, the criteria, the setup, the ordered primitives — keys and the reader's own reading commands — and the token groups each announcement must carry), `goldens/<project>/<scenario>.json` (the exact announcements per project, advisory), `coverage.mjs` (every catalog page, plugin and editor mapped to scenarios, `none` or a counted gap)
+- Config: `tests/playwright.screenreader.config.ts`; the schema is `tests/lib/screenreader-scenario.mjs`, the normalizer, matcher and golden diff `tests/lib/screenreader-transcript.mjs`, the report `tests/lib/screenreader-report.mjs`
+- CI: its own workflow (`Screen reader nightly`, a dispatch and no schedule, NVDA on Windows and VoiceOver on macOS, one job per screen reader, browser and scenario group; the `projects` and `groups` inputs keep a proof run from a branch to what changed), report-only — a missing token group or a golden difference is a summary row, never a red job, and the `Screen reader / <project> <group> report` check run follows the severity rule (a missing group is serious unless the step declares its severity; a golden difference is advisory); the pull-request pipeline does not run it. The transcripts it uploads are the evidence a future version of the conformance report can cite for what a screen reader announces
+- It is not a test of a change either: a change to something a user operates still proves its keyboard path and accessible names with a Playwright spec in `tests/e2e/`. How to add a scenario, record goldens, and what is advisory: `tests/AGENTS.md` → "Screen readers: the NVDA and VoiceOver lanes"
+
+## Plugin Testing Requirements
+
+**Test against all lifecycle states:**
+```javascript
+// 1. Enable via settings
+it('should enable plugin when option is true', async() => {
+  handsontable({ data: createSpreadsheetData(5, 5), myPlugin: true });
+  expect(getPlugin('myPlugin').isEnabled()).toBe(true);
+});
+
+// 2. Disable via updateSettings
+it('should disable plugin via updateSettings', async() => {
+  handsontable({ data: createSpreadsheetData(5, 5), myPlugin: true });
+  await updateSettings({ myPlugin: false });
+  expect(getPlugin('myPlugin').isEnabled()).toBe(false);
+});
+
+// 3. Enable/disable programmatically
+it('should re-enable after programmatic disable', async() => {
+  handsontable({ data: createSpreadsheetData(5, 5), myPlugin: true });
+  getPlugin('myPlugin').disablePlugin();
+  await render();
+  getPlugin('myPlugin').enablePlugin();
+  await render();
+  expect(getPlugin('myPlugin').isEnabled()).toBe(true);
+});
+```
+
+## Large Dataset Testing
+
+When fixing bugs or adding features handling data arrays, include tests with **50k+ rows** to catch stack overflow and performance issues:
+```javascript
+it('should handle 50k rows without stack overflow', () => {
+  const largeData = createSpreadsheetData(50000, 10);
+  largeData.forEach(row => processRow(row)); // forEach, not spread
+  expect(largeData.length).toBe(50000);
+});
+```
+
+## Selection Testing
+
+Test non-consecutive selections, header selections, and active layers:
+```javascript
+it('should maintain selections after render', async() => {
+  handsontable(config);
+  await selectCell(0, 0);
+  await keyDown('ctrl');
+  await selectCell(2, 2);
+  await keyUp('ctrl');
+  await render();
+  const selected = getSelected();
+  expect(selected.length).toBe(2);
+});
+```
+
+## Global Test Helpers Reference
+
+**HOT API Helpers** (from `test/helpers/common.js`, available globally):
+- Instance: `handsontable(options)`, `getInstance()`, `destroy()`, `spec()`
+- Rendering: `render()`, `refreshDimensions()`
+- Selection: `selectCell()`, `selectCells()`, `selectColumns()`, `selectRows()`, `selectAll()`, `deselectCell()`
+- Data read: `getData()`, `getDataAtCell()`, `getDataAtCol()`, `getDataAtRow()`, `getSourceData()`
+- Data write: `setDataAtCell()`, `setDataAtRowProp()`, `loadData()`, `updateData()`, `clear()`
+- Settings: `updateSettings()`, `getSettings()`, `useTheme()`
+- Cell info: `getCell()`, `getCellMeta()`, `getCellEditor()`, `getCellRenderer()`, `getCellValidator()`
+- Plugins: `getPlugin(name)`
+- Counts: `countRows()`, `countCols()`, `countRenderedRows()`, `countRenderedCols()`
+- Structure: `alter()`, `spliceCol()`, `spliceRow()`, `spliceCellsMeta()`
+- Validation: `validateCell()`, `validateCells()`, `validateColumns()`, `validateRows()`
+- Headers: `getColHeader()`, `getRowHeader()`, `countColHeaders()`, `countRowHeaders()`
+- Scrolling: `scrollViewportTo()`, `scrollToFocusedCell()`
+- Coordinates: `toPhysicalRow()`, `toPhysicalColumn()`, `toVisualRow()`, `toVisualColumn()`
+
+**Data Generation:**
+- `createSpreadsheetData(rows, cols)` -- Grid with coordinates as values ('A1', 'B2', etc.)
+
+**Async Utilities:**
+- `waitUntil(condition, timeout = 4000)` -- Poll `condition` every animation frame until truthy; reject with a named reason after `timeout`. The condition-based replacement for every fixed delay below.
+- `sleep(delay = 100)` -- Promise-based delay. Legacy; every call lint-warns, and the diff-scoped ratchet fails a new one on a line your branch adds — never add one
+- `waitForNextAnimationFrames(framesToWait = 1)` -- Frame-count delay. Legacy; lint-warns and ratchets the same way (a literal `0` is a hand-off, not a wait, and passes)
+- `promisfy(fn)` -- Convert callback to Promise
+
+**DOM Event Helpers** (from `test/helpers/mouseEvents.js`):
+- `mouseDown(element, button, eventProps)`
+- `mouseUp(element, button, eventProps)`
+- `mouseOver(element, button, eventProps)`
+- `mouseClick(element, button, eventProps)`
+- `mouseMove(element, button, eventProps)`
+- `contextMenuEvent(element)`
+- `simulateClick(element, buttonKey, eventProps)` -- Full click sequence (mousedown + mouseup + click + focus)
+- `mouseDoubleClick(element, buttonKey, eventProps)`
+- `mouseRightDown(element)`, `mouseRightUp(element)`
+
+**Keyboard Event Helpers** (from `test/helpers/keyboardEvents.js`):
+- `keyDown(key)` -- Simulate keydown event
+- `keyUp(key)` -- Simulate keyup event
+- `keyDownUp(key)` -- Simulate full keydown+keyup sequence
+- Key names: `'enter'`, `'esc'`, `'tab'`, `'arrowdown'`, `'arrowup'`, `'arrowleft'`, `'arrowright'`, `'ctrl'`, `'shift'`, `'space'`, `'backspace'`, `'delete'`, etc.
+
+## Bootstrap and Setup
+
+**Test Bootstrap** (`handsontable/test/bootstrap.js`):
+- Sets Jasmine timeout to 15000ms
+- Polyfills `ResizeObserver` and `IntersectionObserver` if missing
+- Exports global test helpers via `exportToGlobal()`
+- Imports custom matchers
+
+**E2E Bootstrap** (`handsontable/test/helpers/index.js`):
+- Imports and runs `test/bootstrap.js`
+- Exports all helpers from `common.js`, `mouseEvents.js`, `keyboardEvents.js` to `window`
+- Auto-discovers and exports all plugin test helpers via `require.context`
+
+**E2E Common Bootstrap** (`handsontable/test/helpers/common.js`):
+- Provides `beforeEach`/`afterEach` for scroll reset and spec context management
+- Wraps `$.fn.handsontable` to auto-inject theme in E2E tests
+- Contains `handsontableMethodFactory()` that creates global wrappers for all HOT instance methods
+- Some methods (scroll-related) are wrapped with `waitOnScroll()` from `test/helpers/utils.js`
+
+**Jest Configuration** (`handsontable/jest.config.js`):
+```javascript
+{
+  testEnvironment: 'jsdom',
+  setupFiles: ['<rootDir>/test/cryptoSetup.js'],
+  roots: ['<rootDir>/src', '<rootDir>/test'],
+  coverageDirectory: '<rootDir>/coverage',
+  coverageReporters: ['json', 'lcov', 'clover'],
+  setupFilesAfterEnv: ['<rootDir>/test/bootstrap.js', '<rootDir>/test/jsdomThemeVars.js'],
+  testRegex: '\\.(unit\\.js|unit\\.ts)$',
+  testPathIgnorePatterns: ['<rootDir>/node_modules/'],
+  testRunner: 'jest-jasmine2',
+  moduleNameMapper: {
+    '^handsontable(.*)$': '<rootDir>/src$1',
+    '^walkontable(.*)$': '<rootDir>/src/3rdparty/walkontable/src$1',
+    '\\.(css|scss)$': '<rootDir>/test/__mocks__/styleMock.js',
+  }
+}
+```

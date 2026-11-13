@@ -1,0 +1,48 @@
+import { useRef, useEffect } from 'react';
+import { HotTable } from '@handsontable/react-wrapper';
+import { registerAllModules } from 'handsontable/registry';
+
+// register Handsontable's modules
+registerAllModules();
+
+const data = [
+  { name: 'Hydrogen', symbol: 'H', atomicNumber: 1, atomicMass: 1.008 },
+  { name: 'Helium', symbol: 'He', atomicNumber: 2, atomicMass: 4.003 },
+  { name: 'Lithium', symbol: 'Li', atomicNumber: 3, atomicMass: 6.94 },
+  { name: 'Beryllium', symbol: 'Be', atomicNumber: 4, atomicMass: 9.012 },
+  { name: 'Boron', symbol: 'B', atomicNumber: 5, atomicMass: 10.81 },
+];
+
+const ExampleComponent = () => {
+  const hotRef = useRef(null);
+
+  useEffect(() => {
+    const hot = hotRef.current?.hotInstance;
+
+    hot?.updateSettings({
+      cells(row, col) {
+        const cellProperties = {};
+
+        if (hot.getData()[row][col] === 'Helium') {
+          cellProperties.readOnly = true;
+        }
+
+        return cellProperties;
+      },
+    });
+  });
+
+  return (
+    <HotTable
+      // licenseKey="your-license-key" // get a key at https://handsontable.com/pricing/
+      ref={hotRef}
+      data={data}
+      colHeaders={['Name', 'Symbol', 'Atomic number', 'Atomic mass']}
+      height="auto"
+      autoWrapRow={true}
+      autoWrapCol={true}
+    />
+  );
+};
+
+export default ExampleComponent;

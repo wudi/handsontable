@@ -1,0 +1,840 @@
+import { isFunction } from '../../../helpers/function';
+import { error as logError } from '../../../helpers/console';
+import { throwWithCause } from '../../../helpers/errors';
+import type { HotInstance } from '../../../core/types';
+import type { RowIdOption } from '../../../utils/rowId';
+import {
+  DATA_PROVIDER_BATCH_UPDATE_SOURCES,
+  DATA_PROVIDER_ERROR_UPDATE_MISSING_ROW_ID,
+  dataProviderErrorRemoveMissingRowId,
+} from '../constants';
+import type { RowUpdatePayload, RowsCreatePayload } from '../dataProvider';
+
+/**
+ * A single afterChange tuple: `[visualRow, prop, oldValue, newValue]`.
+ */
+type ChangeTuple = [number, string | number, unknown, unknown];
+
+/**
+ * Internal per-row update payload used inside CRUD helpers (fields are optional during construction).
+ */
+type InternalRowUpdatePayload = Partial<RowUpdatePayload>;
+
+/**
+ * Runs `beforeRowsMutation`. Return `false` from a listener to cancel.
+ *
+ * @param {Core} hot Handsontable instance.
+ * @param {string} operation Mutation kind (`create`, `update`, or `remove`).
+ * @param {object} payload Hook payload (`RowMutationPayload` in `types/plugins/dataProvider/dataProvider.d.ts`).
+ * @returns {boolean|undefined} `false` when canceled.
+ */
+export function runBeforeRowsMutation(hot: HotInstance, operation: string, payload: object): false | undefined {
+  if (hot.runHooks('beforeRowsMutation', operation, payload) === false) {
+    return false;
+  }
+
+  return undefined;
+}
+
+/**
+ * Runs `afterRowsMutation`.
+ *
+ * @param {Core} hot Handsontable instance.
+ * @param {string} operation Mutation kind (`create`, `update`, or `remove`).
+ * @param {object} payload Hook payload (`RowMutationPayload` in `types/plugins/dataProvider/dataProvider.d.ts`).
+ * @returns {void}
+ */
+export function runAfterRowsMutation(hot: HotInstance, operation: string, payload: object): void {
+  hot.runHooks('afterRowsMutation', operation, payload);
+}
+
+/**
+ * Runs `afterRowsMutationError`.
+ *
+ * @param {Core} hot Handsontable instance.
+ * @param {string} operation Mutation kind (`create`, `update`, or `remove`).
+ * @param {Error} err Failure from the server callback.
+ * @param {object} payload Hook payload (`RowMutationPayload` in `types/plugins/dataProvider/dataProvider.d.ts`).
+ * @returns {void}
+ */
+export function runAfterRowsMutationError(hot: HotInstance, operation: string, err: unknown, payload: object): void {
+  hot.runHooks('afterRowsMutationError', operation, err, payload);
+}
+
+/**
+ * Appends a mutation onto the queue so concurrent CRUD runs sequentially.
+ *
+ * @param {{ tail: Promise<void> }} state Mutable queue tail (mutated).
+ * @param {function(): Promise<void>|void} fn Async work for one mutation.
+ * @returns {Promise<void>}
+ */
+export function enqueueMutation(state: { tail: Promise<void> }, fn: () => Promise<void> | void): Promise<void> {
+  const mutationPromise = state.tail.then(fn);
+
+  state.tail = mutationPromise.catch(() => {});
+
+  return mutationPromise;
+}
+
+/**
+ * Row id for a visual row index. The id comes from Core's row identity, which reads `dataProvider.rowId` from the
+ * settings and applies it to the source row itself. `getSourceDataAtRow()` would hand over a copy that
+ * `dataDotNotation` rebuilds, turning a literal dotted key into a nested object, so a string key would read a
+ * different value from the one the cell shows.
+ *
+ * @param {Core} hot Handsontable instance.
+ * @param {string|Function|undefined|null} rowIdOption `rowId` from config. Only its kind is checked: without a string
+ * or function key there is no id, the same rule Core uses before it falls back to the grid-level `rowId`.
+ * @param {number} visualRow Visual row index.
+ * @returns {*|undefined}
+ */
+export function getRowIdByVisualRow(
+  hot: HotInstance, rowIdOption: RowIdOption, visualRow: number
+): unknown {
+  if (typeof rowIdOption !== 'string' && !isFunction(rowIdOption)) {
+    return undefined;
+  }
+
+  const physicalRow = hot.toPhysicalRow(visualRow);
+
+  return physicalRow === null ? undefined : (hot.getRowIdAtPhysicalRow(physicalRow) ?? undefined);
+}
+
+/**
+ * Reads the id of a row for a CRUD payload. A function key that throws is logged and read as a missing id, so an
+ * update takes the missing-id path (revert, `afterRowsMutationError`) instead of rejecting inside the mutation
+ * queue, where nothing would report it, and a removal raises the missing-id error instead of the key's own.
+ *
+ * @param {Core} hot Handsontable instance.
+ * @param {string|Function|undefined|null} rowIdOption `rowId` from config.
+ * @param {number} visualRow Visual row index.
+ * @returns {*|undefined}
+ */
+export function readRowIdOrUndefined(hot: HotInstance, rowIdOption: RowIdOption, visualRow: number): unknown {
+  try {
+    return getRowIdByVisualRow(hot, rowIdOption, visualRow);
+
+  } catch (err) {
+    logError('Reading the row id failed:', err);
+
+    return undefined;
+  }
+}
+
+/**
+ * True when a value cannot be used as a server row id (`null` and `undefined` only).
+ *
+ * @param {*} id Resolved row id.
+ * @returns {boolean}
+ */
+export function isMissingRowId(id: unknown): boolean {
+  return id === undefined || id === null;
+}
+
+/**
+ * Finds a visual row index for a row id.
+ *
+ * @param {Core} hot Handsontable instance.
+ * @param {string|Function|undefined|null} rowIdOption `rowId` from config.
+ * @param {*} rowId Row id.
+ * @returns {number} Visual row index or -1 when not found.
+ */
+export function findVisualRowById(
+  hot: HotInstance, rowIdOption: RowIdOption, rowId: unknown
+): number {
+  for (let row = 0; row < hot.countRows(); row += 1) {
+    if (getRowIdByVisualRow(hot, rowIdOption, row) === rowId) {
+      return row;
+    }
+  }
+
+  return -1;
+}
+
+/**
+ * Collects row ids (or row snapshots) for `remove_row` alter ranges, including grouped indices.
+ *
+ * @param {Core} hot Handsontable instance.
+ * @param {string|Function|undefined|null} rowIdOption `rowId` from config.
+ * @param {number|Array|undefined|null} index Visual start index or `[[index, amount], ...]`.
+ * @param {number} amount Row count when `index` is scalar.
+ * @returns {Array<*>}
+ * @throws {Error} When `rowId` resolves to null or undefined for a row in range.
+ */
+export function rowIdsFromAlterRemove(
+  hot: HotInstance, rowIdOption: RowIdOption,
+  index: number | [number, number][] | undefined | null, amount: number
+): unknown[] {
+  const ids: unknown[] = [];
+  const n = () => hot.countRows();
+  const pushRange = (start: number, amt: number) => {
+    for (let r = 0; r < amt; r += 1) {
+      const v = start + r;
+
+      if (v >= 0 && v < n()) {
+        const id = readRowIdOrUndefined(hot, rowIdOption, v);
+
+        if (isMissingRowId(id)) {
+          throwWithCause(dataProviderErrorRemoveMissingRowId(v));
+        }
+        ids.push(id);
+      }
+    }
+  };
+
+  if (Array.isArray(index)) {
+    index.forEach(([gi, ga]) => {
+      const start = (gi === undefined || gi === null)
+        ? Math.max(0, n() - (ga ?? 1))
+        : Math.max(0, gi);
+
+      pushRange(start, ga ?? 1);
+    });
+  } else {
+    const amt = typeof amount === 'number' && amount >= 1 ? amount : 1;
+    const start = (index === undefined || index === null)
+      ? Math.max(0, n() - amt)
+      : Math.max(0, index);
+
+    pushRange(start, amt);
+  }
+
+  return ids;
+}
+
+/**
+ * Builds `changes` map and merged `rowData` for one visual row from Handsontable change tuples.
+ *
+ * @param {Core} hot Handsontable instance.
+ * @param {Array} rowChanges Tuples `[visualRow, prop, oldVal, newVal]` for one row.
+ * @returns {{ changesObj: object, rowData: object|Array }}
+ */
+export function buildChangesAndRowData(
+  hot: HotInstance, rowChanges: ChangeTuple[]
+): { changesObj: Record<string | number, unknown>; rowData: Record<string, unknown> | unknown[] } {
+  const visualRow = rowChanges[0][0];
+  const rowData = hot.getSourceDataAtRow(hot.toPhysicalRow(visualRow));
+  const isObj = rowData && typeof rowData === 'object' && !Array.isArray(rowData);
+  const changesObj: Record<string | number, unknown> = {};
+
+  rowChanges.forEach(([, prop, , nv]) => {
+    const col = typeof prop === 'number' ? prop : (hot.propToCol(prop as string) as number);
+    const key = isObj ? (hot.colToProp(col) as string | number) : col;
+
+    changesObj[key] = nv;
+  });
+
+  let rowDataWithChanges: Record<string, unknown> | unknown[];
+
+  if (Array.isArray(rowData)) {
+    rowDataWithChanges = [...(rowData as unknown[])];
+    rowChanges.forEach(([, prop, , nv]) => {
+      const col = typeof prop === 'number' ? prop : (hot.propToCol(prop as string) as number);
+
+      (rowDataWithChanges as unknown[])[col] = nv;
+    });
+  } else if (isObj) {
+    rowDataWithChanges = { ...(rowData as Record<string, unknown>), ...changesObj };
+  } else {
+    rowDataWithChanges = { ...changesObj };
+  }
+
+  return { changesObj, rowData: rowDataWithChanges };
+}
+
+/**
+ * Reverts optimistic cell edits after a failed server update.
+ *
+ * @param {Core} hot Handsontable instance.
+ * @param {Array} changeTuples `[visualRow, prop, oldVal, newVal][]`.
+ * @returns {void}
+ */
+export function revertChangeTuples(hot: HotInstance, changeTuples: ChangeTuple[]): void {
+  if (!changeTuples?.length) {
+    return;
+  }
+  hot.batch(() => {
+    changeTuples.forEach(([row, prop, oldVal]) => {
+      hot.setDataAtRowProp(row, prop, oldVal, 'DataProvider.revert');
+    });
+  });
+}
+
+/**
+ * Whether every changed cell passes validator when `allowInvalid` is false.
+ *
+ * @param {Core} hot Handsontable instance.
+ * @param {number} visualRow Visual row index.
+ * @param {object} changes Prop-keyed new values.
+ * @returns {Promise<boolean>}
+ */
+export function validateRowChanges(
+  hot: HotInstance, visualRow: number, changes: Record<string | number, unknown>
+): Promise<boolean> {
+  const entries = Object.entries(changes);
+
+  if (entries.length === 0) {
+    return Promise.resolve(true);
+  }
+
+  return new Promise((resolve) => {
+    let pending = entries.length;
+    let valid = true;
+
+    const done = () => {
+      pending -= 1;
+
+      if (pending === 0) {
+        resolve(valid);
+      }
+    };
+
+    entries.forEach(([prop, value]) => {
+      const col = hot.propToCol(prop);
+
+      if (col === null || col === undefined || col < 0) {
+        done();
+
+        return;
+      }
+
+      const cellMeta = hot.getCellMeta(visualRow, col);
+
+      if (!hot.getCellValidator(cellMeta)) {
+        done();
+
+        return;
+      }
+
+      hot.validateCell(value, cellMeta, (result: boolean) => {
+        if (result === false && cellMeta.allowInvalid === false) {
+          valid = false;
+        }
+        done();
+      }, 'DataProvider.updateRows');
+    });
+  });
+}
+
+/**
+ * True when `afterChange` should not enqueue a batched `onRowsUpdate`.
+ *
+ * @param {boolean} hasOnRowsUpdate Whether `onRowsUpdate` is configured.
+ * @param {Array} changes Change list from `afterChange`.
+ * @param {string} [source] Change source.
+ * @returns {boolean}
+ */
+export function shouldIgnoreAfterChangeForServerUpdate(
+  hasOnRowsUpdate: boolean, changes: ChangeTuple[] | unknown[] | null, source?: string
+): boolean {
+  if (!hasOnRowsUpdate || !changes?.length) {
+    return true;
+  }
+  if (source === 'DataProvider.revert') {
+    return true;
+  }
+  if (!DATA_PROVIDER_BATCH_UPDATE_SOURCES.has(source)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Filters change tuples to those with real edits and passing cell `valid` meta.
+ *
+ * @param {Core} hot Handsontable instance.
+ * @param {Array} changes `[visualRow, prop, oldVal, newVal][]`.
+ * @returns {Array} Subset safe to send to the server update path.
+ */
+export function filterChangesForBatchedServerUpdate(
+  hot: HotInstance, changes: ChangeTuple[] | unknown[] | null
+): ChangeTuple[] {
+  if (!changes) {
+    return [];
+  }
+
+  const tuples = changes as ChangeTuple[];
+  const real = tuples.filter(c => c[2] !== c[3]);
+
+  if (real.length === 0) {
+    return [];
+  }
+
+  return real.filter((c) => {
+    // A write past the last column still lands locally (deprecated, skipped from 20.0.0 on), so it
+    // keeps its index and reaches the server too, as it did before `propToCol()` could answer `null`.
+    const col = hot.propToCol(c[1]) ?? (typeof c[1] === 'number' ? c[1] : null);
+
+    if (col === null || col === undefined || col < 0) {
+      return false;
+    }
+
+    return hot.getCellMetaTransient(c[0], col).valid !== false;
+  });
+}
+
+/**
+ * Builds `{ id, changes, rowData }` payloads for programmatic `updateRows`.
+ *
+ * @param {Core} hot Handsontable instance.
+ * @param {string|Function|undefined|null} rowIdOption `rowId` from config.
+ * @param {object[]} rows Caller payloads `{ id, changes, rowData? }`.
+ * @returns {object[]}
+ */
+export function buildManualUpdateRowPayloads(
+  hot: HotInstance, rowIdOption: RowIdOption,
+  rows: InternalRowUpdatePayload[]
+): InternalRowUpdatePayload[] {
+  return rows.map((p) => {
+    const visualRow = findVisualRowById(hot, rowIdOption, p.id);
+
+    let rowData;
+
+    if (visualRow >= 0) {
+      rowData = hot.getSourceDataAtRow(hot.toPhysicalRow(visualRow));
+    } else if (p.rowData !== undefined) {
+      rowData = p.rowData;
+    } else {
+      rowData = {};
+    }
+
+    return {
+      id: p.id,
+      changes: p.changes,
+      rowData: (rowData && typeof rowData === 'object' ? rowData : {}) as unknown[] | Record<string, unknown>,
+    };
+  });
+}
+
+/**
+ * Calls `onRowsUpdate`, success/error hooks, then re-fetches or re-renders.
+ *
+ * @param {Core} hot Handsontable instance.
+ * @param {{ getOnRowsUpdate: function(): *, fetchData: function(): Promise<*>, logError: function(...*): void, onRequestFailed?: function(string, Error): void, runAfterRowsMutation?: function(string, object): void, runAfterRowsMutationError?: function(string, *, object): void, render?: function(): void }} callbacks Callbacks for IO and logging (`getOnRowsUpdate` returns `onRowsUpdate` or a falsy value). `onRequestFailed` receives `'update'` only; when `fetchData` rejects after a successful update, the caller's `fetchData` implementation is responsible for error UI (for example {@link DataProvider#fetchData} shows a notification and rethrows). `runAfterRowsMutation`, `runAfterRowsMutationError`, and `render` replace the calls on `hot` when given, so a caller can skip them once the grid is destroyed.
+ * @param {object[]} rowPayloads Per-row `RowUpdatePayload` objects (`types/plugins/dataProvider/dataProvider.d.ts`).
+ * @param {object} [options] Optional flags.
+ * @param {function(): void} [options.revertOptimistic] Restores previous cell values when the request fails.
+ * @returns {Promise<void>}
+ */
+type CommitRowsUpdateCallbacks = {
+  getOnRowsUpdate: () => ((payload: object[]) => Promise<void>) | undefined;
+  fetchData: () => Promise<unknown>;
+  logError: (...args: unknown[]) => void;
+  onRequestFailed?: (kind: string, err: unknown) => void;
+  runAfterRowsMutation?: (operation: string, payload: object) => void;
+  runAfterRowsMutationError?: (operation: string, err: unknown, payload: object) => void;
+  render?: () => void;
+};
+/**
+ * Calls `onRowsUpdate`, success/error hooks, then re-fetches or re-renders.
+ */
+export async function commitRowsUpdate(
+  hot: HotInstance, callbacks: CommitRowsUpdateCallbacks,
+  rowPayloads: object[], options: { revertOptimistic?: () => void } = {}
+): Promise<void> {
+  const onRowsUpdate = callbacks.getOnRowsUpdate();
+
+  if (!isFunction(onRowsUpdate)) {
+    return;
+  }
+
+  const payload = { rows: rowPayloads };
+  const { revertOptimistic } = options;
+  const {
+    onRequestFailed,
+    runAfterRowsMutation: afterMutation = (op, p) => runAfterRowsMutation(hot, op, p),
+    runAfterRowsMutationError: afterMutationError = (op, e, p) => runAfterRowsMutationError(hot, op, e, p),
+    render = () => hot.render(),
+  } = callbacks;
+
+  try {
+    await onRowsUpdate(rowPayloads);
+  } catch (err) {
+    afterMutationError('update', err, payload);
+    callbacks.logError('Row update failed:', err);
+
+    if (isFunction(revertOptimistic)) {
+      revertOptimistic();
+    }
+    render();
+    onRequestFailed?.('update', err);
+
+    return;
+  }
+
+  try {
+    afterMutation('update', payload);
+    await callbacks.fetchData();
+  } catch (err) {
+    afterMutationError('update', err, payload);
+    callbacks.logError('Data reload failed:', err);
+
+    if (isFunction(revertOptimistic)) {
+      revertOptimistic();
+    }
+    render();
+    // Do not call `onRequestFailed('fetch', err)` here: `fetchData` already surfaces fetch errors (and rethrows).
+  }
+}
+
+/**
+ * Runs `beforeRowsMutation`, validates each payload row, then calls `commitRowsUpdate` for programmatic `updateRows`.
+ *
+ * @param {Core} hot Handsontable instance.
+ * @param {object} ctx Row resolution and commit.
+ * @param {function(): string|Function|undefined|null} ctx.getRowIdOption Current `rowId` config.
+ * @param {function(object[]): Promise<void>} ctx.commitRowsUpdate Commits payloads after validation.
+ * @param {object[]} rowPayloads Per-row `{ id, changes, rowData }` payloads from `buildManualUpdateRowPayloads`.
+ * @returns {Promise<void>}
+ */
+type ManualUpdateCtx = {
+  getRowIdOption: () => RowIdOption;
+  commitRowsUpdate: (payloads: InternalRowUpdatePayload[]) => Promise<void>;
+};
+/**
+ *
+ */
+export async function runManualUpdateRowsMutation(
+  hot: HotInstance, ctx: ManualUpdateCtx, rowPayloads: InternalRowUpdatePayload[]
+): Promise<void> {
+  const { getRowIdOption, commitRowsUpdate: commitUpdate } = ctx;
+  const payload = { rows: rowPayloads };
+
+  if (runBeforeRowsMutation(hot, 'update', payload) === false) {
+    return;
+  }
+
+  const rowIdOption = getRowIdOption();
+  const validationResults = await Promise.all(rowPayloads.map(async(p) => {
+    const visualRow = findVisualRowById(hot, rowIdOption, p.id);
+
+    if (visualRow < 0) {
+      return true;
+    }
+
+    return validateRowChanges(hot, visualRow, p.changes ?? {});
+  }));
+
+  if (hot.isDestroyed) {
+    return;
+  }
+
+  if (validationResults.some(ok => !ok)) {
+    runAfterRowsMutationError(hot, 'update', new Error('Row update validation failed'), payload);
+    logError('Row update failed: validation failed for one or more cells');
+
+    return;
+  }
+
+  await commitUpdate(rowPayloads);
+}
+
+/**
+ * The `onRowsUpdate` payloads built from change tuples, the visual rows they were read from, and, when the
+ * validation was started together with them, its pending result.
+ */
+export interface PreparedRowsUpdate {
+  sortedRows: number[];
+  rowPayloads: Array<{
+    id: unknown;
+    changes: Record<string | number, unknown>;
+    rowData: Record<string, unknown> | unknown[];
+  }>;
+  validation?: Promise<boolean[]>;
+}
+
+/**
+ * Validates every row of an update against its cells' validators.
+ *
+ * @param {Core} hot Handsontable instance.
+ * @param {number[]} sortedRows The visual rows, in the order of `rowPayloads`.
+ * @param {object[]} rowPayloads The per-row payloads.
+ * @returns {Promise<boolean[]>} One result per row.
+ */
+function validatePreparedRows(
+  hot: HotInstance, sortedRows: number[], rowPayloads: PreparedRowsUpdate['rowPayloads']
+): Promise<boolean[]> {
+  return Promise.all(sortedRows.map((vr, i) => validateRowChanges(hot, vr, rowPayloads[i].changes)));
+}
+
+/**
+ * Groups cell changes by row and builds one `{ id, changes, rowData }` payload per row from the rows the grid
+ * shows now. With `validateNow`, the cells are validated now too, against the same rows.
+ *
+ * @param {Core} hot Handsontable instance.
+ * @param {string|Function|undefined|null} rowIdOption `rowId` from config.
+ * @param {Array} changes Filtered change tuples `[visualRow, prop, oldVal, newVal][]`.
+ * @param {object} [options] Optional flags.
+ * @param {boolean} [options.validateNow] Starts the validation now instead of when the update runs.
+ * @returns {object}
+ */
+export function prepareUpdateFromChanges(
+  hot: HotInstance, rowIdOption: RowIdOption, changes: ChangeTuple[], options: { validateNow?: boolean } = {}
+): PreparedRowsUpdate {
+  const byRow = new Map<number, ChangeTuple[]>();
+
+  changes.forEach((ch) => {
+    const vr = ch[0];
+
+    if (!byRow.has(vr)) {
+      byRow.set(vr, []);
+    }
+    byRow.get(vr)!.push(ch);
+  });
+
+  const sortedRows = [...byRow.keys()].sort((a, b) => a - b);
+  const rowPayloads = sortedRows.map((vr) => {
+    const { changesObj, rowData } = buildChangesAndRowData(hot, byRow.get(vr)!);
+
+    return {
+      id: readRowIdOrUndefined(hot, rowIdOption, vr),
+      changes: changesObj,
+      rowData,
+    };
+  });
+
+  return {
+    sortedRows,
+    rowPayloads,
+    validation: options.validateNow ? validatePreparedRows(hot, sortedRows, rowPayloads) : undefined,
+  };
+}
+
+/**
+ * The callbacks `runUpdateFromChanges()` resolves row ids with, commits through, and reverts with.
+ */
+type UpdateFromChangesCtx = {
+  getRowIdOption: () => RowIdOption;
+  commitRowsUpdate: (payloads: InternalRowUpdatePayload[], opts?: { revertOptimistic?: () => void }) => Promise<void>;
+  revertChanges?: (changes: ChangeTuple[]) => void;
+};
+
+/**
+ * Groups cell changes by row, validates, then commits a single batched `onRowsUpdate`.
+ *
+ * @param {Core} hot Handsontable instance.
+ * @param {object} ctx Row resolution and commit.
+ * @param {function(): string|Function|undefined|null} ctx.getRowIdOption Current `rowId` config.
+ * @param {function(object[], object): Promise<void>} ctx.commitRowsUpdate Commits payloads (e.g. server + refetch).
+ * @param {function(Array): void} [ctx.revertChanges] Restores the previous values of the change tuples; the
+ * default writes them back into the grid.
+ * @param {Array} changes Filtered change tuples `[visualRow, prop, oldVal, newVal][]`.
+ * @param {object} [prepared] Payloads built earlier by `prepareUpdateFromChanges()`; built now when omitted.
+ * @returns {Promise<void>} Settles without touching the grid when it is destroyed while the validation runs.
+ */
+export async function runUpdateFromChanges(
+  hot: HotInstance, ctx: UpdateFromChangesCtx, changes: ChangeTuple[], prepared?: PreparedRowsUpdate
+): Promise<void> {
+  const { getRowIdOption, commitRowsUpdate: commitFn, revertChanges } = ctx;
+  const { sortedRows, rowPayloads, validation } = prepared ?? prepareUpdateFromChanges(hot, getRowIdOption(), changes);
+  const payload = { rows: rowPayloads };
+  const revert = isFunction(revertChanges)
+    ? () => revertChanges(changes)
+    : () => revertChangeTuples(hot, changes);
+
+  if (rowPayloads.some(p => isMissingRowId(p.id))) {
+    revert();
+    runAfterRowsMutationError(
+      hot,
+      'update',
+      new Error(DATA_PROVIDER_ERROR_UPDATE_MISSING_ROW_ID),
+      payload
+    );
+    logError('Row update failed:', DATA_PROVIDER_ERROR_UPDATE_MISSING_ROW_ID);
+    hot.render();
+
+    return;
+  }
+
+  if (runBeforeRowsMutation(hot, 'update', payload) === false) {
+    revert();
+
+    return;
+  }
+
+  const ok = await (validation ?? validatePreparedRows(hot, sortedRows, rowPayloads));
+
+  if (hot.isDestroyed) {
+    return;
+  }
+
+  if (ok.some(v => !v)) {
+    revert();
+    runAfterRowsMutationError(hot, 'update', new Error('Row update validation failed'), payload);
+    logError('Row update failed: validation failed for one or more cells');
+    hot.render();
+
+    return;
+  }
+
+  await commitFn(rowPayloads, { revertOptimistic: revert });
+}
+
+/**
+ * Queues create/remove server calls with before/after mutation hooks.
+ *
+ * @param {object} ctx Queue and hooks.
+ * @param {function(function(): Promise<void>|void): Promise<void>} ctx.enqueueMutation - Serializes mutations.
+ * @param {function(string, object): boolean|undefined} ctx.runBeforeRowsMutation - Returns false when the hook cancels.
+ * @param {function(string, object): void} ctx.runAfterRowsMutation - Runs the success hook.
+ * @param {function(string, Error, object): void} ctx.runAfterRowsMutationError - Runs the error hook.
+ * @param {function(...*): void} ctx.logError - Logs mutation failures.
+ * @param {function(string, Error): void} [ctx.onRequestFailed] - `'create'|'remove'` when the server callback rejects. When `onSuccess` (refetch) fails, error UI is owned by that `fetchData` implementation (not `onRequestFailed`).
+ * @param {string} operation `'create'` or `'remove'`.
+ * @param {object} payload Hook payload.
+ * @param {function(): Promise<*>} userPromiseFn Server callback invocation.
+ * @param {function(): Promise<void>|void} onSuccess Runs after success (e.g. `fetchData`).
+ * @returns {Promise<void>}
+ */
+type QueueCrudCtx = {
+  enqueueMutation: (fn: () => Promise<void>) => Promise<void>;
+  runBeforeRowsMutation: (op: string, p: object) => false | undefined;
+  runAfterRowsMutation: (op: string, p: object) => void;
+  runAfterRowsMutationError: (op: string, err: unknown, p: object) => void;
+  logError: (...args: unknown[]) => void;
+  onRequestFailed?: (op: string, err: unknown) => void;
+};
+/**
+ *
+ */
+export function queueCrud(
+  ctx: QueueCrudCtx, operation: string, payload: object,
+  userPromiseFn: () => Promise<unknown>, onSuccess: () => Promise<void> | void
+): Promise<void> {
+  const {
+    enqueueMutation: enqueue,
+    runBeforeRowsMutation: beforeMut,
+    runAfterRowsMutation: afterMut,
+    runAfterRowsMutationError: afterMutErr,
+    logError: logErr,
+    onRequestFailed,
+  } = ctx;
+
+  return enqueue(async() => {
+    if (beforeMut(operation, payload) === false) {
+      return;
+    }
+
+    const mutationLabel = operation === 'create' ? 'Row create' : 'Row remove';
+
+    try {
+      await userPromiseFn();
+    } catch (err) {
+      afterMutErr(operation, err, payload);
+      logErr(`${mutationLabel} failed:`, err);
+      onRequestFailed?.(operation, err);
+
+      return;
+    }
+
+    try {
+      afterMut(operation, payload);
+      await onSuccess();
+    } catch (err) {
+      afterMutErr(operation, err, payload);
+      logErr('Data reload failed:', err);
+      // Do not call `onRequestFailed('fetch', err)` here: `onSuccess` is typically `fetchData`, which already surfaces fetch errors (and rethrows).
+    }
+  });
+}
+
+type BeforeAlterForCrudCtx = {
+  hot: HotInstance;
+  getOnRowsCreate: () => ((payload: RowsCreatePayload) => Promise<unknown> | void) | undefined;
+  getOnRowsRemove: () => ((rowIds: unknown[]) => Promise<unknown> | void) | undefined;
+  getRowIdOption: () => RowIdOption;
+  getRowId: (visualRow: number) => unknown;
+  createRows: (payload: Partial<RowsCreatePayload>) => Promise<void> | void;
+  removeRows: (rowIds: unknown[]) => Promise<void> | void;
+};
+
+/**
+ * @param {object} ctx Same shape as `handleBeforeAlterForCrud()`.
+ * @param {'insert_row_above'|'insert_row_below'} action Insert direction.
+ * @param {number|Array|undefined|null} index Row index or alter grouping.
+ * @param {number} amount Row count when `index` is a number.
+ * @returns {boolean|undefined} `false` when the alter is handled.
+ */
+function handleInsertRowAlterForCrud(
+  ctx: BeforeAlterForCrudCtx, action: string,
+  index: number | [number, number][] | undefined | null, amount: number
+): false | undefined {
+  const { hot, getOnRowsCreate, getRowId, createRows } = ctx;
+
+  if (!isFunction(getOnRowsCreate())) {
+    return;
+  }
+
+  const n = hot.countSourceRows();
+
+  if (hot.getSettings().maxRows === n) {
+    return;
+  }
+
+  const position = action === 'insert_row_below' ? 'below' : 'above';
+  const visualIndex = index ?? (position === 'below' ? n : 0);
+
+  void createRows({
+    position,
+    referenceRowId: typeof visualIndex === 'number' && visualIndex >= 0 ? getRowId(visualIndex) : undefined,
+    rowsAmount: typeof amount === 'number' && amount >= 1 ? amount : 1,
+  });
+
+  return false;
+}
+
+/**
+ * @param {object} ctx Same shape as `handleBeforeAlterForCrud()`.
+ * @param {number|Array|undefined|null} index Row index or alter grouping.
+ * @param {number} amount Row count when `index` is a number.
+ * @returns {boolean|undefined} `false` when the alter is handled.
+ */
+function handleRemoveRowAlterForCrud(
+  ctx: BeforeAlterForCrudCtx, index: number | [number, number][] | undefined | null, amount: number
+): false | undefined {
+  const { hot, getOnRowsRemove, getRowIdOption, removeRows } = ctx;
+
+  if (!isFunction(getOnRowsRemove())) {
+    return;
+  }
+
+  const rowIds = rowIdsFromAlterRemove(hot, getRowIdOption(), index, amount);
+
+  if (rowIds.length === 0) {
+    return;
+  }
+
+  void removeRows(rowIds);
+
+  return false;
+}
+
+/**
+ * Handles `beforeAlter` for server-backed row insert/remove when DataProvider CRUD is configured.
+ *
+ * @param {object} ctx Context.
+ * @param {Core} ctx.hot - Handsontable instance.
+ * @param {function(): *} ctx.getOnRowsCreate - Returns configured `onRowsCreate` when present.
+ * @param {function(): *} ctx.getOnRowsRemove - Returns configured `onRowsRemove` when present.
+ * @param {function(): string|Function|undefined|null} ctx.getRowIdOption - Returns current `rowId` setting.
+ * @param {function(number): *} ctx.getRowId - Row id for a visual index (public API).
+ * @param {function(object): Promise<void>|void} ctx.createRows - Invokes server create path.
+ * @param {function(*|*[]): Promise<void>|void} ctx.removeRows - Invokes server remove path.
+ * @param {string} action Alter action name.
+ * @param {number|Array|undefined|null} index Row index, grouped `[[index, amount], ...]`, or undefined (alter default).
+ * @param {number} amount Row count when `index` is a number.
+ * @returns {boolean|undefined} False when alter is handled here.
+ */
+export function handleBeforeAlterForCrud(
+  ctx: BeforeAlterForCrudCtx, action: string,
+  index: number | [number, number][] | undefined | null, amount: number
+): false | undefined {
+  if (action === 'insert_row_above' || action === 'insert_row_below') {
+    return handleInsertRowAlterForCrud(ctx, action, index, amount);
+  }
+
+  if (action === 'remove_row') {
+    return handleRemoveRowAlterForCrud(ctx, index, amount);
+  }
+}

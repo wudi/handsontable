@@ -1,0 +1,44 @@
+import Handsontable from 'handsontable';
+
+const element = document.createElement('div');
+const hot = Handsontable(element, {});
+const focusScopeManager = hot.getFocusScopeManager();
+
+const activeScopeId: string | null = focusScopeManager.getActiveScopeId();
+const isGridBodyCovered: boolean = focusScopeManager.isGridBodyCovered();
+
+focusScopeManager.registerScope('test', element);
+focusScopeManager.registerScope('test', element, {
+  shortcutsContextName: 'test',
+});
+focusScopeManager.registerScope('test', element, {
+  shortcutsContextName: 'test',
+  type: 'modal',
+  contains: (target: HTMLElement) => {
+    return target === element;
+  },
+  runOnlyIf: () => {
+    return true;
+  },
+  onActivate: (focusSource: 'unknown' | 'click' | 'tab_from_above' | 'tab_from_below') => {
+    const _focusSource = focusSource;
+  },
+  onDeactivate: () => {},
+});
+
+focusScopeManager.registerScope('test', element, {
+  shortcutsContextName: 'test',
+  type: 'inline',
+  enableFocusCatchers: false,
+});
+
+focusScopeManager.registerScope('test', element, {
+  shortcutsContextName: 'test',
+  fallbackShortcutsContextName: 'grid',
+  coversGridBody: true,
+});
+
+focusScopeManager.unregisterScope('test');
+focusScopeManager.activateScope('test');
+focusScopeManager.activateScope('test', 'tab_from_above');
+focusScopeManager.deactivateScope('test');

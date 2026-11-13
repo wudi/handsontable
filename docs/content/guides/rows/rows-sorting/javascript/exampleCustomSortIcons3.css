@@ -1,0 +1,37 @@
+#exampleCustomSortIcons3 .custom-sort-icon-example-3 .handsontable span.colHeader.columnSorting.sort-1::after {
+  content: '①';
+}
+
+#exampleCustomSortIcons3 .custom-sort-icon-example-3 .handsontable span.colHeader.columnSorting.sort-2::after {
+  content: '②';
+}
+
+#exampleCustomSortIcons3 .custom-sort-icon-example-3 .handsontable span.colHeader.columnSorting.sort-3::after {
+  content: '③';
+}
+
+#exampleCustomSortIcons3 .custom-sort-icon-example-3 .handsontable span.colHeader.columnSorting.sort-4::after {
+  content: '④';
+}
+
+#exampleCustomSortIcons3 .custom-sort-icon-example-3 .handsontable span.colHeader.columnSorting.sort-5::after {
+  content: '⑤';
+}
+
+#exampleCustomSortIcons3 .custom-sort-icon-example-3 .handsontable span.colHeader.columnSorting.sort-6::after {
+  content: '⑥';
+}
+
+#exampleCustomSortIcons3 .custom-sort-icon-example-3 .handsontable span.colHeader.columnSorting.sort-7::after {
+  content: '⑦';
+}
+
+#exampleCustomSortIcons3 .custom-sort-icon-example-3 .handsontable span.colHeader.columnSorting::after {
+  width: 10px;
+  font-size: 10px;
+}
+
+
+#exampleCustomSortIcons3 .custom-sort-icon-example-3 .handsontable th .relative > .ht-sort-indicator {
+  inset-inline-end: calc(var(--ht-sort-indicator-offset-end) + 5px);
+}

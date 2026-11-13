@@ -20,13 +20,13 @@ describe('ContextMenu', () => {
     });
 
     describe('`open()` method', () => {
-      it('should open context menu by default on the right-bottom position', () => {
+      it('should open context menu by default on the right-bottom position', async() => {
         handsontable({
           layoutDirection,
           contextMenu: true,
         });
 
-        selectCell(0, 0);
+        await selectCell(0, 0);
 
         const cell = getCell(0, 0);
         const cellOffset = $(cell).offset();
@@ -41,13 +41,13 @@ describe('ContextMenu', () => {
         expect(menuOffset.left).toBeCloseTo(cellOffset.left, 0);
       });
 
-      it('should open context menu by default on the right-bottom position (including offset)', () => {
+      it('should open context menu by default on the right-bottom position (including offset)', async() => {
         handsontable({
           layoutDirection,
           contextMenu: true,
         });
 
-        selectCell(0, 0);
+        await selectCell(0, 0);
 
         const cell = getCell(0, 0);
         const cellOffset = $(cell).offset();
@@ -67,15 +67,18 @@ describe('ContextMenu', () => {
         expect(menuOffset.left).toBeCloseTo(cellOffset.left + 20, 0);
       });
 
-      it('should open context menu on the right-top position if on the left and bottom there is no space left', () => {
+      it('should open context menu on the right-top position if on the left and ' +
+        'bottom there is no space left', async() => {
+        const rowDivisor = getDefaultRowHeight();
+
         handsontable({
           layoutDirection,
-          data: createSpreadsheetData(Math.floor(window.innerHeight / 23), 4),
+          data: createSpreadsheetData(Math.floor(window.innerHeight / rowDivisor), 4),
           contextMenu: true,
         });
 
         // we have to be sure we will have no enough space on the bottom, select the last cell
-        selectCell(countRows() - 1, 0);
+        await selectCell(countRows() - 1, 0);
 
         const cell = getCell(countRows() - 1, 0);
         const cellOffset = $(cell).offset();
@@ -91,15 +94,18 @@ describe('ContextMenu', () => {
         expect(menuOffset.left).toBeCloseTo(cellOffset.left, 0);
       });
 
-      it('should open context menu on the right-top position if on the left and bottom there is no space left (including offset)', () => {
+      it('should open context menu on the right-top position if on the left and ' +
+        'bottom there is no space left (including offset)', async() => {
+        const rowDivisor = getDefaultRowHeight();
+
         handsontable({
           layoutDirection,
-          data: createSpreadsheetData(Math.floor(window.innerHeight / 23), 4),
+          data: createSpreadsheetData(Math.floor(window.innerHeight / rowDivisor), 4),
           contextMenu: true,
         });
 
         // we have to be sure we will have no enough space on the bottom, select the last cell
-        selectCell(countRows() - 1, 0);
+        await selectCell(countRows() - 1, 0);
 
         const cell = getCell(countRows() - 1, 0);
         const cellOffset = $(cell).offset();
@@ -120,7 +126,7 @@ describe('ContextMenu', () => {
         expect(menuOffset.left).toBeCloseTo(cellOffset.left + 20, 0);
       });
 
-      it('should open context menu on the left-bottom position if on the right there is no space left', () => {
+      it('should open context menu on the left-bottom position if on the right there is no space left', async() => {
         handsontable({
           layoutDirection,
           data: createSpreadsheetData(4, Math.floor(window.innerWidth / 50)),
@@ -128,7 +134,7 @@ describe('ContextMenu', () => {
         });
 
         // we have to be sure we will have no enough space on the right, select the last cell
-        selectCell(0, countCols() - 1);
+        await selectCell(0, countCols() - 1);
 
         const cell = getCell(0, countCols() - 1);
         const cellOffset = $(cell).offset();
@@ -144,7 +150,7 @@ describe('ContextMenu', () => {
         expect(menuOffset.left).toBeCloseTo(cellOffset.left - menuWidth, 0);
       });
 
-      it('should open context menu on the left-bottom position if on the right there is no space left (including offset)', () => {
+      it('should open context menu on the left-bottom position if on the right there is no space left (including offset)', async() => {
         handsontable({
           layoutDirection,
           data: createSpreadsheetData(4, Math.floor(window.innerWidth / 50)),
@@ -152,7 +158,7 @@ describe('ContextMenu', () => {
         });
 
         // we have to be sure we will have no enough space on the right, select the last cell
-        selectCell(0, countCols() - 1);
+        await selectCell(0, countCols() - 1);
 
         const cell = getCell(0, countCols() - 1);
         const cellOffset = $(cell).offset();
@@ -173,15 +179,22 @@ describe('ContextMenu', () => {
         expect(menuOffset.left).toBeCloseTo(cellOffset.left - menuWidth + 10, 0);
       });
 
-      it('should open context menu on the left-top position if on the right and bottom there is no space left', () => {
+      it('should open context menu on the left-top position if on the right and ' +
+        'bottom there is no space left', async() => {
+        const rowDivisor = getDefaultRowHeight();
+        const colDivisor = getDefaultColumnWidth();
+
         handsontable({
           layoutDirection,
-          data: createSpreadsheetData(Math.floor(window.innerHeight / 23), Math.floor(window.innerWidth / 50)),
+          data: createSpreadsheetData(
+            Math.floor(window.innerHeight / rowDivisor),
+            Math.floor(window.innerWidth / colDivisor),
+          ),
           contextMenu: true,
         });
 
         // we have to be sure we will have no enough space on the bottom and the right, select the last cell
-        selectCell(countRows() - 1, countCols() - 1);
+        await selectCell(countRows() - 1, countCols() - 1);
 
         const cell = getCell(countRows() - 1, countCols() - 1);
         const cellOffset = $(cell).offset();
@@ -194,19 +207,32 @@ describe('ContextMenu', () => {
         const menuHeight = $contextMenu.outerHeight();
 
         expect($contextMenu.length).toBe(1);
-        expect(menuOffset.top).toBeCloseTo(cellOffset.top - menuHeight, 0);
-        expect(menuOffset.left).toBeCloseTo(cellOffset.left - menuWidth, 0);
+        // The positioner's cursor adds `window.scrollX`/`scrollY` to the literal
+        // cell offset (see Cursor constructor). Under denser themes the grid can
+        // overflow the body slightly, producing a small horizontal/vertical scroll
+        // that shifts the menu by the scroll amount. The test's intent is that
+        // the menu sits just to the left/above the cell; derive the expected
+        // position from DOM state so any scroll is accounted for.
+        expect(menuOffset.top).toBeAroundValue(cellOffset.top - menuHeight + window.scrollY, 4);
+        expect(menuOffset.left).toBeAroundValue(cellOffset.left - menuWidth + window.scrollX, 4);
       });
 
-      it('should open context menu on the left-top position if on the right and bottom there is no space left (including offset)', () => {
+      it('should open context menu on the left-top position if on the right and' +
+        ' bottom there is no space left (including offset)', async() => {
+        const rowDivisor = getDefaultRowHeight();
+        const colDivisor = getDefaultColumnWidth();
+
         handsontable({
           layoutDirection,
-          data: createSpreadsheetData(Math.floor(window.innerHeight / 23), Math.floor(window.innerWidth / 50)),
+          data: createSpreadsheetData(
+            Math.floor(window.innerHeight / rowDivisor),
+            Math.floor(window.innerWidth / colDivisor),
+          ),
           contextMenu: true,
         });
 
         // we have to be sure we will have no enough space on the bottom and the right, select the last cell
-        selectCell(countRows() - 1, countCols() - 1);
+        await selectCell(countRows() - 1, countCols() - 1);
 
         const cell = getCell(countRows() - 1, countCols() - 1);
         const cellOffset = $(cell).offset();
@@ -224,8 +250,10 @@ describe('ContextMenu', () => {
         const menuHeight = $contextMenu.outerHeight();
 
         expect($contextMenu.length).toBe(1);
-        expect(menuOffset.top).toBeCloseTo(cellOffset.top - menuHeight + 30, 0);
-        expect(menuOffset.left).toBeCloseTo(cellOffset.left - menuWidth + 10, 0);
+        // Derive expected from DOM state so that any horizontal/vertical scroll
+        // introduced by denser themes is accounted for (see preceding test).
+        expect(menuOffset.top).toBeAroundValue(cellOffset.top - menuHeight + 30 + window.scrollY, 4);
+        expect(menuOffset.left).toBeAroundValue(cellOffset.left - menuWidth + 10 + window.scrollX, 4);
       });
     });
   });

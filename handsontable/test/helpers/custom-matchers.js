@@ -1,9 +1,13 @@
-/* eslint-disable jsdoc/require-description-complete-sentence */
 import { generateASCIITable } from './asciiTable';
 import { normalize, pretty } from './htmlNormalize';
-
 // http://stackoverflow.com/questions/986937/how-can-i-get-the-browsers-scrollbar-sizes
 const scrollbarWidth = (function calculateScrollbarWidth() {
+  // A `@jest-environment node` spec file (e.g. one round-tripping xlsx zip buffers) has no
+  // `document`; nothing in it exercises this matcher, so the measurement is skipped.
+  if (typeof document === 'undefined') {
+    return 0;
+  }
+
   const inner = document.createElement('div');
 
   inner.style.height = '200px';
@@ -69,6 +73,8 @@ beforeEach(function() {
           matchersUtil.matcherConfig = currentSpec.matchersConfig[matcherName];
         }
 
+        matchersUtil.customMatchers = matchers;
+
         return matcherFactory(matchersUtil);
       };
     });
@@ -87,8 +93,8 @@ beforeEach(function() {
     Object.keys(matchers).forEach((matcherName) => {
       const jasmineMatcher = matchers[matcherName];
 
-      matchers[matcherName] = (received, expected, ...args) => {
-        const jasmineMatcherResult = jasmineMatcher().compare(received, expected, ...args);
+      matchers[matcherName] = function(received, expected, ...args) {
+        const jasmineMatcherResult = jasmineMatcher().compare.call(this, received, expected, ...args);
 
         return {
           message: () => jasmineMatcherResult.message,
@@ -166,9 +172,22 @@ beforeEach(function() {
             actual.map(range => rangeToString(range)) : rangeToString(actual);
 
           return {
-            pass: jasmine.matchersUtil.equals(actualPattern, expected),
+            pass: (jasmine.matchersUtil ?? this).equals(actualPattern, expected),
             message: `Expected \`${JSON.stringify(actualPattern)}\` to match to the \`${JSON.stringify(expected)}\`
  cell range pattern.`,
+          };
+        }
+      };
+    },
+    toBeVisible() {
+      return {
+        compare(actual) {
+          const style = window.getComputedStyle(actual);
+          const pass = style.visibility !== 'hidden' && style.display !== 'none';
+
+          return {
+            pass,
+            message: 'Expected the element to be visible'
           };
         }
       };
@@ -183,7 +202,7 @@ beforeEach(function() {
  and ${expected + margin})`;
 
           if (!pass) {
-            message = `Expected ${actual} NOT to be around ${expected} (between ${expected - margin}
+            message = `Expected ${actual} to be around ${expected} (between ${expected - margin}
  and ${expected + margin})`;
           }
 
@@ -238,12 +257,16 @@ beforeEach(function() {
     toBeVisibleInViewport() {
       return {
         compare(actual) {
-          const viewport = hot().view._wt.wtTable.holder;
-          const verticalPosition = actual.offsetTop - viewport.scrollTop + scrollbarWidth + actual.clientHeight;
-          const horizontalPosition = actual.offsetLeft - viewport.scrollLeft + scrollbarWidth + actual.clientWidth;
+          let pass = false;
 
-          const pass = verticalPosition < viewport.offsetHeight && verticalPosition > 0
-            && horizontalPosition < viewport.offsetWidth && horizontalPosition > 0;
+          if (actual) {
+            const viewport = hot().view._wt.wtTable.holder;
+            const verticalPosition = actual.offsetTop - viewport.scrollTop + scrollbarWidth + actual.clientHeight;
+            const horizontalPosition = actual.offsetLeft - viewport.scrollLeft + scrollbarWidth + actual.clientWidth;
+
+            pass = verticalPosition < viewport.offsetHeight && verticalPosition > 0
+              && horizontalPosition < viewport.offsetWidth && horizontalPosition > 0;
+          }
 
           return {
             pass,
@@ -260,11 +283,17 @@ beforeEach(function() {
     toBeVisibleAtTopOfViewport() {
       return {
         compare(actual) {
-          const viewport = hot().view._wt.wtTable.holder;
-          const verticalPosition = actual.offsetTop - viewport.scrollTop - 1;
+          let pass = false;
+
+          if (actual) {
+            const viewport = hot().view._wt.wtTable.holder;
+            const verticalPosition = actual.offsetTop - viewport.scrollTop - 1;
+
+            pass = verticalPosition === 0;
+          }
 
           return {
-            pass: verticalPosition === 0,
+            pass,
             message: 'Expected the element to be scrolled to the top of the Handsontable viewport'
           };
         }
@@ -278,11 +307,17 @@ beforeEach(function() {
     toBeVisibleAtBottomOfViewport() {
       return {
         compare(actual) {
-          const viewport = hot().view._wt.wtTable.holder;
-          const verticalPosition = actual.offsetTop - viewport.scrollTop + scrollbarWidth + actual.clientHeight + 1;
+          let pass = false;
+
+          if (actual) {
+            const viewport = hot().view._wt.wtTable.holder;
+            const verticalPosition = actual.offsetTop - viewport.scrollTop + scrollbarWidth + actual.clientHeight + 1;
+
+            pass = verticalPosition === viewport.offsetHeight;
+          }
 
           return {
-            pass: verticalPosition === viewport.offsetHeight,
+            pass,
             message: 'Expected the element to be scrolled to the bottom of the Handsontable viewport'
           };
         }
@@ -296,10 +331,16 @@ beforeEach(function() {
     toBeVisibleAtLeftOfViewport() {
       return {
         compare(actual) {
-          const viewport = hot().view._wt.wtTable.holder;
+          let pass = false;
+
+          if (actual) {
+            const viewport = hot().view._wt.wtTable.holder;
+
+            pass = viewport.getBoundingClientRect().x === actual.getBoundingClientRect().x;
+          }
 
           return {
-            pass: viewport.getBoundingClientRect().x === actual.getBoundingClientRect().x,
+            pass,
             message: 'Expected the element to be scrolled to the left of the Handsontable viewport'
           };
         }
@@ -330,7 +371,7 @@ beforeEach(function() {
       return {
         compare(checkedArray, conditionFunction) {
           if (typeof conditionFunction !== 'function') {
-            throw Error('Parameter passed to `toBeListFulfillingCondition` should be a function.');
+            throw new Error('Parameter passed to `toBeListFulfillingCondition` should be a function.');
           }
 
           const isListWithValues = Array.isArray(checkedArray) || checkedArray.length > 0;
@@ -400,6 +441,8 @@ list: ${redColor}${checkedArray.join(', ')}${resetColor} doesn't satisfy the con
      * 'A' - The letters (from A to H) indicates the position of the cell which contains the hidden editor
      *       (which `current` class name). The letter `A` indicates the currently selected cell with
      *       a background of the first layer and `H` as the latest layer (most dark).
+     * 'r' - The hash symbol indicates the row selection;
+     * 'c' - The hash symbol indicates the column selection;
      * '#' - The hash symbol indicates the currently selected cell without changed background color.
      *
      * The meaning of the symbol used to describe headers:
@@ -413,12 +456,13 @@ list: ${redColor}${checkedArray.join(', ')}${resetColor} doesn't satisfy the con
      * '|'   - The symbol which indicates the left overlay edge.
      * '---' - The symbol which indicates the top overlay edge.
      *
+     * @param {Handsontable} hotInstance The Handsontable instance.
      * @returns {object}
      */
-    toBeMatchToSelectionPattern() {
+    toBeMatchToSelectionPattern(hotInstance = hot()) {
       return {
         compare(actualPattern) {
-          const asciiTable = generateASCIITable(hot().rootElement);
+          const asciiTable = generateASCIITable(hotInstance.rootElement);
 
           const patternParts = (actualPattern || '').split(/\n/);
           const redundantPadding = patternParts.reduce((padding, line) => {
@@ -456,6 +500,39 @@ match to the visual state of the rendered selection \n${asciiTable}\n`;
           };
         }
       };
+    },
+    toThrowWithCause(/* received, expectedMessage, expectedCause */) {
+      return { compare: (received, expectedMessage, expectedCause) => {
+
+        try {
+          received();
+
+          return {
+            pass: false,
+            message: () => 'Expected function to throw',
+          };
+        } catch (error) {
+        // In this method you only can compare strings and objects or regular expressions
+          const messageMatches = expectedMessage === undefined || error.message === expectedMessage;
+          const causeMatches = JSON.stringify(error.cause) === JSON.stringify(expectedCause);
+
+          const messages = [];
+
+          if (!messageMatches) {
+            messages.push(`Expected error with message "${expectedMessage}" but got message "${error.message}"`);
+          }
+
+          if (!causeMatches) {
+            // eslint-disable-next-line max-len
+            messages.push(`Expected error with cause ${JSON.stringify(expectedCause)} but got cause ${JSON.stringify(error.cause)}`);
+          }
+
+          return {
+            pass: messageMatches && causeMatches,
+            message: messages.join('\n')
+          };
+        }
+      } };
     },
   };
 

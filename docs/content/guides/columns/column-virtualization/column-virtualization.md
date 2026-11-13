@@ -1,0 +1,123 @@
+---
+type: explanation
+title: Column virtualization
+metaTitle: Column virtualization | Handsontable DataGrid for JavaScript
+description: Render hundreds of columns without freezing the browser, using column virtualization.
+permalink: /column-virtualization
+canonicalUrl: /column-virtualization
+tags:
+  - dom
+  - render all columns
+  - offset
+react:
+  metaTitle: Column virtualization | Handsontable DataGrid for React
+angular:
+  metaTitle: Column virtualization | Handsontable DataGrid for Angular
+vue:
+  metaTitle: Column virtualization | Handsontable DataGrid for Vue
+searchCategory: Guides
+category: Columns
+---
+Render hundreds of columns without freezing the browser, using column virtualization.
+
+[[toc]]
+
+## Overview
+
+To process a large number of columns in a browser Handsontable DataGrid utilizes the virtualization process to display only the visible part of the grid with a small
+offset for a better scrolling experience.
+
+This feature is enabled by default and can be turned off by setting the [`renderAllColumns`](@/api/options.md#renderallcolumns) option to `true`.
+
+## Configure the column virtualization
+
+You can experiment with the [`viewportColumnRenderingOffset`](@/api/options.md#viewportcolumnrenderingoffset) config option, which determines the number of
+columns being displayed outside the visible viewport. If the number passed to that option is greater than the total columns in your data set, the virtualization
+will be practically turned off.
+
+To make the grid scrollable, set the constant width and height to same as the container holding Handsontable and height and set the `overflow` property to
+`hidden` in the container's stylesheet. If the table contains enough rows or columns, it will be scrollable.
+
+The scrolling performance depends mainly on four factors:
+
+- Number of cells - number of rows multiplied by the number of columns
+- Amount and complexity of custom renderers in cells
+- Number of options enabled in the configuration
+- Performance of your setup - physical machine and browser
+
+The demo below presents a data grid displaying one million cells (1000 rows x 1000 columns).
+
+::: only-for javascript
+
+::: example #example1 --js 1 --ts 2
+
+@[code](@/content/guides/columns/column-virtualization/javascript/example1.js)
+@[code](@/content/guides/columns/column-virtualization/javascript/example1.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example1 :react --js 1 --ts 2
+
+@[code](@/content/guides/columns/column-virtualization/react/example1.jsx)
+@[code](@/content/guides/columns/column-virtualization/react/example1.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example1 :angular --ts 1 --html 2
+
+@[code](@/content/guides/columns/column-virtualization/angular/example1.ts)
+@[code](@/content/guides/columns/column-virtualization/angular/example1.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example1 :vue3
+
+@[code](@/content/guides/columns/column-virtualization/vue/example1.vue)
+
+:::
+
+:::
+
+## Horizontal scrolling
+
+Hold <kbd>Shift</kbd> and scroll the mouse wheel to scroll the grid horizontally. No configuration is required.
+
+## Known limitations
+
+Using column virtualization has the following side effects:
+
+- The browser's native search will work only for the visible part of the grid.
+- Screen readers may announce the wrong total number of columns. Read more in the
+  [Accessibility](@/guides/accessibility/accessibility/accessibility.md#disabling-dom-virtualization-for-improved-accessibility) guide.
+
+## Related articles
+
+**Related guides**
+
+<div class="boxes-list">
+
+- [Row virtualization](@/guides/rows/row-virtualization/row-virtualization.md)
+- [Performance](@/guides/optimization/performance/performance.md)
+
+</div>
+
+**Configuration options**
+
+<div class="boxes-list">
+
+- [viewportColumnRenderingOffset](@/api/options.md#viewportcolumnrenderingoffset)
+- [renderAllColumns](@/api/options.md#renderallcolumns)
+
+</div>

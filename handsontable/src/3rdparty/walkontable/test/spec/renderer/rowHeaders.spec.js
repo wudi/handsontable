@@ -1,7 +1,20 @@
 describe('Walkontable.Renderer.RowHeadersRenderer', () => {
   class TableRendererMock {
+    shouldPaintCell() {
+      return true;
+    }
+
+    isRowRecyclingAllowed() {
+      return false;
+    }
+
+    hasStableCellIdentity() {
+      return false;
+    }
+
     constructor() {
       this.rootDocument = document;
+      this.paintFromRow = 0;
     }
     renderedRowToSource(visibleRowIndex) {
       return visibleRowIndex;
@@ -12,6 +25,18 @@ describe('Walkontable.Renderer.RowHeadersRenderer', () => {
 
     isAriaEnabled() {
       return true;
+    }
+
+    hasColumnHeaders() {
+      return false;
+    }
+
+    ownsAriaColumnHeaderId() {
+      return false;
+    }
+
+    getAriaColumnHeaderIdPrefix() {
+      return '';
     }
   }
 
@@ -32,25 +57,12 @@ describe('Walkontable.Renderer.RowHeadersRenderer', () => {
     return { rowHeadersRenderer, rowsRenderer, cellsRenderer, tableMock, rootNode };
   }
 
-  beforeEach(function() {
-    // Matchers configuration.
-    this.matchersConfig = {
-      toMatchHTML: {
-        keepAttributes: ['class']
-      }
-    };
-  });
-
-  it('should not generate any row headers', () => {
+  it('should not generate any row headers', async() => {
     const { rowHeadersRenderer, rowsRenderer, cellsRenderer, tableMock, rootNode } = createRenderer();
 
     tableMock.rowsToRender = 5;
     tableMock.columnsToRender = 0;
     tableMock.rowHeadersCount = 0;
-
-    rowsRenderer.adjust();
-    rowHeadersRenderer.adjust();
-    cellsRenderer.adjust();
 
     rowsRenderer.render();
     rowHeadersRenderer.render();
@@ -67,7 +79,7 @@ describe('Walkontable.Renderer.RowHeadersRenderer', () => {
       `);
   });
 
-  it('should generate row headers before cells', () => {
+  it('should generate row headers before cells', async() => {
     const { rowHeadersRenderer, rowsRenderer, cellsRenderer, tableMock, rootNode } = createRenderer();
 
     const headerRenderer1 = jasmine.createSpy();
@@ -80,10 +92,6 @@ describe('Walkontable.Renderer.RowHeadersRenderer', () => {
     tableMock.rowHeaderFunctions = [headerRenderer1, headerRenderer2];
     tableMock.cellRenderer = cellRenderer;
 
-    rowsRenderer.adjust();
-    rowHeadersRenderer.adjust();
-    cellsRenderer.adjust();
-
     rowsRenderer.render();
     rowHeadersRenderer.render();
     cellsRenderer.render();
@@ -91,14 +99,14 @@ describe('Walkontable.Renderer.RowHeadersRenderer', () => {
     expect(rootNode.outerHTML).toMatchHTML(`
       <tbody>
         <tr>
-          <th class=""></th>
-          <td class=""></td>
-          <td class=""></td>
+          <th></th>
+          <td></td>
+          <td></td>
         </tr>
         <tr>
-          <th class=""></th>
-          <td class=""></td>
-          <td class=""></td>
+          <th></th>
+          <td></td>
+          <td></td>
         </tr>
       </tbody>
       `);
@@ -107,7 +115,7 @@ describe('Walkontable.Renderer.RowHeadersRenderer', () => {
     expect(headerRenderer2).not.toHaveBeenCalled();
   });
 
-  it('should generate row headers before cells after rendering the renderers from 0 to N cells', () => {
+  it('should generate row headers before cells after rendering the renderers from 0 to N cells', async() => {
     const { rowHeadersRenderer, rowsRenderer, cellsRenderer, tableMock, rootNode } = createRenderer();
 
     const cellRenderer = jasmine.createSpy();
@@ -117,10 +125,6 @@ describe('Walkontable.Renderer.RowHeadersRenderer', () => {
     tableMock.rowHeadersCount = 0;
     tableMock.rowHeaderFunctions = [];
     tableMock.cellRenderer = cellRenderer;
-
-    rowsRenderer.adjust();
-    rowHeadersRenderer.adjust();
-    cellsRenderer.adjust();
 
     rowsRenderer.render();
     rowHeadersRenderer.render();
@@ -139,10 +143,6 @@ describe('Walkontable.Renderer.RowHeadersRenderer', () => {
     tableMock.rowHeadersCount = 1;
     tableMock.rowHeaderFunctions = [headerRenderer1];
 
-    rowsRenderer.adjust();
-    rowHeadersRenderer.adjust();
-    cellsRenderer.adjust();
-
     rowsRenderer.render();
     rowHeadersRenderer.render();
     cellsRenderer.render();
@@ -150,20 +150,20 @@ describe('Walkontable.Renderer.RowHeadersRenderer', () => {
     expect(rootNode.outerHTML).toMatchHTML(`
       <tbody>
         <tr>
-          <th class=""></th>
-          <td class=""></td>
-          <td class=""></td>
+          <th></th>
+          <td></td>
+          <td></td>
         </tr>
         <tr>
-          <th class=""></th>
-          <td class=""></td>
-          <td class=""></td>
+          <th></th>
+          <td></td>
+          <td></td>
         </tr>
       </tbody>
       `);
   });
 
-  it('should reuse row header elements after next render call', () => {
+  it('should reuse row header elements after next render call', async() => {
     const { rowHeadersRenderer, rowsRenderer, cellsRenderer, tableMock, rootNode } = createRenderer();
 
     const cellRenderer = jasmine.createSpy();
@@ -177,9 +177,48 @@ describe('Walkontable.Renderer.RowHeadersRenderer', () => {
     tableMock.cellRenderer = cellRenderer;
     tableMock.rowHeaderFunctions = [headerRenderer1, headerRenderer2];
 
-    rowsRenderer.adjust();
-    rowHeadersRenderer.adjust();
-    cellsRenderer.adjust();
+    rowsRenderer.render();
+    rowHeadersRenderer.render();
+    cellsRenderer.render();
+
+    expect(rootNode.outerHTML).toMatchHTML(`
+      <tbody>
+        <tr>
+          <th></th>
+          <td></td>
+          <td></td>
+        </tr>
+        <tr>
+          <th></th>
+          <td></td>
+          <td></td>
+        </tr>
+      </tbody>
+      `);
+
+    const TR1 = rowsRenderer.getRenderedNode(0);
+    const TR2 = rowsRenderer.getRenderedNode(1);
+
+    rowsRenderer.render();
+    rowHeadersRenderer.render();
+    cellsRenderer.render();
+
+    expect(rootNode.childNodes[0].childNodes[0]).toBe(TR1.childNodes[0]);
+    expect(rootNode.childNodes[1].childNodes[0]).toBe(TR2.childNodes[0]);
+  });
+
+  it('should render multi-level row headers in the correct order', async() => {
+    const { rowHeadersRenderer, rowsRenderer, cellsRenderer, tableMock, rootNode } = createRenderer();
+
+    const headerRenderer1 = (_, TH) => { TH.innerHTML = 'HeaderOne'; };
+    const headerRenderer2 = (_, TH) => { TH.innerHTML = 'HeaderTwo'; };
+    const cellRenderer = () => {};
+
+    tableMock.rowsToRender = 2;
+    tableMock.columnsToRender = 2;
+    tableMock.rowHeadersCount = 2;
+    tableMock.rowHeaderFunctions = [headerRenderer1, headerRenderer2];
+    tableMock.cellRenderer = cellRenderer;
 
     rowsRenderer.render();
     rowHeadersRenderer.render();
@@ -188,30 +227,63 @@ describe('Walkontable.Renderer.RowHeadersRenderer', () => {
     expect(rootNode.outerHTML).toMatchHTML(`
       <tbody>
         <tr>
-          <th class=""></th>
-          <td class=""></td>
-          <td class=""></td>
+          <th>HeaderOne</th>
+          <th>HeaderTwo</th>
+          <td></td>
+          <td></td>
         </tr>
         <tr>
-          <th class=""></th>
-          <td class=""></td>
-          <td class=""></td>
+          <th>HeaderOne</th>
+          <th>HeaderTwo</th>
+          <td></td>
+          <td></td>
         </tr>
       </tbody>
       `);
+  });
 
-    const TR1 = rowsRenderer.getRenderedNode(0);
-    const TR2 = rowsRenderer.getRenderedNode(1);
+  describe('paint window (`paintFromRow`)', () => {
+    it('should repaint only the row headers at and after `paintFromRow`', async() => {
+      const { rowHeadersRenderer, rowsRenderer, cellsRenderer, tableMock, rootNode } = createRenderer();
 
-    rowsRenderer.adjust();
-    rowHeadersRenderer.adjust();
-    cellsRenderer.adjust();
+      const headerRenderer = jasmine.createSpy().and.callFake((row, TH) => {
+        TH.innerHTML = `${tableMock.pass}:${row}`;
+      });
 
-    rowsRenderer.render();
-    rowHeadersRenderer.render();
-    cellsRenderer.render();
+      tableMock.pass = 'a';
+      tableMock.rowsToRender = 2;
+      tableMock.columnsToRender = 1;
+      tableMock.rowHeadersCount = 1;
+      tableMock.rowHeaderFunctions = [headerRenderer];
+      tableMock.cellRenderer = () => {};
 
-    expect(rootNode.childNodes[0].childNodes[0]).toBe(TR1.childNodes[0]);
-    expect(rootNode.childNodes[1].childNodes[0]).toBe(TR2.childNodes[0]);
+      rowsRenderer.render();
+      rowHeadersRenderer.render();
+      cellsRenderer.render();
+
+      // Row headers and cells share one order view per TR, so a skipped row is skipped by BOTH
+      // renderers - the TH count of an untouched row must not drift.
+      const untouchedTH = rootNode.querySelector('tr:nth-child(1) th');
+
+      untouchedTH.className = 'kept';
+
+      headerRenderer.calls.reset();
+      tableMock.pass = 'b';
+      tableMock.rowsToRender = 3;
+      tableMock.paintFromRow = 2;
+
+      rowsRenderer.render();
+      rowHeadersRenderer.render();
+      cellsRenderer.render();
+
+      expect(headerRenderer).toHaveBeenCalledTimes(1);
+      expect(headerRenderer.calls.argsFor(0)[0]).toBe(2);
+      expect(rootNode.querySelectorAll('tr:nth-child(1) th').length).toBe(1);
+      expect(rootNode.querySelectorAll('tr:nth-child(1) td').length).toBe(1);
+      expect(untouchedTH.className).toBe('kept');
+      expect(untouchedTH.innerHTML).toBe('a:0');
+      expect(rootNode.querySelector('tr:nth-child(2) th').innerHTML).toBe('a:1');
+      expect(rootNode.querySelector('tr:nth-child(3) th').innerHTML).toBe('b:2');
+    });
   });
 });

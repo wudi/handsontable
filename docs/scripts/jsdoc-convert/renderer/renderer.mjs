@@ -1,0 +1,68 @@
+import fs from 'fs';
+import { buildPreProcessor } from './preProcessor.mjs';
+import { sortJsdocMembers } from './preProcessors/sortJsdocMembers.mjs';
+import { applyLinkToSource } from './preProcessors/applyLinkToSource.mjs';
+import { applyOptionsToPlugins } from './preProcessors/applyOptionsToPlugins.mjs';
+import { clearMemberofIfClass } from './postProcessors/clearMemberofIfClass.mjs';
+import { applyOwnerIfDoesntExists } from './postProcessors/applyOwnerIfDoesntExists.mjs';
+import { buildPostProcessor } from './postProcessor.mjs';
+import { outputCleaners } from './postProcessors/outputCleaners.mjs';
+import { buildTypesLinkingFixers } from './postProcessors/typesLinkingFixers.mjs';
+import { unescapeRedundant } from './postProcessors/unescapeRedundant.mjs';
+import { jsdocLinksFixer } from './postProcessors/jsdocLinksFixer.mjs';
+import { isJsdocPlugin } from './predictors.mjs';
+import { buildHeaderWriter } from './seo.mjs';
+import { buildGuideLinkLine } from '../apiGuideLinks.mjs';
+import { removeInternals } from './preProcessors/removeInternals.mjs';
+import { applyConfigScope } from './preProcessors/applyConfigScope.mjs';
+import { jsdocReturnsLinksFixer } from './postProcessors/jsdocReturnsLinksFixer.mjs';
+
+export const buildRenderer = ({ dist, generateMarkdown, configuration, logger }) =>
+  (fileName, members, parsedTypes) => {
+    const header = buildHeaderWriter(configuration);
+
+    const write = (file, output) => {
+      if (output.trimRight().endsWith('[[toc]]')) {
+        logger.info(`Empty output detected, file omitted: ${file}`);
+
+        return;
+      }
+
+      const match = file.match(/(.*\/)/);
+      const dir = match && match[1];
+
+      if (dir && !fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      fs.writeFileSync(file, output);
+    };
+
+    const preProcessor = buildPreProcessor([
+      removeInternals,
+      applyConfigScope,
+      sortJsdocMembers,
+      applyLinkToSource,
+      ...applyOptionsToPlugins,
+      clearMemberofIfClass,
+      applyOwnerIfDoesntExists
+    ]);
+
+    const postProcessor = buildPostProcessor([
+      ...outputCleaners,
+      ...buildTypesLinkingFixers({ parsedTypes }),
+      unescapeRedundant,
+      jsdocLinksFixer,
+      jsdocReturnsLinksFixer,
+    ]);
+
+    const jsdocData = preProcessor(members);
+    const body = postProcessor(generateMarkdown(jsdocData));
+    // The line is skipped for an empty page, so `write()` still detects and omits it.
+    const guideLink = body.trim() ? buildGuideLinkLine(fileName) : '';
+
+    return write(
+      dist(fileName),
+      header(fileName, isJsdocPlugin(jsdocData)) + (guideLink ? `\n${guideLink}\n\n` : '') + body
+    );
+  };

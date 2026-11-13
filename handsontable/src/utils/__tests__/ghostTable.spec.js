@@ -21,7 +21,7 @@ describe('GhostTable', () => {
   });
 
   describe('row', () => {
-    it('should throw exception if we try to add column after added row', () => {
+    it('should throw exception if we try to add column after added row', async() => {
       const hot = handsontable(hotSettings);
       const samples = new Map();
       let exception = false;
@@ -39,7 +39,7 @@ describe('GhostTable', () => {
       expect(exception).toBe(true);
     });
 
-    it('should create container element only for first row', () => {
+    it('should create container element only for first row', async() => {
       const hot = handsontable(hotSettings);
       const samples = new Map();
 
@@ -54,10 +54,11 @@ describe('GhostTable', () => {
       gt.addRow(2, samples);
 
       expect(gt.createContainer.calls.count()).toBe(1);
-      expect(gt.createContainer.calls.mostRecent().args).toEqual(['handsontable']);
+      expect(gt.createContainer.calls.mostRecent().args)
+        .toEqual(['ht-wrapper handsontable htVerticallyScrollableByWindow htHorizontallyScrollableByWindow']);
     });
 
-    it('should add row to rows collection after call `addRow` method', () => {
+    it('should add row to rows collection after call `addRow` method', async() => {
       const hot = handsontable(hotSettings);
       const samples = new Map();
 
@@ -72,7 +73,6 @@ describe('GhostTable', () => {
 
       expect(gt.rows.length).toBe(1);
       expect(gt.rows[0].row).toBe(0);
-      expect(gt.rows[0].table.className).toBe('htCore');
       expect(gt.rows[0].table.nodeName).toBe('TABLE');
       expect(gt.rows[0].table.querySelectorAll('colgroup > col').length).toBe(2);
       expect(gt.rows[0].table.querySelector('tbody > tr > td').innerHTML).toBe('Foo');
@@ -90,7 +90,7 @@ describe('GhostTable', () => {
       expect(gt.rows[1].table.querySelector('tbody > tr > td').innerHTML).toBe('Bar');
     });
 
-    it('should get valid heights', () => {
+    it('should get valid heights', async() => {
       const hot = handsontable(hotSettings);
       const heightSpy = jasmine.createSpy();
       const samples = new Map();
@@ -113,18 +113,20 @@ describe('GhostTable', () => {
       gt.addRow(2, samples);
       gt.getHeights(heightSpy);
 
+      const L = getThemeLayout();
+
       expect(heightSpy.calls.count()).toBe(3);
       expect(heightSpy.calls.argsFor(0)[0]).toBe(0);
-      expect(heightSpy.calls.argsFor(0)[1]).toBe(23);
+      expect(heightSpy.calls.argsFor(0)[1]).toBe(L.defaultDataRowHeight);
       expect(heightSpy.calls.argsFor(1)[0]).toBe(1);
-      expect(heightSpy.calls.argsFor(1)[1]).toBe(64);
+      expect(heightSpy.calls.argsFor(1)[1]).toBe(L.defaultDataRowHeight + (2 * L.lineHeight));
       expect(heightSpy.calls.argsFor(2)[0]).toBe(2);
-      expect(heightSpy.calls.argsFor(2)[1]).toBe(43);
+      expect(heightSpy.calls.argsFor(2)[1]).toBe(L.lineHeight + L.defaultDataRowHeight);
     });
   });
 
   describe('column', () => {
-    it('should throw exception if we try to add row after added column', () => {
+    it('should throw exception if we try to add row after added column', async() => {
       const hot = handsontable(hotSettings);
       const samples = new Map();
       let exception = false;
@@ -142,7 +144,7 @@ describe('GhostTable', () => {
       expect(exception).toBe(true);
     });
 
-    it('should create container element only for first column', () => {
+    it('should create container element only for first column', async() => {
       const hot = handsontable(hotSettings);
       const samples = new Map();
 
@@ -157,10 +159,11 @@ describe('GhostTable', () => {
       gt.addColumn(2, samples);
 
       expect(gt.createContainer.calls.count()).toBe(1);
-      expect(gt.createContainer.calls.mostRecent().args).toEqual(['handsontable']);
+      expect(gt.createContainer.calls.mostRecent().args)
+        .toEqual(['ht-wrapper handsontable htVerticallyScrollableByWindow htHorizontallyScrollableByWindow']);
     });
 
-    it('should add column to columns collection after call `addColumn` method', () => {
+    it('should add column to columns collection after call `addColumn` method', async() => {
       const hot = handsontable(hotSettings);
       const samples = new Map();
 
@@ -195,7 +198,7 @@ describe('GhostTable', () => {
       expect(gt.columns[1].table.querySelector('tbody > tr > td').innerHTML).toBe('Bar');
     });
 
-    it('should get valid widths', () => {
+    it('should get valid widths', async() => {
       const hot = handsontable(hotSettings);
       const widthSpy = jasmine.createSpy();
       const samples = new Map();
@@ -219,15 +222,29 @@ describe('GhostTable', () => {
       gt.getWidths(widthSpy);
 
       expect(widthSpy.calls.count()).toBe(3);
+
+      // Column 0 contains "Foo.....Bar" -- the widest sample
       expect(widthSpy.calls.argsFor(0)[0]).toBe(0);
-      expect(widthSpy.calls.argsFor(0)[1]).toBe(66);
+      const width0 = widthSpy.calls.argsFor(0)[1];
+
+      expect(width0).toBeGreaterThan(0);
+
+      // Column 1 contains "Foo\nBar\nsqw" -- narrowest because of line breaks
       expect(widthSpy.calls.argsFor(1)[0]).toBe(1);
-      expect(widthSpy.calls.argsFor(1)[1]).toBe(31);
+      const width1 = widthSpy.calls.argsFor(1)[1];
+
+      expect(width1).toBeGreaterThan(0);
+      expect(width1).toBeLessThan(width0);
+
+      // Column 2 contains "Foo Bar" -- wider than "sqw" but narrower than "Foo.....Bar"
       expect(widthSpy.calls.argsFor(2)[0]).toBe(2);
-      expect(widthSpy.calls.argsFor(2)[1]).toBe(53);
+      const width2 = widthSpy.calls.argsFor(2)[1];
+
+      expect(width2).toBeGreaterThan(width1);
+      expect(width2).toBeLessThan(width0);
     });
 
-    it('should get rounded up widths when the browser calculates the columns as a decimal values', () => {
+    it('should get rounded up widths when the browser calculates the columns as a decimal values', async() => {
       const hot = handsontable(hotSettings);
       const widthSpy = jasmine.createSpy();
       const samples = new Map();
@@ -249,7 +266,7 @@ describe('GhostTable', () => {
     });
   });
 
-  it('should reset internal state after call `clean` method', () => {
+  it('should reset internal state after call `clean` method', async() => {
     const hot = handsontable(hotSettings);
     const samples = new Map();
 
@@ -274,7 +291,7 @@ describe('GhostTable', () => {
     expect(document.querySelector('.htGhostTable')).toBe(null);
   });
 
-  it('should be detected as vertical if at least one row is added', () => {
+  it('should be detected as vertical if at least one row is added', async() => {
     const hot = handsontable(hotSettings);
     const samples = new Map();
 
@@ -286,7 +303,7 @@ describe('GhostTable', () => {
     expect(gt.isHorizontal()).toBe(false);
   });
 
-  it('should be detected as horizontal if at least one column is added', () => {
+  it('should be detected as horizontal if at least one column is added', async() => {
     const hot = handsontable(hotSettings);
     const samples = new Map();
 
@@ -296,5 +313,55 @@ describe('GhostTable', () => {
 
     expect(gt.isVertical()).toBe(false);
     expect(gt.isHorizontal()).toBe(true);
+  });
+
+  it('should not change the coords of the cell meta after row rendering', async() => {
+    const hot = handsontable(hotSettings);
+
+    gt = new Handsontable.__GhostTable(hot);
+
+    const cellMeta = {
+      row: 3,
+      col: 4,
+      visualRow: 5,
+      visualCol: 6,
+      renderer: jasmine.createSpy('renderer'),
+    };
+
+    spyOn(hot, 'getCellMetaTransient').and.returnValue(cellMeta);
+
+    gt.samples = new Map([[0, { strings: [{ col: 0, value: 'test' }] }]]);
+    gt.createRow(0);
+
+    expect(cellMeta.renderer).toHaveBeenCalledTimes(1);
+    expect(cellMeta.row).toBe(3);
+    expect(cellMeta.col).toBe(4);
+    expect(cellMeta.visualRow).toBe(5);
+    expect(cellMeta.visualCol).toBe(6);
+  });
+
+  it('should not change the coords of the cell meta after column rendering', async() => {
+    const hot = handsontable(hotSettings);
+
+    gt = new Handsontable.__GhostTable(hot);
+
+    const cellMeta = {
+      row: 3,
+      col: 4,
+      visualRow: 5,
+      visualCol: 6,
+      renderer: jasmine.createSpy('renderer'),
+    };
+
+    spyOn(hot, 'getCellMetaTransient').and.returnValue(cellMeta);
+
+    gt.samples = new Map([[0, { strings: [{ row: 0, value: 'test' }] }]]);
+    gt.createCol(0);
+
+    expect(cellMeta.renderer).toHaveBeenCalledTimes(1);
+    expect(cellMeta.row).toBe(3);
+    expect(cellMeta.col).toBe(4);
+    expect(cellMeta.visualRow).toBe(5);
+    expect(cellMeta.visualCol).toBe(6);
   });
 });

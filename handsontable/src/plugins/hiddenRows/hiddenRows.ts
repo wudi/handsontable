@@ -1,0 +1,749 @@
+import { BasePlugin } from '../base';
+import { addClass, normalizeClassNames } from '../../helpers/dom/element';
+import { rangeEach } from '../../helpers/number';
+import { arrayEach, arrayMap, arrayReduce } from '../../helpers/array';
+import { registerMenuEntries } from '../../utils/menu/menuEntries';
+import { Hooks } from '../../core/hooks';
+import { createTrackedIconSync } from '../../themes/engine/icons';
+import hideRowItem from './contextMenuItem/hideRow';
+import showRowItem from './contextMenuItem/showRow';
+import type { HidingMap } from '../../translations';
+import type { CellProperties } from '../../settings';
+import { LICENSE } from './feature.generated';
+
+Hooks.getSingleton().register('beforeHideRows');
+Hooks.getSingleton().register('afterHideRows');
+Hooks.getSingleton().register('beforeUnhideRows');
+Hooks.getSingleton().register('afterUnhideRows');
+
+export const PLUGIN_KEY = 'hiddenRows';
+export const PLUGIN_PRIORITY = 320;
+
+const SKIP_ROW_ON_PASTE_BY_PLUGIN = Symbol('skipRowOnPasteByHiddenRows');
+
+/**
+ * The `syncIcon()` slot class for the caret shown on the header that FOLLOWS a hidden row
+ * (`afterHiddenRow`, glyph pointing down - toward the hidden neighbor).
+ */
+const HIDDEN_INDICATOR_START_SLOT_CLASS = 'ht-hidden-indicator-start';
+
+/**
+ * The `syncIcon()` slot class for the caret shown on the header that PRECEDES a hidden row
+ * (`beforeHiddenRow`, glyph pointing up - toward the hidden neighbor). A header can carry
+ * both slots at once when it has a hidden neighbor on each side.
+ */
+const HIDDEN_INDICATOR_END_SLOT_CLASS = 'ht-hidden-indicator-end';
+
+/**
+ * @plugin HiddenRows
+ * @class HiddenRows
+ *
+ * @description
+ * The `HiddenRows` plugin lets you [hide specified rows](@/guides/rows/row-hiding/row-hiding.md).
+ *
+ * "Hiding a row" means that the hidden row doesn't get rendered as a DOM element.
+ *
+ * The `HiddenRows` plugin doesn't modify the source data,
+ * and doesn't participate in data transformation
+ * (the shape of the data returned by the [`getData*()` methods](@/api/core.md#getdata) stays intact).
+ *
+ * You can set the following configuration options:
+ *
+ * | Option | Required | Type | Default | Description |
+ * |---|---|---|---|---|
+ * | `rows` | No | Array | - | [Hides specified rows by default](@/guides/rows/row-hiding/row-hiding.md#step-1-specify-rows-hidden-by-default) |
+ * | `indicators` | No | Boolean | `false` | [Shows UI indicators](@/guides/rows/row-hiding/row-hiding.md#step-2-show-ui-indicators) |
+ * | `copyPasteEnabled` | No | Boolean | `true` | [Sets up copy/paste behavior](@/guides/rows/row-hiding/row-hiding.md#step-4-set-up-copy-and-paste-behavior) |
+ *
+ * @example
+ *
+ * ::: only-for javascript
+ * ```js
+ * const container = document.getElementById('example');
+ * const hot = new Handsontable(container, {
+ *   data: getData(),
+ *   hiddenRows: {
+ *     copyPasteEnabled: true,
+ *     indicators: true,
+ *     rows: [1, 2, 5]
+ *   }
+ * });
+ *
+ * // access the `HiddenRows` plugin's instance
+ * const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
+ *
+ * // hide a single row
+ * hiddenRowsPlugin.hideRow(1);
+ *
+ * // hide multiple rows
+ * hiddenRowsPlugin.hideRow(1, 2, 9);
+ *
+ * // hide multiple rows as an array
+ * hiddenRowsPlugin.hideRows([1, 2, 9]);
+ *
+ * // unhide a single row
+ * hiddenRowsPlugin.showRow(1);
+ *
+ * // unhide multiple rows
+ * hiddenRowsPlugin.showRow(1, 2, 9);
+ *
+ * // unhide multiple rows as an array
+ * hiddenRowsPlugin.showRows([1, 2, 9]);
+ *
+ * // to see your changes, re-render your Handsontable instance
+ * hot.render();
+ * ```
+ * :::
+ *
+ * ::: only-for react
+ * ```jsx
+ * const hotRef = useRef(null);
+ *
+ * ...
+ *
+ * <HotTable
+ *   ref={hotRef}
+ *   data={getData()}
+ *   hiddenRows={{
+ *     copyPasteEnabled: true,
+ *     indicators: true,
+ *     rows: [1, 2, 5]
+ *   }}
+ * />
+ *
+ * // access the `HiddenRows` plugin's instance
+ * const hot = hotRef.current.hotInstance;
+ * const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
+ *
+ * // hide a single row
+ * hiddenRowsPlugin.hideRow(1);
+ *
+ * // hide multiple rows
+ * hiddenRowsPlugin.hideRow(1, 2, 9);
+ *
+ * // hide multiple rows as an array
+ * hiddenRowsPlugin.hideRows([1, 2, 9]);
+ *
+ * // unhide a single row
+ * hiddenRowsPlugin.showRow(1);
+ *
+ * // unhide multiple rows
+ * hiddenRowsPlugin.showRow(1, 2, 9);
+ *
+ * // unhide multiple rows as an array
+ * hiddenRowsPlugin.showRows([1, 2, 9]);
+ *
+ * // to see your changes, re-render your Handsontable instance
+ * hot.render();
+ * ```
+ * :::
+ *
+ * ::: only-for angular
+ * ```ts
+ * import { AfterViewInit, Component, ViewChild } from "@angular/core";
+ * import {
+ *   GridSettings,
+ *   HotTableModule,
+ *   HotTableComponent,
+ * } from "@handsontable/angular-wrapper";
+ *
+ * `@Component`({
+ *   selector: "app-example",
+ *   standalone: true,
+ *   imports: [HotTableModule],
+ *   template: ` <div>
+ *     <hot-table [settings]="gridSettings" />
+ *   </div>`,
+ * })
+ * export class ExampleComponent implements AfterViewInit {
+ *   `@ViewChild`(HotTableComponent, { static: false })
+ *   readonly hotTable!: HotTableComponent;
+ *
+ *   readonly gridSettings = <GridSettings>{
+ *     data: this.getData(),
+ *     hiddenRows: {
+ *       copyPasteEnabled: true,
+ *       indicators: true,
+ *       rows: [1, 2, 5],
+ *     },
+ *   };
+ *
+ *   ngAfterViewInit(): void {
+ *     // Access the `HiddenRows` plugin's instance
+ *     const hot = this.hotTable.hotInstance;
+ *     const hiddenRowsPlugin = hot.getPlugin("hiddenRows");
+ *
+ *     // Hide a single row
+ *     hiddenRowsPlugin.hideRow(1);
+ *
+ *     // Hide multiple rows
+ *     hiddenRowsPlugin.hideRow(1, 2, 9);
+ *
+ *     // Hide multiple rows as an array
+ *     hiddenRowsPlugin.hideRows([1, 2, 9]);
+ *
+ *     // Unhide a single row
+ *     hiddenRowsPlugin.showRow(1);
+ *
+ *     // Unhide multiple rows
+ *     hiddenRowsPlugin.showRow(1, 2, 9);
+ *
+ *     // Unhide multiple rows as an array
+ *     hiddenRowsPlugin.showRows([1, 2, 9]);
+ *
+ *     // To see your changes, re-render your Handsontable instance
+ *     hot.render();
+ *   }
+ *
+ *   private getData(): Array<*> {
+ *     // Get some data
+ *   }
+ * }
+ * ```
+ * :::
+ */
+export class HiddenRows extends BasePlugin {
+  /**
+   * Returns the plugin key used to identify this plugin in Handsontable settings.
+   */
+  static get PLUGIN_KEY() {
+    return PLUGIN_KEY;
+  }
+
+  /**
+   * Returns the priority order used to determine the order in which plugins are initialized.
+   */
+  static get PLUGIN_PRIORITY() {
+    return PLUGIN_PRIORITY;
+  }
+
+  /**
+   * Returns the license token of the plugin, its display name, where it is checked, and the tokens it
+   * requires.
+   */
+  static get LICENSE() {
+    return LICENSE;
+  }
+
+  /**
+   * Returns the default settings applied when the plugin is enabled without explicit configuration.
+   */
+  static get DEFAULT_SETTINGS() {
+    return {
+      copyPasteEnabled: true,
+      indicators: false,
+      rows: [] as number[],
+    };
+  }
+
+  /**
+   * Map of hidden rows by the plugin.
+   *
+   * @private
+   * @type {HidingMap|null}
+   */
+  #hiddenRowsMap: HidingMap | null = null;
+
+  /**
+   * `syncIcon()` for the carets, remembering which headers ever got one. The header hook clears
+   * both slots on every header it does not mark, which with `indicators` off (the default) is
+   * every header, so a header that never held a caret skips the subtree query.
+   *
+   * @type {Function}
+   */
+  #syncIcon = createTrackedIconSync();
+
+  /**
+   * Checks if the plugin is enabled in the handsontable settings. This method is executed in {@link Hooks#beforeInit}
+   * hook and if it returns `true` then the {@link HiddenRows#enablePlugin} method is called.
+   *
+   * @returns {boolean}
+   */
+  isEnabled(): boolean {
+    return !!this.hot.getSettings()[PLUGIN_KEY];
+  }
+
+  /**
+   * Enables the plugin functionality for this Handsontable instance.
+   */
+  enablePlugin() {
+    if (this.enabled) {
+      return;
+    }
+
+    this.#hiddenRowsMap = this.hot.rowIndexMapper.createAndRegisterIndexMap(this.pluginName!, 'hiding');
+    this.#hiddenRowsMap.addLocalHook('init', () => this.#onMapInit());
+
+    // `createAndRegisterIndexMap` initializes the map synchronously when the dataset is already
+    // loaded (a plugin re-enable), before the hook above could attach - replay the init handler.
+    if (this.hot.rowIndexMapper.getNumberOfIndexes() > 0) {
+      this.#onMapInit();
+    }
+
+    registerMenuEntries(this, () => [
+      hideRowItem(this as unknown as Record<string, Function>),
+      showRowItem(this as unknown as Record<string, Function>),
+    ], {
+      contextMenu: {},
+    });
+    this.addHook('afterGetCellMeta', this.#onAfterGetCellMeta);
+    this.addHook('modifyRowHeight', this.#onModifyRowHeight);
+    this.addHook('afterGetRowHeader', this.#onAfterGetRowHeader);
+    this.addHook('modifyCopyableRange', this.#onModifyCopyableRange);
+
+    super.enablePlugin();
+  }
+
+  /**
+   * Updates the plugin's state.
+   *
+   * This method is executed when [`updateSettings()`](@/api/core.md#updatesettings) is invoked with any of the following configuration options:
+   *  - [`hiddenRows`](@/api/options.md#hiddenrows)
+   */
+  updatePlugin() {
+    this.disablePlugin();
+    this.enablePlugin();
+
+    super.updatePlugin();
+  }
+
+  /**
+   * Disables the plugin functionality for this Handsontable instance.
+   */
+  disablePlugin() {
+    // `super.disablePlugin()` removes the tracked `#onAfterGetRowHeader` hook, so it never runs
+    // again to clear a previously-rendered caret. A one-shot hook does that on the
+    // very next render (`updateSettings`/`updatePlugin` always triggers one) and then removes
+    // itself - mirrors `columnSorting.ts`'s `disablePlugin()`.
+    const clearRowHeader = (row: number, TH: HTMLTableCellElement) => {
+      this.#syncIcon(this.hot, TH, HIDDEN_INDICATOR_START_SLOT_CLASS, null);
+      this.#syncIcon(this.hot, TH, HIDDEN_INDICATOR_END_SLOT_CLASS, null);
+    };
+
+    this.hot.addHook('afterGetRowHeader', clearRowHeader);
+    this.hot.addHookOnce('afterViewRender', () => {
+      this.hot.removeHook('afterGetRowHeader', clearRowHeader);
+    });
+
+    super.disablePlugin();
+
+    this.hot.rowIndexMapper.unregisterMap(this.pluginName!);
+    this.resetCellsMeta();
+  }
+
+  /**
+   * Shows the rows provided in the array.
+   *
+   * @param {number[]} rows Array of visual row indexes.
+   */
+  showRows(rows: number[]): void {
+    this.runOperation('unhide_rows', () => this.#showRows(rows));
+  }
+
+  /**
+   * The body of `showRows()`, run inside its operation.
+   *
+   * @param {number[]} rows Array of visual row indexes.
+   */
+  #showRows(rows: number[]): void {
+    const currentHideConfig = this.getHiddenRows();
+    const isValidConfig = this.isValidConfig(rows);
+    let destinationHideConfig = currentHideConfig;
+    const hidingMapValues = this.#hiddenRowsMap!.getValues().slice();
+    const isAnyRowShowed = rows.length > 0;
+
+    if (isValidConfig && isAnyRowShowed) {
+      const physicalRows = rows.map(visualRow => this.hot.toPhysicalRow(visualRow));
+
+      // Preparing new values for hiding map.
+      arrayEach(physicalRows, (physicalRow) => {
+        hidingMapValues[physicalRow as number] = false;
+      });
+
+      // Preparing new hiding config.
+      destinationHideConfig = arrayReduce(hidingMapValues, (hiddenIndexes, isHidden, physicalIndex) => {
+        if (isHidden) {
+          (hiddenIndexes as number[]).push(this.hot.toVisualRow(physicalIndex as number));
+        }
+
+        return hiddenIndexes;
+      }, []) as number[];
+    }
+
+    const continueHiding = this.hot
+      .runHooks('beforeUnhideRows', currentHideConfig, destinationHideConfig, isValidConfig && isAnyRowShowed);
+
+    if (continueHiding === false) {
+      return;
+    }
+
+    if (isValidConfig && isAnyRowShowed) {
+      this.#hiddenRowsMap!.setValues(hidingMapValues);
+    }
+
+    this.hot.runHooks('afterUnhideRows', currentHideConfig, destinationHideConfig, isValidConfig && isAnyRowShowed,
+      isValidConfig && destinationHideConfig.length < currentHideConfig.length);
+  }
+
+  /**
+   * Shows the row provided as row index (counting from 0).
+   *
+   * @param {...number} row Visual row index.
+   */
+  showRow(...row: number[]): void {
+    this.showRows(row);
+  }
+
+  /**
+   * Hides the rows provided in the array.
+   *
+   * @param {number[]} rows Array of visual row indexes.
+   */
+  hideRows(rows: number[]): void {
+    this.runOperation('hide_rows', () => this.#hideRows(rows));
+  }
+
+  /**
+   * The body of `hideRows()`, run inside its operation.
+   *
+   * @param {number[]} rows Array of visual row indexes.
+   */
+  #hideRows(rows: number[]): void {
+    const currentHideConfig = this.getHiddenRows();
+    const isConfigValid = this.isValidConfig(rows);
+    let destinationHideConfig = currentHideConfig;
+
+    if (isConfigValid) {
+      destinationHideConfig = Array.from(new Set(currentHideConfig.concat(rows)));
+    }
+
+    const continueHiding = this.hot.runHooks('beforeHideRows', currentHideConfig, destinationHideConfig, isConfigValid);
+
+    if (continueHiding === false) {
+      return;
+    }
+
+    if (isConfigValid) {
+      this.hot.batchExecution(() => {
+        arrayEach(rows, (visualRow) => {
+          this.#hiddenRowsMap!.setValueAtIndex(this.hot.toPhysicalRow(visualRow), true);
+        });
+      }, true);
+    }
+
+    this.hot.runHooks('afterHideRows', currentHideConfig, destinationHideConfig, isConfigValid,
+      isConfigValid && destinationHideConfig.length > currentHideConfig.length);
+  }
+
+  /**
+   * Replaces the hidden rows with a set of physical rows, in one step. {@link HiddenRows#showRows} and
+   * {@link HiddenRows#hideRows} take visual indexes, and a row that a filter, `TrimRows`, or a collapsed
+   * `NestedRows` parent trims has none, so neither can show or hide it. This method addresses rows
+   * physically, so it can. It runs the same hooks as the two public methods, with the visual rows among
+   * the ones it touches, and applies nothing when a `beforeUnhideRows` or `beforeHideRows` listener returns
+   * `false`. Indexes outside the data are ignored.
+   *
+   * @private
+   * @param {number[]} physicalRows The physical indexes of the rows to hide. Every other row is shown.
+   */
+  _replaceHiddenRows(physicalRows: number[]): void {
+    this.runOperation('hide_rows', () => this.#replaceHiddenRows(physicalRows));
+  }
+
+  /**
+   * The body of `_replaceHiddenRows()`, run inside its operation.
+   *
+   * @param {number[]} physicalRows The physical indexes of the rows to hide.
+   */
+  #replaceHiddenRows(physicalRows: number[]): void {
+    const rowCount = this.hot.rowIndexMapper.getNumberOfIndexes();
+    const destination = new Set(physicalRows.filter(row => Number.isInteger(row) && row >= 0 && row < rowCount));
+    const current = new Set(this.#hiddenRowsMap!.getHiddenIndexes());
+    const toVisual = (rows: Iterable<number>) => Array.from(rows)
+      .map(row => this.hot.toVisualRow(row))
+      .filter((row): row is number => row !== null);
+    const currentHideConfig = this.getHiddenRows();
+    const destinationHideConfig = toVisual(destination);
+    const isUnhiding = Array.from(current).some(row => !destination.has(row));
+    const isHiding = Array.from(destination).some(row => !current.has(row));
+
+    if (isUnhiding &&
+        this.hot.runHooks('beforeUnhideRows', currentHideConfig, destinationHideConfig, true) === false) {
+      return;
+    }
+
+    if (isHiding &&
+        this.hot.runHooks('beforeHideRows', currentHideConfig, destinationHideConfig, true) === false) {
+      return;
+    }
+
+    this.hot.batchExecution(() => {
+      current.forEach((row) => {
+        if (!destination.has(row)) {
+          this.#hiddenRowsMap!.setValueAtIndex(row, false);
+        }
+      });
+      destination.forEach((row) => {
+        if (!current.has(row)) {
+          this.#hiddenRowsMap!.setValueAtIndex(row, true);
+        }
+      });
+    }, true);
+
+    // `isUnhiding` and `isHiding` already prove that a row changed. The visual lists cannot say so: a swap
+    // keeps their length, and a row a filter trims is in neither.
+    if (isUnhiding) {
+      this.hot.runHooks('afterUnhideRows', currentHideConfig, destinationHideConfig, true, true);
+    }
+
+    if (isHiding) {
+      this.hot.runHooks('afterHideRows', currentHideConfig, destinationHideConfig, true, true);
+    }
+  }
+
+  /**
+   * Hides the row provided as row index (counting from 0).
+   *
+   * @param {...number} row Visual row index.
+   */
+  hideRow(...row: number[]): void {
+    this.hideRows(row);
+  }
+
+  /**
+   * Returns an array of visual indexes of hidden rows.
+   *
+   * @returns {number[]}
+   */
+  getHiddenRows(): number[] {
+    return arrayMap(this.#hiddenRowsMap!.getHiddenIndexes(), (physicalRowIndex) => {
+      return this.hot.toVisualRow(physicalRowIndex)!;
+    });
+  }
+
+  /**
+   * Checks if the provided row is hidden.
+   *
+   * @param {number} row Visual row index.
+   * @returns {boolean}
+   */
+  isHidden(row: number): boolean {
+    return this.#hiddenRowsMap!.getValueAtIndex<boolean>(this.hot.toPhysicalRow(row)) || false;
+  }
+
+  /**
+   * Checks whether all of the provided row indexes are within the bounds of the table.
+   *
+   * @param {Array} hiddenRows List of hidden visual row indexes.
+   * @returns {boolean}
+   */
+  isValidConfig(hiddenRows: number[]): boolean {
+    const nrOfRows = this.hot.countRows();
+
+    if (Array.isArray(hiddenRows) && hiddenRows.length > 0) {
+      return hiddenRows.every(visualRow => Number.isInteger(visualRow) && visualRow >= 0 && visualRow < nrOfRows);
+    }
+
+    return false;
+  }
+
+  /**
+   * Resets all rendered cells meta.
+   *
+   * @private
+   */
+  resetCellsMeta() {
+    arrayEach(this.hot.getCellsMeta(), (meta) => {
+      const cellMeta = meta as Record<string | symbol, unknown>;
+
+      if (cellMeta[SKIP_ROW_ON_PASTE_BY_PLUGIN]) {
+        delete cellMeta.skipRowOnPaste;
+        delete cellMeta[SKIP_ROW_ON_PASTE_BY_PLUGIN];
+      }
+    });
+  }
+
+  /**
+   * Adds the additional row height for the hidden row indicators.
+   *
+   * @param {number|undefined} height Row height.
+   * @param {number} row Visual row index.
+   * @returns {number}
+   */
+  #onModifyRowHeight = (height: number, row: number) => {
+    // Hook is triggered internally only for the visible rows. Conditional will be handled for the API
+    // calls of the `getRowHeight` function on not visible indexes.
+    if (this.isHidden(row)) {
+      return 0;
+    }
+
+    return height;
+  };
+
+  /**
+   * Sets the copy-related cell meta.
+   *
+   * @param {number} row Visual row index.
+   * @param {number} column Visual column index.
+   * @param {object} cellProperties Object containing the cell properties.
+   */
+  #onAfterGetCellMeta = (row: number, column: number, cellProperties: CellProperties) => {
+    if (this.getSetting('copyPasteEnabled') === false) {
+      // Cell property handled by the `Autofill` and the `CopyPaste` plugins. The plugin only sets
+      // and marks cells whose `skipRowOnPaste` it actually flips to `true`. Cells that already
+      // had `true` from user configuration (`cells`, or `cell`) are left untouched, so that
+      // unhiding the row does not erase the user-defined value.
+      const cellPropsWithMarker = cellProperties as unknown as Record<string | symbol, unknown>;
+
+      if (this.isHidden(row)) {
+        if (cellProperties.skipRowOnPaste !== true) {
+          cellProperties.skipRowOnPaste = true;
+          cellPropsWithMarker[SKIP_ROW_ON_PASTE_BY_PLUGIN] = true;
+        }
+      } else if (cellPropsWithMarker[SKIP_ROW_ON_PASTE_BY_PLUGIN]) {
+        delete cellProperties.skipRowOnPaste;
+        delete cellPropsWithMarker[SKIP_ROW_ON_PASTE_BY_PLUGIN];
+      }
+    }
+
+    // `className` is publicly typed as `string | string[]`, so normalize before touching it.
+    // The normalized form is written back as a string, matching what `numericRenderer` and the
+    // `search` plugin already store. Only write when the value actually changes - this hook runs
+    // on every cell meta read.
+    if (this.isHidden(row - 1)) {
+      const classArr = normalizeClassNames(cellProperties.className);
+
+      if (classArr.indexOf('afterHiddenRow') === -1) {
+        classArr.push('afterHiddenRow');
+      }
+
+      const className = classArr.join(' ');
+
+      if (cellProperties.className !== className) {
+        cellProperties.className = className;
+      }
+
+    } else if (cellProperties.className) {
+      const classArr = normalizeClassNames(cellProperties.className);
+      const containAfterHiddenRow = classArr.indexOf('afterHiddenRow');
+
+      // Gated on the marker: this hook runs on every cell meta read, and rewriting a cell we never
+      // marked would replace a user's array with an own string that shadows the cascade. See
+      // `../hiddenColumns/AGENTS.md`.
+      if (containAfterHiddenRow > -1) {
+        classArr.splice(containAfterHiddenRow, 1);
+
+        const className = classArr.join(' ');
+
+        if (cellProperties.className !== className) {
+          cellProperties.className = className;
+        }
+      }
+    }
+  };
+
+  /**
+   * Modifies the copyable range, accordingly to the provided config.
+   *
+   * @param {Array} ranges An array of objects defining copyable cells.
+   * @returns {Array}
+   */
+  #onModifyCopyableRange = (ranges: Record<string, number>[]) => {
+    // Ranges shouldn't be modified when `copyPasteEnabled` option is set to `true` (by default).
+    if (this.getSetting('copyPasteEnabled')) {
+      return ranges;
+    }
+
+    const newRanges: Record<string, number>[] = [];
+
+    const pushRange = (startRow: number, endRow: number, startCol: number, endCol: number) => {
+      newRanges.push({ startRow, endRow, startCol, endCol });
+    };
+
+    arrayEach(ranges, (range) => {
+      const r = range as Record<string, number>;
+      let isHidden = true;
+      let rangeStart = 0;
+
+      rangeEach(r.startRow, r.endRow, (visualRow) => {
+        if (this.isHidden(visualRow)) {
+          if (!isHidden) {
+            pushRange(rangeStart, visualRow - 1, r.startCol, r.endCol);
+          }
+
+          isHidden = true;
+
+        } else {
+          if (isHidden) {
+            rangeStart = visualRow;
+          }
+
+          if (visualRow === r.endRow) {
+            pushRange(rangeStart, visualRow, r.startCol, r.endCol);
+          }
+
+          isHidden = false;
+        }
+      });
+    });
+
+    return newRanges;
+  };
+
+  /**
+   * Adds the needed classes to the headers.
+   *
+   * @param {number} row Visual row index.
+   * @param {HTMLElement} TH Header's TH element.
+   */
+  #onAfterGetRowHeader = (row: number, TH: HTMLTableCellElement) => {
+
+    if (!this.getSetting('indicators') || row < 0) {
+      // The indicator setting can be toggled off, or this can be the corner header - either way,
+      // any caret left over from a previous render must be cleared here, since we return early.
+      this.#syncIcon(this.hot, TH, HIDDEN_INDICATOR_START_SLOT_CLASS, null);
+      this.#syncIcon(this.hot, TH, HIDDEN_INDICATOR_END_SLOT_CLASS, null);
+
+      return;
+    }
+
+    const classList = [];
+
+    if (row >= 1 && this.isHidden(row - 1)) {
+      classList.push('afterHiddenRow');
+    }
+
+    if (row < this.hot.countRows() - 1 && this.isHidden(row + 1)) {
+      classList.push('beforeHiddenRow');
+    }
+
+    addClass(TH, classList);
+
+    // Children of the `th` itself, not of its `.relative` wrapper - the `th` is the box the old
+    // `::before`/`::after` positioned against (see `../hiddenColumns/hiddenColumns.ts`).
+    this.#syncIcon(this.hot, TH, HIDDEN_INDICATOR_START_SLOT_CLASS,
+      classList.includes('afterHiddenRow') ? 'caretHiddenDown' : null);
+    this.#syncIcon(this.hot, TH, HIDDEN_INDICATOR_END_SLOT_CLASS,
+      classList.includes('beforeHiddenRow') ? 'caretHiddenUp' : null);
+  };
+
+  /**
+   * On map initialized hook callback.
+   */
+  #onMapInit() {
+    const rows = this.getSetting('rows');
+
+    if (Array.isArray(rows)) {
+      this.hideRows(rows);
+    }
+  }
+
+  /**
+   * Destroys the plugin instance.
+   */
+  destroy() {
+    this.#hiddenRowsMap = null;
+
+    super.destroy();
+  }
+}

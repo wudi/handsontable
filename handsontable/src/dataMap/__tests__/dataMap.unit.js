@@ -1,0 +1,641 @@
+import DataMap from 'handsontable/dataMap/dataMap';
+import Handsontable from 'handsontable/base';
+import { registerAllCellTypes } from 'handsontable/registry';
+import { TEST_LICENSE_KEY } from '../../../test/helpers/licenseKey';
+
+registerAllCellTypes();
+
+describe('DataMap', () => {
+  describe('filterData', () => {
+    /**
+     * Builds the minimal context `filterData` needs: a hot mock whose `filterData` hook
+     * returns its first argument (the default hook behavior) and a data source array.
+     *
+     * @param {number} rowCount The number of single-cell rows to create in the data source.
+     * @returns {object}
+     */
+    function createFilterDataContext(rowCount) {
+      const dataSource = [];
+
+      for (let i = 0; i < rowCount; i++) {
+        dataSource.push([i]);
+      }
+
+      return {
+        hot: {
+          runHooks: (name, firstArg) => firstArg,
+        },
+        dataSource,
+      };
+    }
+
+    it('should remove the given physical rows from the data source', () => {
+      const context = createFilterDataContext(5);
+
+      DataMap.prototype.filterData.call(context, 1, 2, [1, 2]);
+
+      expect(context.dataSource).toEqual([[0], [3], [4]]);
+    });
+
+    it('should not overflow the call stack when the data source holds hundreds of thousands of rows', () => {
+      const context = createFilterDataContext(300000);
+
+      expect(() => {
+        DataMap.prototype.filterData.call(context, 0, 1, [0]);
+      }).not.toThrow();
+
+      expect(context.dataSource.length).toBe(299999);
+      expect(context.dataSource[0]).toEqual([1]);
+      expect(context.dataSource[299998]).toEqual([299999]);
+    });
+  });
+});
+
+describe('DataMap.get with function column accessors', () => {
+  let container;
+  let hot;
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+  });
+
+  afterEach(() => {
+    if (hot) {
+      hot.destroy();
+      hot = null;
+    }
+
+    container.remove();
+  });
+
+  it('should return null and not call the accessor when the row index maps past the source data', () => {
+    const accessor = jest.fn(row => row.value);
+
+    hot = new Handsontable(container, {
+      licenseKey: TEST_LICENSE_KEY,
+      data: [{ value: 'A1' }, { value: 'A2' }],
+      dataSchema: () => ({ value: null }),
+      columns: [{ data: accessor }],
+    });
+
+    accessor.mockClear();
+    // Reproduces the transient state RemoveRowAction.undo creates: the mapper is one index
+    // longer than the source array until alter() splices the row in.
+    hot.rowIndexMapper.setIndexesSequence([0, 1, 2]);
+
+    expect(hot.getDataAtCell(2, 0)).toBe(null);
+    expect(accessor).not.toHaveBeenCalledWith(undefined);
+  });
+});
+
+describe('DataMap.get/set with function column accessors and `modifyRowData`', () => {
+  let container;
+  let hot;
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+  });
+
+  afterEach(() => {
+    if (hot) {
+      hot.destroy();
+      hot = null;
+    }
+
+    container.remove();
+  });
+
+  it('should read through the row swapped in by the `modifyRowData` hook', () => {
+    const swappedRow = { value: 'swapped' };
+
+    hot = new Handsontable(container, {
+      licenseKey: TEST_LICENSE_KEY,
+      data: [{ value: 'A1' }, { value: 'A2' }],
+      columns: [{ data: row => row.value }],
+      modifyRowData(physicalRow) {
+        return physicalRow === 1 ? swappedRow : undefined;
+      },
+    });
+
+    expect(hot.getDataAtCell(0, 0)).toBe('A1');
+    expect(hot.getDataAtCell(1, 0)).toBe('swapped');
+  });
+
+  it('should write through the row swapped in by the `modifyRowData` hook', () => {
+    const swappedRow = { value: 'swapped' };
+    const sourceRows = [{ value: 'A1' }, { value: 'A2' }];
+
+    hot = new Handsontable(container, {
+      licenseKey: TEST_LICENSE_KEY,
+      data: sourceRows,
+      columns: [{
+        data: (row, value) => {
+          if (value === undefined) {
+            return row.value;
+          }
+
+          row.value = value;
+        },
+      }],
+      modifyRowData(physicalRow) {
+        return physicalRow === 1 ? swappedRow : undefined;
+      },
+    });
+
+    hot.setDataAtCell(1, 0, 'changed');
+
+    expect(swappedRow.value).toBe('changed');
+    expect(sourceRows[1].value).toBe('A2');
+  });
+
+  it('should not call the accessor on write when the row index maps past the source data', () => {
+    const accessor = jest.fn((row, value) => {
+      if (value === undefined) {
+        return row.value;
+      }
+
+      row.value = value;
+    });
+
+    hot = new Handsontable(container, {
+      licenseKey: TEST_LICENSE_KEY,
+      data: [{ value: 'A1' }, { value: 'A2' }],
+      dataSchema: () => ({ value: null }),
+      columns: [{ data: accessor }],
+    });
+
+    accessor.mockClear();
+    // The same transient mid-undo state as the read-path test above.
+    hot.rowIndexMapper.setIndexesSequence([0, 1, 2]);
+
+    expect(() => hot.setDataAtCell(2, 0, 'changed')).not.toThrow();
+    expect(accessor).not.toHaveBeenCalledWith(undefined, 'changed');
+  });
+});
+
+describe('DataMap.getAtColumnForRows', () => {
+  // These run against a hand-built context rather than a live grid on purpose. In jsdom every row is
+  // rendered, so every cell ends up carrying stored meta and the per-row fallback alone would make
+  // any value come out right - which would leave the column-layer probe untested. Here the stored
+  // meta is exactly what each case declares.
+  /**
+   * Builds the minimal context `getAtColumnForRows` needs.
+   *
+   * @param {object} [options] Case options.
+   * @param {Array} [options.dataSource] The data source rows.
+   * @param {object} [options.columnMeta] The column meta layer the probe reads.
+   * @param {object} [options.storedMeta] Stored cell meta keyed by physical row index.
+   * @param {string[]} [options.hooks] Hook names that have a listener.
+   * @param {boolean} [options.dataDotNotation] The `dataDotNotation` setting.
+   * @param {string|number|Function} [options.prop] The property the column resolves to.
+   * @returns {object}
+   */
+  function createColumnReadContext({
+    dataSource = [['A'], ['B'], ['C']],
+    columnMeta = {},
+    storedMeta = {},
+    hooks = [],
+    dataDotNotation = true,
+    prop = 0,
+  } = {}) {
+    const perCellReads = [];
+
+    return {
+      dataSource,
+      perCellReads,
+      colToProp: () => prop,
+      propToCol: () => 0,
+      get(row) {
+        perCellReads.push(row);
+
+        return `per-cell:${row}`;
+      },
+      hot: {
+        toPhysicalColumn: column => column,
+        // Identity mapping, so a fallback that translates a physical row back to a visual one lands
+        // on the row it was given.
+        toVisualRow: physicalRow => physicalRow,
+        getSettings: () => ({ dataDotNotation }),
+        hasHook: hookName => hooks.includes(hookName),
+      },
+      metaManager: {
+        getColumnMeta: () => columnMeta,
+        getCellMetaIfExists: physicalRow => storedMeta[physicalRow],
+      },
+    };
+  }
+
+  /**
+   * Calls the accessor on a hand-built context.
+   *
+   * @param {object} context The context built by `createColumnReadContext`.
+   * @param {Array} physicalRows Physical row indexes.
+   * @returns {Array}
+   */
+  function readColumn(context, physicalRows = [0, 1, 2]) {
+    return DataMap.prototype.getAtColumnForRows.call(context, 0, physicalRows);
+  }
+
+  it('should read the source rows directly when no probe fires', () => {
+    const context = createColumnReadContext();
+
+    expect(readColumn(context)).toEqual(['A', 'B', 'C']);
+    expect(context.perCellReads).toEqual([]);
+  });
+
+  it('should fall back to the per-cell path when the column layer declares a `valueGetter`', () => {
+    // No cell here has stored meta, so only the column-layer probe can catch this. A `dropdown`,
+    // `autocomplete` or `multiSelect` column reaches exactly this state for every unrendered row.
+    const context = createColumnReadContext({ columnMeta: { valueGetter: value => value } });
+
+    expect(readColumn(context)).toEqual(['per-cell:0', 'per-cell:1', 'per-cell:2']);
+    expect(context.perCellReads).toEqual([0, 1, 2]);
+  });
+
+  it('should fall back for the rows that carry stored cell meta, and only those', () => {
+    const context = createColumnReadContext({ storedMeta: { 1: { valueGetter: value => value } } });
+
+    expect(readColumn(context)).toEqual(['A', 'per-cell:1', 'C']);
+    expect(context.perCellReads).toEqual([1]);
+  });
+
+  it('should fall back for a stored meta object that declares nothing', () => {
+    // The probe asks whether meta is stored, not what it holds: `getCellMetaUncached()` returns the
+    // stored object itself, so anything on it - including a `valueGetter` assigned later - applies.
+    const context = createColumnReadContext({ storedMeta: { 2: {} } });
+
+    expect(readColumn(context)).toEqual(['A', 'B', 'per-cell:2']);
+  });
+
+  it('should fall back for a `columns[].data` accessor function', () => {
+    const context = createColumnReadContext({ prop: row => row[0] });
+
+    expect(context.perCellReads).toEqual([]);
+    expect(readColumn(context)).toEqual(['per-cell:0', 'per-cell:1', 'per-cell:2']);
+  });
+
+  it('should fall back for a dot-notation property when `dataDotNotation` is on', () => {
+    const context = createColumnReadContext({ prop: 'nested.label' });
+
+    expect(readColumn(context)).toEqual(['per-cell:0', 'per-cell:1', 'per-cell:2']);
+  });
+
+  it('should read directly for a dotted property when `dataDotNotation` is off', () => {
+    const context = createColumnReadContext({
+      prop: 'nested.label',
+      dataDotNotation: false,
+      dataSource: [{ 'nested.label': 'A' }, { 'nested.label': 'B' }, { 'nested.label': 'C' }],
+    });
+
+    expect(readColumn(context)).toEqual(['A', 'B', 'C']);
+  });
+
+  it.each(['modifyRowData', 'modifyData', 'modifySourceData'])(
+    'should fall back when the `%s` hook has a listener',
+    (hookName) => {
+      const context = createColumnReadContext({ hooks: [hookName] });
+
+      expect(readColumn(context)).toEqual(['per-cell:0', 'per-cell:1', 'per-cell:2']);
+    }
+  );
+
+  it('should read a row with no source data as empty', () => {
+    const context = createColumnReadContext({ dataSource: [['A']] });
+
+    expect(readColumn(context, [0, 1, null])).toEqual(['A', null, null]);
+    expect(context.perCellReads).toEqual([]);
+  });
+
+  it('should read a missing property as empty', () => {
+    const context = createColumnReadContext({
+      prop: 'label',
+      dataSource: [{ label: 'A' }, {}, { label: 'C' }],
+    });
+
+    expect(readColumn(context)).toEqual(['A', null, 'C']);
+  });
+
+  it('should follow the physical row indexes it is given, in the order given', () => {
+    const context = createColumnReadContext();
+
+    expect(readColumn(context, [2, 0])).toEqual(['C', 'A']);
+  });
+
+  it('should follow the same row indexes when the whole column falls back to the per-cell path', () => {
+    // `physicalRows` is the only row source. A fallback that walked the block as a contiguous visual
+    // band would read rows 0 and 1 here, so the two paths would answer for different rows.
+    const context = createColumnReadContext({ columnMeta: { valueGetter: value => value } });
+
+    expect(readColumn(context, [2, 0])).toEqual(['per-cell:2', 'per-cell:0']);
+    expect(context.perCellReads).toEqual([2, 0]);
+  });
+
+  it('should follow the same row indexes when a single row falls back to the per-cell path', () => {
+    const context = createColumnReadContext({ storedMeta: { 0: { valueGetter: value => value } } });
+
+    expect(readColumn(context, [2, 0])).toEqual(['C', 'per-cell:0']);
+    expect(context.perCellReads).toEqual([0]);
+  });
+});
+
+describe('DataMap duck columns for nested object data without `columns`', () => {
+  let container;
+  let hot;
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+  });
+
+  afterEach(() => {
+    if (hot) {
+      hot.destroy();
+      hot = null;
+    }
+
+    container.remove();
+  });
+
+  /**
+   * @param {object[]} data The source data.
+   * @returns {Handsontable} A grid with no `columns` option.
+   */
+  function createGrid(data) {
+    return new Handsontable(container, { licenseKey: TEST_LICENSE_KEY, data });
+  }
+
+  it('should name a column nested two levels deep by its full path', () => {
+    hot = createGrid([{ id: 1, a: { b: { c: 'deep0' }, x: 'ax0' } }, { id: 2, a: { b: { c: 'deep1' }, x: 'ax1' } }]);
+
+    expect(hot.countCols()).toBe(3);
+    expect(hot.colToProp(0)).toBe('id');
+    expect(hot.colToProp(1)).toBe('a.b.c');
+    expect(hot.colToProp(2)).toBe('a.x');
+    expect(hot.propToCol('a.b.c')).toBe(1);
+  });
+
+  it('should read the nested value through the column', () => {
+    hot = createGrid([{ id: 1, a: { b: { c: 'deep0' }, x: 'ax0' } }, { id: 2, a: { b: { c: 'deep1' }, x: 'ax1' } }]);
+
+    expect(hot.getDataAtRow(0)).toEqual([1, 'deep0', 'ax0']);
+    expect(hot.getDataAtCol(1)).toEqual(['deep0', 'deep1']);
+  });
+
+  it('should write an edit back to the nested path and add no top-level key', () => {
+    const data = [{ id: 1, a: { b: { c: 'deep0' }, x: 'ax0' } }];
+
+    hot = createGrid(data);
+    hot.setDataAtCell(0, 1, 'EDITED');
+
+    expect(data[0].a.b.c).toBe('EDITED');
+    expect(Object.keys(data[0]).sort()).toEqual(['a', 'id']);
+    expect(hot.getDataAtCell(0, 1)).toBe('EDITED');
+  });
+
+  it('should keep every parent in the path for a property nested four levels deep', () => {
+    hot = createGrid([{ p: { q: { r: { s: 'leaf' } } } }]);
+
+    expect(hot.colToProp(0)).toBe('p.q.r.s');
+    expect(hot.getDataAtCell(0, 0)).toBe('leaf');
+  });
+
+  it('should keep naming a column nested one level deep by its path', () => {
+    hot = createGrid([{ a: { x: 'ax0' } }]);
+
+    expect(hot.colToProp(0)).toBe('a.x');
+    expect(hot.getDataAtCell(0, 0)).toBe('ax0');
+  });
+
+  it('should keep resolving a nested path declared in `columns`', () => {
+    hot = new Handsontable(container, {
+      licenseKey: TEST_LICENSE_KEY,
+      data: [{ a: { b: { c: 'deep0' } } }],
+      columns: [{ data: 'a.b.c' }],
+    });
+
+    expect(hot.colToProp(0)).toBe('a.b.c');
+    expect(hot.getDataAtCell(0, 0)).toBe('deep0');
+  });
+
+  it('should keep the sibling order and indexes when nested groups sit between other keys', () => {
+    hot = createGrid([{ a: { b: { c: 1 } }, d: { e: { f: 2 } }, z: 3 }]);
+
+    expect([0, 1, 2, 3].map(col => hot.colToProp(col))).toEqual(['a.b.c', 'd.e.f', 'z', null]);
+    expect(hot.propToCol('d.e.f')).toBe(1);
+    expect(hot.propToCol('z')).toBe(2);
+    expect(hot.getDataAtRow(0)).toEqual([1, 2, 3]);
+  });
+
+  it('should name columns nested two levels deep by full path when they come from `dataSchema`', () => {
+    hot = new Handsontable(container, {
+      licenseKey: TEST_LICENSE_KEY,
+      data: [],
+      dataSchema: { a: { b: { c: null } }, id: null },
+      minSpareRows: 1,
+    });
+
+    expect(hot.colToProp(0)).toBe('a.b.c');
+    expect(hot.colToProp(1)).toBe('id');
+  });
+
+  it('should read a nested column as `null` and not throw when a parent is `null` in some rows', () => {
+    hot = createGrid([{ a: { b: { c: 'deep0' } } }, { a: { b: null } }, { a: null }, { a: { b: { c: null } } }]);
+
+    expect(hot.colToProp(0)).toBe('a.b.c');
+    expect(hot.getDataAtCol(0)).toEqual(['deep0', null, null, null]);
+    expect(hot.getDataAtRowProp(1, 'a.b.c')).toBe(null);
+  });
+
+  it('should write into a nested column whose parent is `null` in that row', () => {
+    const data = [{ a: { b: { c: 'deep0' } } }, { a: { b: null } }, { a: null }];
+
+    hot = createGrid(data);
+    hot.setDataAtCell(1, 0, 'one');
+    hot.setDataAtCell(2, 0, 'two');
+
+    expect(data[1].a.b.c).toBe('one');
+    expect(data[2].a.b.c).toBe('two');
+    expect(hot.getDataAtCol(0)).toEqual(['deep0', 'one', 'two']);
+  });
+});
+
+describe('DataMap with a `dataSchema` and no `columns` option', () => {
+  let container;
+  let hot;
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+  });
+
+  afterEach(() => {
+    if (hot) {
+      hot.destroy();
+      hot = null;
+    }
+
+    container.remove();
+  });
+
+  /**
+   * Builds a grid from object data and a schema, without `columns`.
+   *
+   * @param {object} dataSchema The schema.
+   * @param {object[]} data The data rows.
+   * @param {object} [settings] Extra settings.
+   */
+  function build(dataSchema, data, settings = {}) {
+    hot = new Handsontable(container, {
+      licenseKey: TEST_LICENSE_KEY,
+      data,
+      dataSchema,
+      ...settings,
+    });
+  }
+
+  it.each([
+    ['number', 0, 7],
+    ['string', 'x', 'a'],
+    ['boolean', false, true],
+    ['undefined', undefined, 'a'],
+  ])('should register a column for a `%s` schema leaf', (_, leaf, value) => {
+    build({ id: leaf, name: null }, [{ id: value, name: 'n' }]);
+
+    expect(hot.countCols()).toBe(2);
+    expect(hot.colToProp(0)).toBe('id');
+    expect(hot.colToProp(1)).toBe('name');
+    expect(hot.getDataAtRow(0)).toEqual([value, 'n']);
+  });
+
+  it('should register every leaf of a schema holding only non-null defaults', () => {
+    build({ id: 0, name: 'x' }, [{ id: 1, name: 'a' }]);
+
+    expect(hot.countCols()).toBe(2);
+    expect(hot.getDataAtRow(0)).toEqual([1, 'a']);
+  });
+
+  it('should register nested non-null leaves under their full property path', () => {
+    build({ a: { b: 'x' }, id: 0 }, [{ id: 1, a: { b: 'deep' } }]);
+
+    expect(hot.colToProp(0)).toBe('a.b');
+    expect(hot.colToProp(1)).toBe('id');
+    expect(hot.getDataAtRow(0)).toEqual(['deep', 1]);
+  });
+
+  it('should write an edit back through a column bound to a non-null schema leaf', () => {
+    build({ id: 0, name: 'x' }, [{ id: 1, name: 'a' }]);
+
+    hot.setDataAtCell(0, 1, 'changed');
+
+    expect(hot.getSourceDataAtRow(0)).toEqual({ id: 1, name: 'changed' });
+  });
+
+  it('should keep an array leaf unregistered, as before', () => {
+    build({ id: 0, tags: [] }, [{ id: 1, tags: [] }]);
+
+    expect(hot.colToProp(0)).toBe('id');
+  });
+
+  it.each([
+    ['function', () => 1, () => 2],
+    ['Date', new Date(2020, 0, 1), new Date(2021, 0, 1)],
+    ['Map', new Map(), new Map()],
+  ])('should keep a `%s` leaf unregistered, so typing there never replaces the value', (_, leaf, value) => {
+    build({ id: 0, extra: leaf }, [{ id: 1, extra: value }]);
+
+    expect(hot.colToProp(0)).toBe('id');
+    expect(hot.getDataAtRow(0)[0]).toBe(1);
+  });
+
+  it('should not register a column for the `__children` key', () => {
+    build({ id: 0, __children: null }, [{ id: 1 }]);
+
+    expect(hot.countCols()).toBe(1);
+    expect(hot.colToProp(0)).toBe('id');
+  });
+
+  it('should register the leaves of a `dataSchema` given as a function', () => {
+    build(() => ({ id: 0, name: 'x' }), [{ id: 1, name: 'a' }]);
+
+    expect(hot.getDataAtRow(0)).toEqual([1, 'a']);
+  });
+
+  it('should keep mapping `null` leaves and a schema derived from the data', () => {
+    build({ id: null, name: null }, [{ id: 1, name: 'a' }]);
+
+    expect(hot.getDataAtRow(0)).toEqual([1, 'a']);
+
+    hot.destroy();
+    hot = new Handsontable(container, {
+      licenseKey: TEST_LICENSE_KEY,
+      data: [{ id: 1, nested: { name: 'a' } }],
+    });
+
+    expect(hot.getDataAtRow(0)).toEqual([1, 'a']);
+  });
+
+  it('should keep a spare row holding only schema defaults empty, with readable columns', () => {
+    build({ id: 0, name: 'x' }, [{ id: 1, name: 'a' }], { minSpareRows: 2 });
+
+    expect(hot.countRows()).toBe(3);
+    expect(hot.countEmptyRows(true)).toBe(2);
+    expect(hot.getDataAtRow(1)).toEqual([0, 'x']);
+
+    hot.setDataAtCell(0, 1, 'edited');
+
+    expect(hot.countRows()).toBe(3);
+  });
+
+  it('should keep a spare row of a function `dataSchema` empty when a default depends on the row index', () => {
+    build(index => ({ index, name: null }), [{ index: 0, name: 'a' }], { minSpareRows: 1 });
+
+    expect(hot.countRows()).toBe(2);
+    expect(hot.countEmptyRows(true)).toBe(1);
+
+    hot.setDataAtCell(0, 1, 'edited');
+
+    expect(hot.countRows()).toBe(2);
+  });
+});
+
+describe('DataMap column modification errors', () => {
+  const CREATE_COLUMN_ERROR =
+    'Cannot create a new column when the data source holds objects or the "columns" option is set. ' +
+    'You can only have as many columns as defined in the first data row, the data schema, ' +
+    'or the "columns" setting. To add new columns, use an array data source without the "columns" option.';
+  const REMOVE_COLUMN_ERROR =
+    'Cannot remove a column when the data source holds objects or the "columns" option is set.';
+  let container;
+  let hot;
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+  });
+
+  afterEach(() => {
+    hot.destroy();
+    hot = null;
+    container.remove();
+  });
+
+  describe.each([
+    ['an array of objects', { data: [{ name: 'a' }, { name: 'b' }], columns: [{ data: 'name' }] }],
+    ['an array of arrays with the `columns` option', { data: [['a'], ['b']], columns: [{}] }],
+  ])('with %s', (name, settings) => {
+    beforeEach(() => {
+      hot = new Handsontable(container, { licenseKey: TEST_LICENSE_KEY, ...settings });
+    });
+
+    it('should explain why a column cannot be created', () => {
+      expect(() => hot.alter('insert_col_end')).toThrow(CREATE_COLUMN_ERROR);
+      expect(() => hot.alter('insert_col_start', 0)).toThrow(CREATE_COLUMN_ERROR);
+    });
+
+    it('should explain why a column cannot be removed', () => {
+      expect(() => hot.alter('remove_col', 0)).toThrow(REMOVE_COLUMN_ERROR);
+    });
+  });
+});

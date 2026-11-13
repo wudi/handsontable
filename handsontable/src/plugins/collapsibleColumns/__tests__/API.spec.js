@@ -94,9 +94,9 @@ describe('CollapsibleColumns API', () => {
   });
 
   describe('collapseSection()', () => {
-    it('should call "toggleCollapsibleSection" internally', () => {
+    it('should call "toggleCollapsibleSection" internally', async() => {
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+        data: createSpreadsheetData(10, 10),
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 4 }, 'F1', 'G1', 'H1', 'I1', 'J1'],
           ['A2', 'B2', 'C2', 'D2', 'E2', 'F2', 'G2', 'H2', 'I2', 'J2'],
@@ -115,9 +115,9 @@ describe('CollapsibleColumns API', () => {
   });
 
   describe('collapseAll()', () => {
-    it('should call "toggleCollapsibleSection" internally', () => {
+    it('should call "toggleCollapsibleSection" internally', async() => {
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 20),
+        data: createSpreadsheetData(10, 20),
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 8 }, 'J1', { label: 'K1', colspan: 3 }],
           ['A2', { label: 'B2', colspan: 8 }, 'J2', { label: 'K2', colspan: 3 }],
@@ -151,9 +151,9 @@ describe('CollapsibleColumns API', () => {
       ], 'collapse');
     });
 
-    it('should collapse only headers which are renderable (trimmed by dataset)', () => {
+    it('should collapse only headers which are renderable (trimmed by dataset)', async() => {
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 5), // Trimmed to 5 columns
+        data: createSpreadsheetData(10, 5), // Trimmed to 5 columns
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 8 }, 'J1', { label: 'K1', colspan: 3 }],
           ['A2', { label: 'B2', colspan: 8 }, 'J2', { label: 'K2', colspan: 3 }],
@@ -180,9 +180,9 @@ describe('CollapsibleColumns API', () => {
       ], 'collapse');
     });
 
-    it('should collapse only "collapsible" headers', () => {
+    it('should collapse only "collapsible" headers', async() => {
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(5, 13),
+        data: createSpreadsheetData(5, 13),
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 8 }, 'J1', { label: 'K1', colspan: 3 }],
           ['A2', { label: 'B2', colspan: 8 }, 'J2', { label: 'K2', colspan: 3 }],
@@ -220,7 +220,7 @@ describe('CollapsibleColumns API', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="">J1</th>
-            <th class="">K1</th>
+            <th class="htLastVisibleHeader">K1</th>
           </tr>
           <tr>
             <th class="">A2</th>
@@ -231,7 +231,7 @@ describe('CollapsibleColumns API', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="">J2</th>
-            <th class="collapsibleIndicator collapsed">K2</th>
+            <th class="htLastVisibleHeader collapsibleIndicator collapsed">K2</th>
           </tr>
           <tr>
             <th class="">A3</th>
@@ -242,7 +242,7 @@ describe('CollapsibleColumns API', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="">J3</th>
-            <th class="">K3</th>
+            <th class="htLastVisibleHeader">K3</th>
           </tr>
           <tr>
             <th class="">A4</th>
@@ -253,7 +253,7 @@ describe('CollapsibleColumns API', () => {
             <th class="" colspan="2">H4</th>
             <th class="hiddenHeader"></th>
             <th class="">J4</th>
-            <th class="">K4</th>
+            <th class="htLastVisibleHeader">K4</th>
           </tr>
           <tr>
             <th class="">A5</th>
@@ -264,11 +264,11 @@ describe('CollapsibleColumns API', () => {
             <th class="">H5</th>
             <th class="">I5</th>
             <th class="">J5</th>
-            <th class="">K5</th>
+            <th class="htLastVisibleHeader">K5</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">C1</td>
@@ -293,7 +293,7 @@ describe('CollapsibleColumns API', () => {
       spec().$wrapper = spec().$container.wrap($wrapper).parent();
 
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(5, 100),
+        data: createSpreadsheetData(5, 100),
         nestedHeaders: generateComplexSetup(5, 100, true),
         collapsibleColumns: true,
       });
@@ -313,12 +313,7 @@ describe('CollapsibleColumns API', () => {
             <th class="collapsibleIndicator collapsed">T1</th>
             <th class="">AB1</th>
             <th class="collapsibleIndicator collapsed">AC1</th>
-            <th class="">AK1</th>
-            <th class="collapsibleIndicator collapsed">AL1</th>
-            <th class="">AT1</th>
-            <th class="collapsibleIndicator collapsed">AU1</th>
-            <th class="">BC1</th>
-            <th class="collapsibleIndicator collapsed">BD1</th>
+            <th class="htLastVisibleHeader">AK1</th>
           </tr>
           <tr>
             <th class="">A2</th>
@@ -329,12 +324,7 @@ describe('CollapsibleColumns API', () => {
             <th class="collapsibleIndicator collapsed">T2</th>
             <th class="">AB2</th>
             <th class="collapsibleIndicator collapsed">AC2</th>
-            <th class="">AK2</th>
-            <th class="collapsibleIndicator collapsed">AL2</th>
-            <th class="">AT2</th>
-            <th class="collapsibleIndicator collapsed">AU2</th>
-            <th class="">BC2</th>
-            <th class="collapsibleIndicator collapsed">BD2</th>
+            <th class="htLastVisibleHeader">AK2</th>
           </tr>
           <tr>
             <th class="">A3</th>
@@ -345,12 +335,7 @@ describe('CollapsibleColumns API', () => {
             <th class="collapsibleIndicator collapsed">T3</th>
             <th class="">AB3</th>
             <th class="collapsibleIndicator collapsed">AC3</th>
-            <th class="">AK3</th>
-            <th class="collapsibleIndicator collapsed">AL3</th>
-            <th class="">AT3</th>
-            <th class="collapsibleIndicator collapsed">AU3</th>
-            <th class="">BC3</th>
-            <th class="collapsibleIndicator collapsed">BD3</th>
+            <th class="htLastVisibleHeader">AK3</th>
           </tr>
           <tr>
             <th class="">A4</th>
@@ -361,12 +346,7 @@ describe('CollapsibleColumns API', () => {
             <th class="">T4</th>
             <th class="">AB4</th>
             <th class="">AC4</th>
-            <th class="">AK4</th>
-            <th class="">AL4</th>
-            <th class="">AT4</th>
-            <th class="">AU4</th>
-            <th class="">BC4</th>
-            <th class="">BD4</th>
+            <th class="htLastVisibleHeader">AK4</th>
           </tr>
           <tr>
             <th class="">A5</th>
@@ -377,16 +357,11 @@ describe('CollapsibleColumns API', () => {
             <th class="">T5</th>
             <th class="">AB5</th>
             <th class="">AC5</th>
-            <th class="">AK5</th>
-            <th class="">AL5</th>
-            <th class="">AT5</th>
-            <th class="">AU5</th>
-            <th class="">BC5</th>
-            <th class="">BD5</th>
+            <th class="htLastVisibleHeader">AK5</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">J1</td>
@@ -396,29 +371,20 @@ describe('CollapsibleColumns API', () => {
             <td class="">AB1</td>
             <td class="">AC1</td>
             <td class="">AK1</td>
-            <td class="">AL1</td>
-            <td class="">AT1</td>
-            <td class="">AU1</td>
-            <td class="">BC1</td>
-            <td class="">BD1</td>
           </tr>
         </tbody>
         `);
 
-      scrollViewportTo({
+      await scrollViewportTo({
         row: 0,
         col: 63,
         verticalSnap: 'top',
         horizontalSnap: 'start',
       });
 
-      await sleep(20);
-
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
           <tr>
-            <th class="collapsibleIndicator collapsed">B1</th>
-            <th class="">J1</th>
             <th class="collapsibleIndicator collapsed">K1</th>
             <th class="">S1</th>
             <th class="collapsibleIndicator collapsed">T1</th>
@@ -438,11 +404,9 @@ describe('CollapsibleColumns API', () => {
             <th class="collapsibleIndicator collapsed">CE1</th>
             <th class="">CM1</th>
             <th class="collapsibleIndicator collapsed">CN1</th>
-            <th class="">CV1</th>
+            <th class="htLastVisibleHeader">CV1</th>
           </tr>
           <tr>
-            <th class="collapsibleIndicator collapsed">B2</th>
-            <th class="">J2</th>
             <th class="collapsibleIndicator collapsed">K2</th>
             <th class="">S2</th>
             <th class="collapsibleIndicator collapsed">T2</th>
@@ -462,11 +426,9 @@ describe('CollapsibleColumns API', () => {
             <th class="collapsibleIndicator collapsed">CE2</th>
             <th class="">CM2</th>
             <th class="collapsibleIndicator collapsed">CN2</th>
-            <th class="">CV2</th>
+            <th class="htLastVisibleHeader">CV2</th>
           </tr>
           <tr>
-            <th class="collapsibleIndicator collapsed">B3</th>
-            <th class="">J3</th>
             <th class="collapsibleIndicator collapsed">K3</th>
             <th class="">S3</th>
             <th class="collapsibleIndicator collapsed">T3</th>
@@ -486,11 +448,9 @@ describe('CollapsibleColumns API', () => {
             <th class="collapsibleIndicator collapsed">CE3</th>
             <th class="">CM3</th>
             <th class="collapsibleIndicator collapsed">CN3</th>
-            <th class="">CV3</th>
+            <th class="htLastVisibleHeader">CV3</th>
           </tr>
           <tr>
-            <th class="">B4</th>
-            <th class="">J4</th>
             <th class="">K4</th>
             <th class="">S4</th>
             <th class="">T4</th>
@@ -510,11 +470,9 @@ describe('CollapsibleColumns API', () => {
             <th class="">CE4</th>
             <th class="">CM4</th>
             <th class="">CN4</th>
-            <th class="">CV4</th>
+            <th class="htLastVisibleHeader">CV4</th>
           </tr>
           <tr>
-            <th class="">B5</th>
-            <th class="">J5</th>
             <th class="">K5</th>
             <th class="">S5</th>
             <th class="">T5</th>
@@ -534,13 +492,11 @@ describe('CollapsibleColumns API', () => {
             <th class="">CE5</th>
             <th class="">CM5</th>
             <th class="">CN5</th>
-            <th class="">CV5</th>
+            <th class="htLastVisibleHeader">CV5</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td class="">B1</td>
-            <td class="">J1</td>
+          <tr class="ht__row_odd">
             <td class="">K1</td>
             <td class="">S1</td>
             <td class="">T1</td>
@@ -568,9 +524,9 @@ describe('CollapsibleColumns API', () => {
   });
 
   describe('expandSection()', () => {
-    it('should call "toggleCollapsibleSection" internally', () => {
+    it('should call "toggleCollapsibleSection" internally', async() => {
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+        data: createSpreadsheetData(10, 10),
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 4 }, 'F1', 'G1', 'H1', 'I1', 'J1'],
           ['A2', 'B2', 'C2', 'D2', 'E2', 'F2', 'G2', 'H2', 'I2', 'J2'],
@@ -589,9 +545,9 @@ describe('CollapsibleColumns API', () => {
   });
 
   describe('expandAll()', () => {
-    it('should call "toggleCollapsibleSection" internally', () => {
+    it('should call "toggleCollapsibleSection" internally', async() => {
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 20),
+        data: createSpreadsheetData(10, 20),
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 8 }, 'J1', { label: 'K1', colspan: 3 }],
           ['A2', { label: 'B2', colspan: 8 }, 'J2', { label: 'K2', colspan: 3 }],
@@ -612,9 +568,9 @@ describe('CollapsibleColumns API', () => {
       expect(plugin.toggleCollapsibleSection).toHaveBeenCalledWith([], 'expand');
     });
 
-    it('should expand all collapsed headers', () => {
+    it('should expand all collapsed headers', async() => {
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(5, 10),
+        data: createSpreadsheetData(5, 10),
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 8 }, 'J1'],
           ['A2', { label: 'B2', colspan: 4 }, { label: 'F2', colspan: 4 }, 'J2'],
@@ -641,7 +597,7 @@ describe('CollapsibleColumns API', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
-            <th class="">J1</th>
+            <th class="htLastVisibleHeader">J1</th>
           </tr>
           <tr>
             <th class="">A2</th>
@@ -653,7 +609,7 @@ describe('CollapsibleColumns API', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
-            <th class="">J2</th>
+            <th class="htLastVisibleHeader">J2</th>
           </tr>
           <tr>
             <th class="">A3</th>
@@ -665,11 +621,11 @@ describe('CollapsibleColumns API', () => {
             <th class="hiddenHeader"></th>
             <th class="collapsibleIndicator expanded" colspan="2">H3</th>
             <th class="hiddenHeader"></th>
-            <th class="">J3</th>
+            <th class="htLastVisibleHeader">J3</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">C1</td>
@@ -687,9 +643,9 @@ describe('CollapsibleColumns API', () => {
   });
 
   describe('toggleAllCollapsibleSections()', () => {
-    it('should call "toggleCollapsibleSection" internally while collapsing', () => {
+    it('should call "toggleCollapsibleSection" internally while collapsing', async() => {
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 20),
+        data: createSpreadsheetData(10, 20),
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 8 }, 'J1', { label: 'K1', colspan: 3 }],
           ['A2', { label: 'B2', colspan: 8 }, 'J2', { label: 'K2', colspan: 3 }],
@@ -723,9 +679,9 @@ describe('CollapsibleColumns API', () => {
       ], 'collapse');
     });
 
-    it('should call "toggleCollapsibleSection" internally while expanding', () => {
+    it('should call "toggleCollapsibleSection" internally while expanding', async() => {
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 20),
+        data: createSpreadsheetData(10, 20),
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 8 }, 'J1', { label: 'K1', colspan: 3 }],
           ['A2', { label: 'B2', colspan: 8 }, 'J2', { label: 'K2', colspan: 3 }],
@@ -748,9 +704,9 @@ describe('CollapsibleColumns API', () => {
   });
 
   describe('toggleCollapsibleSection()', () => {
-    it('should collapse collapsible headers', () => {
+    it('should collapse collapsible headers', async() => {
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+        data: createSpreadsheetData(10, 10),
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 8 }, 'J1', { label: 'K1', colspan: 3 }],
           ['A2', { label: 'B2', colspan: 8 }, 'J2', { label: 'K2', colspan: 3 }],
@@ -778,7 +734,7 @@ describe('CollapsibleColumns API', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
-            <th class="">J1</th>
+            <th class="htLastVisibleHeader">J1</th>
           </tr>
           <tr>
             <th class="">A2</th>
@@ -787,7 +743,7 @@ describe('CollapsibleColumns API', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
-            <th class="">J2</th>
+            <th class="htLastVisibleHeader">J2</th>
           </tr>
           <tr>
             <th class="">A3</th>
@@ -796,7 +752,7 @@ describe('CollapsibleColumns API', () => {
             <th class="hiddenHeader"></th>
             <th class="collapsibleIndicator collapsed" colspan="2">F3</th>
             <th class="hiddenHeader"></th>
-            <th class="">J3</th>
+            <th class="htLastVisibleHeader">J3</th>
           </tr>
           <tr>
             <th class="">A4</th>
@@ -805,7 +761,7 @@ describe('CollapsibleColumns API', () => {
             <th class="hiddenHeader"></th>
             <th class="collapsibleIndicator expanded" colspan="2">F4</th>
             <th class="hiddenHeader"></th>
-            <th class="">J4</th>
+            <th class="htLastVisibleHeader">J4</th>
           </tr>
           <tr>
             <th class="">A5</th>
@@ -814,11 +770,11 @@ describe('CollapsibleColumns API', () => {
             <th class="">E5</th>
             <th class="">F5</th>
             <th class="">G5</th>
-            <th class="">J5</th>
+            <th class="htLastVisibleHeader">J5</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">D1</td>
@@ -831,9 +787,9 @@ describe('CollapsibleColumns API', () => {
         `);
     });
 
-    it('should expand collapsible headers', () => {
+    it('should expand collapsible headers', async() => {
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+        data: createSpreadsheetData(10, 10),
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 8 }, 'J1', { label: 'K1', colspan: 3 }],
           ['A2', { label: 'B2', colspan: 8 }, 'J2', { label: 'K2', colspan: 3 }],
@@ -869,7 +825,7 @@ describe('CollapsibleColumns API', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
-            <th class="">J1</th>
+            <th class="htLastVisibleHeader">J1</th>
           </tr>
           <tr>
             <th class="">A2</th>
@@ -881,7 +837,7 @@ describe('CollapsibleColumns API', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
-            <th class="">J2</th>
+            <th class="htLastVisibleHeader">J2</th>
           </tr>
           <tr>
             <th class="">A3</th>
@@ -893,7 +849,7 @@ describe('CollapsibleColumns API', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
-            <th class="">J3</th>
+            <th class="htLastVisibleHeader">J3</th>
           </tr>
           <tr>
             <th class="">A4</th>
@@ -905,7 +861,7 @@ describe('CollapsibleColumns API', () => {
             <th class="hiddenHeader"></th>
             <th class="collapsibleIndicator expanded" colspan="2">H4</th>
             <th class="hiddenHeader"></th>
-            <th class="">J4</th>
+            <th class="htLastVisibleHeader">J4</th>
           </tr>
           <tr>
             <th class="">A5</th>
@@ -917,11 +873,11 @@ describe('CollapsibleColumns API', () => {
             <th class="">G5</th>
             <th class="">H5</th>
             <th class="">I5</th>
-            <th class="">J5</th>
+            <th class="htLastVisibleHeader">J5</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">C1</td>
@@ -937,12 +893,12 @@ describe('CollapsibleColumns API', () => {
         `);
     });
 
-    it('should not throw an error when trying collapsing header which does not have the ability to collapse', () => {
+    it('should not throw an error when trying collapsing header which does not have the ability to collapse', async() => {
       const beforeColumnCollapse = jasmine.createSpy('beforeColumnCollapse');
       const afterColumnCollapse = jasmine.createSpy('afterColumnCollapse');
 
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+        data: createSpreadsheetData(10, 10),
         nestedHeaders: [
           ['A', { label: 'B', colspan: 8 }, 'C'],
           ['D', { label: 'E', colspan: 4 }, { label: 'F', colspan: 4 }, 'G'],
@@ -984,12 +940,12 @@ describe('CollapsibleColumns API', () => {
       expect(afterColumnCollapse).toHaveBeenCalledWith([], [], false, false);
     });
 
-    it('should trigger "beforeColumnCollapse" and "afterColumnCollapse" hooks', () => {
+    it('should trigger "beforeColumnCollapse" and "afterColumnCollapse" hooks', async() => {
       const beforeColumnCollapse = jasmine.createSpy('beforeColumnCollapse');
       const afterColumnCollapse = jasmine.createSpy('afterColumnCollapse');
 
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+        data: createSpreadsheetData(10, 10),
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 4 }, 'F1', 'G1', 'H1', 'I1', 'J1'],
           ['A2', { label: 'B2', colspan: 2 }, { label: 'D2', colspan: 2 }, 'F2', 'G2', 'H2', 'I2', 'J2'],
@@ -1017,12 +973,12 @@ describe('CollapsibleColumns API', () => {
       expect(afterColumnCollapse).toHaveBeenCalledWith([2, 3, 4], [2, 3, 4], false, false);
     });
 
-    it('should trigger "beforeColumnExpand" and "afterColumnExpand" hooks', () => {
+    it('should trigger "beforeColumnExpand" and "afterColumnExpand" hooks', async() => {
       const beforeColumnExpand = jasmine.createSpy('beforeColumnExpand');
       const afterColumnExpand = jasmine.createSpy('afterColumnExpand');
 
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+        data: createSpreadsheetData(10, 10),
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 4 }, 'F1', 'G1', 'H1', 'I1', 'J1'],
           ['A2', { label: 'B2', colspan: 2 }, { label: 'D2', colspan: 2 }, 'F2', 'G2', 'H2', 'I2', 'J2'],

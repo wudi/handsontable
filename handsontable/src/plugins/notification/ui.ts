@@ -1,0 +1,399 @@
+import { fastInnerHTML } from '../../helpers/dom/element';
+import { stripTags } from '../../helpers/string';
+import { resolveButtonType } from '../../helpers/uiButton';
+import type { SanitizerFn } from '../../utils/sanitizer';
+import type { IconSlotSync } from '../../themes/engine/icons';
+import { NOTIFICATION_CLASS_NAME, NOTIFICATION_POSITIONS } from './constants';
+import type { NotificationNormalizedOptions, NotificationAction } from './notification';
+
+/**
+ * The `syncIcon()` slot class of the icon inside a toast's close button.
+ *
+ * @type {string}
+ */
+const CLOSE_ICON_SLOT_CLASS = `${NOTIFICATION_CLASS_NAME}__close-icon`;
+
+/**
+ * Renders toast containers and individual notification elements. Used only by the Notification plugin.
+ */
+export class NotificationUI {
+  /**
+   * @type {HTMLElement}
+   */
+  #overlayElement: HTMLElement;
+
+  /**
+   * @type {boolean|function(string, string): string}
+   */
+  #sanitizer: boolean | SanitizerFn;
+
+  /**
+   * Object the missing-sanitizer "warn once" state is bound to. The grid root element, so this
+   * plugin shares one warning per instance with every other HTML write surface.
+   *
+   * @type {HTMLElement}
+   */
+  #warnScope: HTMLElement;
+
+  /**
+   * @type {boolean}
+   */
+  #isRtl: boolean = false;
+
+  /**
+   * @type {HTMLElement | null}
+   */
+  #host: HTMLElement | null = null;
+
+  /**
+   * @type {Map<string, HTMLElement>}
+   */
+  #stacks: Map<string, HTMLElement> = new Map();
+
+  /**
+   * Layout signature of the grid root the host was last fitted to. A render that moves or resizes
+   * nothing leaves it unchanged, so only the offset reads run, not the rect measurements.
+   *
+   * @type {string}
+   */
+  #fitSignature: string = '';
+
+  /**
+   * Keeps one icon slot of a container in step with the theme (`syncIcon()` bound to the grid).
+   * Injected so the UI stays decoupled from the theme engine.
+   *
+   * @type {Function}
+   */
+  readonly #syncIcon: IconSlotSync;
+
+  /**
+   * @param {object} params Constructor parameters.
+   * @param {HTMLElement} params.overlayElement Handsontable root overlays layer element.
+   * @param {boolean|function(string, string): string} params.sanitizer Sanitizer for HTML strings.
+   * @param {HTMLElement} params.warnScope Element the missing-sanitizer warning is deduplicated against.
+   * @param {boolean} params.isRtl Whether the grid uses RTL layout.
+   * @param {Function} params.syncIcon Keeps one icon slot of a container in step with the theme.
+   */
+  constructor({ overlayElement, sanitizer, warnScope, isRtl, syncIcon }: {
+    overlayElement: HTMLElement;
+    sanitizer: boolean | SanitizerFn;
+    warnScope: HTMLElement;
+    isRtl: boolean;
+    syncIcon: IconSlotSync;
+  }) {
+    this.#overlayElement = overlayElement;
+    this.#sanitizer = sanitizer;
+    this.#warnScope = warnScope;
+    this.#isRtl = isRtl;
+    this.#syncIcon = syncIcon;
+  }
+
+  /**
+   * Creates the notification host and four corner stack elements inside the overlays layer (`ht-overlay`).
+   */
+  install(): void {
+    if (this.#host) {
+      return;
+    }
+
+    const doc = this.#overlayElement.ownerDocument;
+    const host = doc.createElement('div');
+
+    host.className = `${NOTIFICATION_CLASS_NAME} handsontable`;
+    host.setAttribute('dir', this.#isRtl ? 'rtl' : 'ltr');
+
+    NOTIFICATION_POSITIONS.forEach((position) => {
+      const stack = doc.createElement('div');
+
+      stack.className = `${NOTIFICATION_CLASS_NAME}__stack ${NOTIFICATION_CLASS_NAME}__stack--${position}`;
+      stack.dataset.htNotificationPosition = position;
+      /* Scrollable overflow makes stacks tab-focusable in some browsers; keep them out of the tab order. */
+      stack.tabIndex = -1;
+      host.appendChild(stack);
+      this.#stacks.set(position, stack);
+    });
+
+    this.#overlayElement.appendChild(host);
+    this.#host = host;
+    this.#fitSignature = '';
+  }
+
+  /**
+   * Fits the host to the grid root, so the corner stacks anchor to the grid and not to the wider
+   * root wrapper (which also holds the top and bottom slots). Physical offsets are written with
+   * `right` and `bottom` reset, because the stylesheet's `inset: 0` would overconstrain the box.
+   *
+   * @param {HTMLElement} gridRoot The grid root element the toasts are anchored to.
+   */
+  fitToGrid(gridRoot: HTMLElement): void {
+    const host = this.#host;
+    const container = host?.offsetParent;
+
+    if (!host || !container || !gridRoot.offsetWidth || !gridRoot.offsetHeight) {
+      return;
+    }
+
+    const signature = [
+      gridRoot.offsetLeft, gridRoot.offsetTop, gridRoot.offsetWidth, gridRoot.offsetHeight,
+      (container as HTMLElement).offsetWidth, (container as HTMLElement).offsetHeight,
+    ].join(',');
+
+    if (signature === this.#fitSignature) {
+      return;
+    }
+
+    this.#fitSignature = signature;
+
+    const rootRect = gridRoot.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    // Rects are scaled by a transformed ancestor, inline pixels are not.
+    const scaleX = (containerRect.width / (container as HTMLElement).offsetWidth) || 1;
+    const scaleY = (containerRect.height / (container as HTMLElement).offsetHeight) || 1;
+    const left = Math.round(((rootRect.left - containerRect.left) / scaleX) - container.clientLeft);
+    const top = Math.round(((rootRect.top - containerRect.top) / scaleY) - container.clientTop);
+    const { style } = host;
+    const next = {
+      left: `${left}px`,
+      top: `${top}px`,
+      width: `${gridRoot.offsetWidth}px`,
+      // A grid that follows its content is taller than the wrapper, which stays at the container's height.
+      height: `${Math.max(0, Math.min(gridRoot.offsetHeight, (container as HTMLElement).offsetHeight - top))}px`,
+    };
+
+    if (
+      style.left === next.left &&
+      style.top === next.top &&
+      style.width === next.width &&
+      style.height === next.height
+    ) {
+      return;
+    }
+
+    Object.assign(style, next, { right: 'auto', bottom: 'auto' });
+  }
+
+  /**
+   * @returns {HTMLElement | null}
+   */
+  getHost(): HTMLElement | null {
+    return this.#host;
+  }
+
+  /**
+   * @param {string} position Stack key.
+   * @returns {HTMLElement | undefined}
+   */
+  getStack(position: string): HTMLElement | undefined {
+    return this.#stacks.get(position);
+  }
+
+  /**
+   * Updates RTL direction on the host.
+   *
+   * @param {boolean} isRtl Whether the grid uses RTL layout.
+   */
+  setRtl(isRtl: boolean): void {
+    this.#isRtl = isRtl;
+
+    if (this.#host) {
+      this.#host.setAttribute('dir', isRtl ? 'rtl' : 'ltr');
+    }
+  }
+
+  /**
+   * Updates the HTML sanitizer used for string notification messages.
+   *
+   * @param {boolean|function(string, string): string} sanitizer Sanitizer resolved from the grid settings.
+   */
+  setSanitizer(sanitizer: boolean | SanitizerFn): void {
+    this.#sanitizer = sanitizer;
+  }
+
+  /**
+   * Rebuilds the close icon of every currently-open toast after a theme change. A toast is built
+   * once, on `showMessage`, and not re-rendered afterward - so unlike a persistent UI (pagination,
+   * sheets bar), nothing else would ever pick up a class-list or renderer icon change for a toast
+   * already on screen. Safe to call repeatedly: `syncIcon()` keeps exactly one icon per button and
+   * leaves one whose mapping did not move untouched.
+   */
+  refreshIcons(): void {
+    if (!this.#host) {
+      return;
+    }
+
+    this.#host.querySelectorAll<HTMLElement>(`.${NOTIFICATION_CLASS_NAME}__close`).forEach((closeBtn) => {
+      this.#syncIcon(closeBtn, CLOSE_ICON_SLOT_CLASS, 'chipClose');
+    });
+  }
+
+  /**
+   * Builds a toast element from normalized options.
+   *
+   * @param {object} options Normalized notification options (id, variant, title, message, closable, actions).
+   * @param {string} closeLabel Translated label for the close control.
+   * @param {boolean} animation Whether enter animation is enabled.
+   * @returns {{ element: HTMLElement }}
+   */
+  createToastElement(options: NotificationNormalizedOptions, closeLabel: string, animation: boolean):
+      { element: HTMLElement } {
+    const doc = this.#overlayElement.ownerDocument;
+    const element = doc.createElement('div');
+    const isError = options.variant === 'error';
+
+    element.className =
+      `${NOTIFICATION_CLASS_NAME}__toast ${NOTIFICATION_CLASS_NAME}__toast--${options.variant}`;
+    element.dataset.htNotificationId = options.id;
+    element.setAttribute('role', isError ? 'alert' : 'status');
+    element.setAttribute('aria-live', isError ? 'assertive' : 'polite');
+    element.setAttribute('aria-atomic', 'true');
+
+    if (animation) {
+      element.classList.add(`${NOTIFICATION_CLASS_NAME}__toast--animate`);
+      element.classList.add(
+        options.position.startsWith('top') ?
+          `${NOTIFICATION_CLASS_NAME}__toast--stack-top` :
+          `${NOTIFICATION_CLASS_NAME}__toast--stack-bottom`
+      );
+    }
+
+    const inner = doc.createElement('div');
+
+    inner.className = `${NOTIFICATION_CLASS_NAME}__toast-inner`;
+
+    const accent = doc.createElement('div');
+
+    accent.className = `${NOTIFICATION_CLASS_NAME}__accent`;
+    accent.setAttribute('aria-hidden', 'true');
+    inner.appendChild(accent);
+
+    const body = doc.createElement('div');
+
+    body.className = `${NOTIFICATION_CLASS_NAME}__body`;
+
+    if (options.title) {
+      const titleEl = doc.createElement('div');
+
+      titleEl.className = `${NOTIFICATION_CLASS_NAME}__title`;
+      titleEl.textContent = stripTags(options.title);
+      body.appendChild(titleEl);
+    }
+
+    const messageEl = doc.createElement('div');
+
+    messageEl.className = `${NOTIFICATION_CLASS_NAME}__message`;
+
+    if (typeof options.message === 'string') {
+      fastInnerHTML(messageEl, options.message, this.#sanitizer, 'notification', this.#warnScope);
+    } else {
+      messageEl.appendChild(options.message);
+    }
+
+    body.appendChild(messageEl);
+
+    if (options.actions?.length) {
+      const actionsRow = doc.createElement('div');
+
+      actionsRow.className = `${NOTIFICATION_CLASS_NAME}__actions`;
+
+      options.actions.forEach((action: NotificationAction, index: number) => {
+        const btn = doc.createElement('button');
+
+        btn.type = 'button';
+        btn.className = `ht-button ht-button--${resolveButtonType(action.type)}`;
+        btn.textContent = stripTags(action.label);
+        btn.dataset.htNotificationAction = String(index);
+        actionsRow.appendChild(btn);
+      });
+
+      body.appendChild(actionsRow);
+    }
+
+    inner.appendChild(body);
+
+    if (options.closable) {
+      const closeBtn = doc.createElement('button');
+
+      closeBtn.type = 'button';
+      closeBtn.className = `${NOTIFICATION_CLASS_NAME}__close`;
+      closeBtn.setAttribute('aria-label', closeLabel);
+      this.#syncIcon(closeBtn, CLOSE_ICON_SLOT_CLASS, 'chipClose');
+      inner.appendChild(closeBtn);
+    }
+
+    element.appendChild(inner);
+
+    element.tabIndex = -1;
+
+    inner.querySelectorAll('button').forEach((btn) => {
+      btn.tabIndex = -1;
+    });
+
+    const win = this.#overlayElement.ownerDocument.defaultView;
+
+    if (animation) {
+      /* Double rAF: first frame paints opacity/transform start; second adds --visible so transition runs. */
+      win!.requestAnimationFrame(() => {
+        win!.requestAnimationFrame(() => {
+          element.classList.add(`${NOTIFICATION_CLASS_NAME}__toast--visible`);
+        });
+      });
+    } else {
+      element.classList.add(`${NOTIFICATION_CLASS_NAME}__toast--visible`);
+    }
+
+    return { element };
+  }
+
+  /**
+   * @param {HTMLElement} toastEl Toast root element.
+   * @returns {HTMLElement[]}
+   */
+  static getFocusables(toastEl: HTMLElement): HTMLElement[] {
+    const buttons = Array.from(toastEl.querySelectorAll('button')).filter(btn => !btn.disabled);
+
+    if (buttons.length > 0) {
+      return buttons;
+    }
+
+    return [toastEl];
+  }
+
+  /**
+   * Enables or disables sequential keyboard focus for notification controls. When disabled, controls stay
+   * out of the tab order so opening a toast does not move focus; screen readers still receive `aria-live` updates.
+   *
+   * @param {HTMLElement | null} host Notification plugin host element.
+   * @param {boolean} enabled Whether controls participate in tab navigation.
+   */
+  static setSequentialFocusWithinHost(host: HTMLElement | null, enabled: boolean): void {
+    if (!host) {
+      return;
+    }
+
+    const tabIndex = enabled ? 0 : -1;
+
+    host.querySelectorAll(`.${NOTIFICATION_CLASS_NAME}__toast`).forEach((toast) => {
+      const toastEl = toast as HTMLElement;
+      const buttons = Array.from(toastEl.querySelectorAll('button')).filter(btn => !btn.disabled);
+
+      buttons.forEach((btn) => {
+        btn.tabIndex = tabIndex;
+      });
+
+      if (buttons.length === 0) {
+        toastEl.tabIndex = tabIndex;
+      } else {
+        toastEl.tabIndex = -1;
+      }
+    });
+  }
+
+  /**
+   * Detaches the host from the DOM and clears internal stack references.
+   */
+  destroy(): void {
+    this.#host?.remove();
+    this.#host = null;
+    this.#stacks.clear();
+  }
+}

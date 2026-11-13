@@ -1,0 +1,932 @@
+/**
+ * GridSettings interface and Events type — the central Handsontable configuration contract.
+ * Moved here from common.ts as part of the common.ts decomposition.
+ */
+
+import type {
+  CellCoords as WalkontableCellCoords,
+  CellRange as WalkontableCellRange,
+} from '../3rdparty/walkontable/src';
+import type {
+  CellChange, ChangeSource, RowObject, CellValue, CellProperties, ColumnSettings,
+  ColumnDataGetterSetterFunction, RemoveIndexSignature,
+} from '../settings';
+import type { ColumnConditions, FiltersSettings } from '../plugins/filters';
+import type { FormulaBuilderPluginSettings } from '../plugins/formulaBuilder';
+import type { LayoutConfig } from './layout';
+import type { PredefinedMenuItemKey, MenuItemConfig } from '../utils/menu/types';
+import type { ContextMenu } from '../plugins/contextMenu';
+import type { DropdownMenu } from '../plugins/dropdownMenu';
+import type { NotificationConfig } from '../plugins/notification';
+import type { ThemeBuilder } from '../themes/engine/builder';
+import type { RowSelectionSettings, RowSelectionSource } from '../plugins/rowSelection';
+import type { HeaderCheckboxSettings } from '../plugins/checkboxHeader';
+import type { SheetsBarSettings, SheetsBarViewState } from '../plugins/sheetsBar';
+import type { ManualColumnFreezeSettings } from '../plugins/manualColumnFreeze';
+import type { FreezeBarSettings, FreezeEdge, FreezeSource } from '../plugins/freezeBar';
+import type { ImportFileSettings, ImportResult } from '../plugins/importFile';
+import type { ExportFileSettings } from '../plugins/exportFile';
+import type { UndoRedoSettings } from '../plugins/undoRedo';
+import type { AsyncValueCancelReason, AsyncValuesSettings } from '../plugins/asyncValues';
+import type { PasteClipboardData } from '../plugins/copyPaste';
+import type { ColumnSortingConfig } from '../plugins/columnSorting';
+import type { NestedHeader } from '../plugins/nestedHeaders';
+import type { UndoRedoAction } from '../plugins/undoRedo';
+import type {
+  DataProviderBeforeFetchParameters,
+  DataProviderQueryParameters,
+  DataProviderFetchResult,
+  RowMutationPayload,
+  DataProviderConfig,
+} from '../plugins/dataProvider';
+import type { RangeType, HotInstance } from './types';
+import type { ThemeColorScheme, DensityType } from '../themes/types';
+import type { IndexesChangeSource } from '../translations/indexMapper';
+import type { SourceLabel } from '../utils/cellSource';
+import type { RowIdSetting } from './rowIdentity/rowIdentity';
+
+export type { PasteClipboardData };
+
+/**
+ * The function shape of the `sourceDataValidator` option. Returns `true` when the value is valid.
+ * The optional `rowIndependent` flag marks a validator whose result depends only on the value and
+ * column/global-level meta, never on per-row meta - letting the source-data validation pass batch
+ * whole columns instead of scanning every cell.
+ */
+export type SourceDataValidatorFn = {
+  (value: CellValue, cellMeta: CellProperties, source?: string): boolean;
+  rowIndependent?: boolean;
+};
+
+/**
+ * The write surface passed as the second argument to the `sanitizer` option, so a sanitizer can
+ * apply different rules per surface (for example, stricter for pasted content).
+ *
+ * Annotate the parameter with it to get completion on the values you branch on:
+ *
+ * ```ts
+ * import type { SanitizerContext } from 'handsontable';
+ *
+ * const settings = {
+ *   sanitizer: (content: string, source: SanitizerContext) =>
+ *     source === 'CopyPaste.paste' ? strict(content) : loose(content),
+ * };
+ * ```
+ *
+ * The listed values are the ones a grid write surface passes to a configured sanitizer. Two more
+ * strings reach `fastInnerHTML` and are deliberately not listed:
+ *
+ * - `'html'`, from the `allowHtml` autocomplete and dropdown path only. It always travels with
+ *   `sanitizer: false`, so no sanitizer ever sees it. (The `html` cell type passes no context at all
+ *   and so falls through to the default below.)
+ * - `'innerHTML'`, the `context` parameter's own default. No grid surface reaches a sanitizer under
+ *   it, but `Handsontable.dom.fastInnerHTML()` is public, so a caller passing their own sanitizer
+ *   and no context of their own does receive it.
+ *
+ * The `(string & {})` member is what keeps that last case compiling, along with a sanitizer shared
+ * with another library or one branching on a surface added in a later release. The trade is that the
+ * type cannot reject a wrong value: a misspelled comparison comes out as a branch that never runs.
+ */
+export type SanitizerContext =
+  | 'header'
+  | 'password'
+  | 'contextMenu'
+  | 'selectEditor'
+  | 'dialog'
+  | 'notification'
+  | 'CopyPaste.paste'
+  | 'CopyPaste.paste.sourceData'
+  | (string & {});
+
+/**
+ * A value a Trusted Types sink accepts in place of a plain string.
+ *
+ * Structural on purpose. `TrustedHTML` is not in the DOM lib of the TypeScript version this
+ * package compiles against, and declaring it as a global here would collide with
+ * `@types/trusted-types` in any project that installs it, or with a future DOM lib. Matching the
+ * shape instead means a real `TrustedHTML` satisfies it without anyone declaring anything.
+ *
+ * A `sanitizer` may return one: under `require-trusted-types-for 'script'` a sink rejects plain
+ * strings, so a page enforcing Trusted Types has to hand back the output of its own policy.
+ * Handsontable passes that value to the sink untouched - it is never concatenated, re-tested, or
+ * otherwise turned back into a string, any of which would strip the trust.
+ */
+export type TrustedHTMLLike = { toString(): string };
+
+/**
+ * The consumer surface passed as the second argument to the `textExtractor` option, so an extractor
+ * can apply different rules per surface.
+ *
+ * Where `SanitizerContext` names a surface that writes HTML *to the DOM*, this names one that turns
+ * grid content into *text* for somewhere the DOM cannot reach - a file, the clipboard, a printer.
+ *
+ * Annotate the parameter with it to get completion on the values you branch on:
+ *
+ * ```ts
+ * import type { TextExtractorContext } from 'handsontable';
+ *
+ * const settings = {
+ *   textExtractor: (content: string, source: TextExtractorContext) =>
+ *     source === 'ExportFile.rowHeader' ? content.trim() : strip(content),
+ * };
+ * ```
+ *
+ * The listed values are the surfaces that ship today. The `(string & {})` member is what lets a
+ * plugin - including a third-party one - pass a surface of its own without a change here, which is
+ * what keeps the option extensible. It carries the same trade as `SanitizerContext`: the type cannot
+ * reject a wrong value, so a misspelled comparison comes out as a branch that never runs.
+ */
+export type TextExtractorContext =
+  | 'ExportFile.columnHeader'
+  | 'ExportFile.rowHeader'
+  | 'CopyPaste.columnHeader'
+  | (string & {});
+
+/**
+ * Grid settings interface representing all possible Handsontable configuration options.
+ * Derived from the metaSchema factory in dataMap/metaManager/metaSchema.ts.
+ */
+export interface GridSettings {
+  // Appearance
+  activeHeaderClassName?: string;
+  className?: string | string[];
+  commentedCellClassName?: string;
+  currentColClassName?: string;
+  currentHeaderClassName?: string;
+  currentRowClassName?: string;
+  headerClassName?: string | string[];
+  invalidCellClassName?: string;
+  noWordWrapClassName?: string;
+  placeholderCellClassName?: string;
+  readOnlyCellClassName?: string;
+  readOnlyStyling?: boolean;
+  tableClassName?: string | string[];
+  // `object` is the plain theme config the option's table documents (`horizonTheme`). The closed
+  // `ThemeParams` type would reject a config with a token of your own, which compiled as `any`. The
+  // cost is that an array or a function also compiles; `validateSettings()` rejects the array and the
+  // grid ignores both, and `Record<string, unknown>` would reject `horizonTheme`, an interface type.
+  theme?: ThemeBuilder | object | string;
+  themeName?: string;
+  colorScheme?: ThemeColorScheme;
+  density?: DensityType;
+
+  // Dimensions
+  width?: number | 'auto' | (string & {}) | null | (() => number | string | null);
+  height?: number | 'auto' | (string & {}) | null | (() => number | string | null);
+  colWidths?: number | number[] | string | ((physicalColumn: number) => number | string | null | undefined)
+    | Array<number | string | null | undefined> | null;
+  rowHeights?: number | number[] | string | ((physicalRow: number) => number | string) | Array<number | string>;
+  rowHeaderWidth?: number | number[] | string | Array<number | string>;
+  columnHeaderHeight?: number | number[] | string | Array<number | string>;
+  minRowHeights?: number | number[] | string | ((physicalRow: number) => number | string) | Array<number | string>;
+  maxRows?: number;
+  maxCols?: number;
+  minRows?: number;
+  minCols?: number;
+  minSpareCols?: number;
+  minSpareRows?: number;
+  startCols?: number;
+  startRows?: number;
+  stretchH?: 'none' | 'all' | 'last';
+
+  // Data
+  data?: unknown[][] | object[];
+  dataSchema?: object | ((rowIndex: number) => Record<string, unknown>);
+  dataDotNotation?: boolean;
+  /**
+   * How each row gets an id that stays with it across sorting, filtering, moving, inserting, and removing rows:
+   * a property path, a function that returns the id of a source row, or `true` for ids Handsontable generates.
+   */
+  rowId?: RowIdSetting;
+  columns?: ColumnSettings[] | ((column: number) => ColumnSettings);
+  cell?: object[];
+  cells?: (row: number, column: number, prop: string | number) => object;
+  source?: unknown[] | ((query: string, callback: (items: unknown[]) => void) => void);
+  /**
+   * How an `autocomplete` or `dropdown` cell labels a `source` entry whose `value` is an object:
+   * a property path, or a function that returns the label.
+   */
+  sourceLabel?: SourceLabel;
+  type?: string;
+  /**
+   * Configuration of the nested grid used by the `handsontable` cell type.
+   */
+  handsontable?: GridSettings;
+  /**
+   * Controls which value `Core#getValue` returns for the focused cell — a row property name, or a
+   * function whose `this` is bound to the instance. Used by the `handsontable` cell type to pull a
+   * value from the nested grid back into the edited cell.
+   */
+  getValue?: string | ((this: HotInstance) => CellValue);
+
+  // Editing
+  allowEmpty?: boolean;
+  allowHtml?: boolean;
+  allowInsertColumn?: boolean;
+  allowInsertRow?: boolean;
+  allowInvalid?: boolean;
+  allowRemoveColumn?: boolean;
+  allowRemoveRow?: boolean;
+  copyable?: boolean;
+  copyPaste?: boolean | object;
+  editor?: string | (new (...args: unknown[]) => unknown) | boolean;
+  emptyValue?: CellValue;
+  enterBeginsEditing?: boolean;
+  enterCommits?: boolean;
+  enterMoves?: { col: number; row: number } | ((event: KeyboardEvent) => { col: number; row: number });
+  fillHandle?: boolean | string | { autoInsertRow?: boolean; direction?: string };
+  filterSelectedItems?: boolean;
+  imeFastEdit?: boolean;
+  maxLength?: number;
+  maxSelections?: number;
+  parsePastedValue?: boolean;
+  readOnly?: boolean;
+  searchInput?: boolean;
+  skipColumnOnPaste?: boolean;
+  skipRowOnPaste?: boolean;
+  sourceDataValidator?: SourceDataValidatorFn;
+  sourceDataWarningMessage?: string;
+  // Method syntax and an `any` parameter on purpose, as for `sanitizer` below: both options were `any`,
+  // so a consumer callback that annotates its parameter more narrowly, or leaves it to be inferred and
+  // calls `value.trim()` or `b.localeCompare(a)`, compiles today. A function property would reject the
+  // first form and an `unknown` or union parameter the second - see `.ai/BREAKING-CHANGES.md`. The
+  // breaking part of declaring these options is the read side (they are optional now) and the arity.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sourceSortFunction?(entries: any[]): any[];
+  tabMoves?: { row: number; col: number } | ((event: KeyboardEvent) => { row: number; col: number });
+  trimWhitespace?: boolean;
+  undo?: boolean | UndoRedoSettings;
+  validator?: string | RegExp | ((value: unknown, callback: (valid: boolean) => void) => void);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  valueParser?(value: any, cellProperties: CellProperties): CellValue;
+  wordWrap?: boolean;
+
+  // Rendering
+  renderer?: string | ((hotInstance: HotInstance, td: HTMLTableCellElement, row: number, col: number,
+    prop: string | number, value: CellValue, cellProperties: CellProperties) => HTMLTableCellElement | void);
+  valueFormatter?: (value: CellValue, cellProperties: CellProperties) => CellValue;
+  valueGetter?: (value: CellValue, visualRow: number, visualCol: number, cellMeta: CellProperties) => CellValue;
+  // `source` is declared optional on purpose. Adding a required fifth parameter would raise the
+  // option's minimum call arity, so a consumer that reads the option back out and invokes it with
+  // four arguments would stop compiling - see `.ai/BREAKING-CHANGES.md`.
+  valueSetter?: (value: CellValue, visualRow: number, visualCol: number, cellMeta: CellProperties,
+    source?: ChangeSource) => CellValue;
+  placeholder?: string | number;
+  renderAllRows?: boolean;
+  renderAllColumns?: boolean;
+  renderMode?: 'always' | 'onChange';
+  viewportColumnRenderingOffset?: number | 'auto';
+  viewportRowRenderingOffset?: number | 'auto';
+  viewportColumnRenderingThreshold?: number | 'auto';
+  viewportRowRenderingThreshold?: number | 'auto';
+  observeDOMVisibility?: boolean;
+  textEllipsis?: boolean | number;
+
+  // Selection & navigation
+  disableVisualSelection?: boolean | string | string[];
+  fragmentSelection?: boolean | string;
+  navigableHeaders?: boolean;
+  outsideClickDeselects?: boolean | ((target: HTMLElement, coords?: WalkontableCellCoords) => boolean);
+  selectionMode?: 'single' | 'range' | 'multiple';
+  selectionHandles?: boolean;
+  moveCells?: boolean;
+  tabNavigation?: boolean;
+  autoWrapCol?: boolean;
+  autoWrapRow?: boolean;
+
+  // Fixed / frozen
+  fixedColumnsEnd?: number;
+  fixedColumnsLeft?: number;
+  fixedColumnsStart?: number;
+  fixedRowsBottom?: number;
+  fixedRowsTop?: number;
+  limitFixedToViewport?: boolean;
+
+  // Headers
+  colHeaders?: boolean | string[] | ((column: number) => string);
+  rowHeaders?: boolean | string[] | ((row: number) => string);
+
+  // Sorting
+  columnSorting?: boolean | object;
+  multiColumnSorting?: boolean | object;
+  sortByRelevance?: boolean;
+
+  // Plugins
+  asyncValues?: boolean | AsyncValuesSettings;
+  autoLink?: boolean | {
+    target?: '_blank' | '_self';
+    schemes?: Array<'http' | 'https' | 'mailto' | 'tel'>;
+    inline?: boolean;
+    strict?: boolean;
+    className?: string;
+  };
+  autoColumnSize?: boolean | object;
+  autoRowSize?: boolean | object;
+  autoRowHeaderSize?: boolean | object;
+  bindRowsWithHeaders?: boolean | string;
+  collapsibleColumns?: boolean | { row: number; col: number; collapsible?: boolean; [key: string]: unknown }[];
+  columnSummary?: object[] | (() => object[]);
+  comments?: boolean | object | object[];
+  contextMenu?: boolean | object | string[];
+  customBorders?: boolean | object[];
+  customBordersProgressive?: boolean | { chunkSize?: number };
+  dialog?: boolean | object;
+  dataProvider?: DataProviderConfig | null;
+  dragToScroll?: boolean | { interval?: { min?: number; max?: number }; rampDistance?: number };
+  dropdownMenu?: boolean | object | string[];
+  emptyDataState?: boolean | object;
+  filters?: boolean | FiltersSettings;
+  filterValueComparator?: (a: unknown, b: unknown) => number;
+  formulaBuilder?: false | FormulaBuilderPluginSettings;
+  formulas?: boolean | {
+    engine: unknown;
+    sheetName?: string;
+    hyperlinks?: boolean | { target?: '_blank' | '_self'; schemes?: Array<'http' | 'https' | 'mailto' | 'tel'> };
+    batchEvaluation?: boolean;
+    [key: string]: unknown;
+  };
+  hiddenColumns?: boolean | object;
+  hiddenRows?: boolean | object;
+  loading?: boolean | object;
+  notification?: boolean | NotificationConfig;
+  freezeBar?: boolean | FreezeBarSettings;
+  manualColumnFreeze?: boolean | ManualColumnFreezeSettings;
+  manualColumnMove?: boolean | number[];
+  manualColumnResize?: boolean | number[];
+  manualRowMove?: boolean | number[];
+  manualRowResize?: boolean | number[];
+  mergeCells?: boolean | object | object[];
+  nestedHeaders?: NestedHeader[][];
+  nestedRows?: boolean;
+  pagination?: boolean | object;
+  rowSelection?: boolean | RowSelectionSettings;
+  search?: boolean | object;
+  importFile?: boolean | ImportFileSettings;
+  exportFile?: boolean | ExportFileSettings;
+  sheetsBar?: boolean | SheetsBarSettings;
+  trimRows?: boolean | number[];
+
+  // Checkbox
+  checkedTemplate?: unknown;
+  uncheckedTemplate?: unknown;
+  headerCheckbox?: boolean | HeaderCheckboxSettings;
+
+  // Date / Time
+  dateFormat?: Intl.DateTimeFormatOptions;
+  timeFormat?: Intl.DateTimeFormatOptions;
+  dateTimeFormat?: Intl.DateTimeFormatOptions;
+  defaultDate?: string;
+
+  // Password
+  hashLength?: number;
+  hashRevealDelay?: number;
+  hashSymbol?: string;
+
+  // Formatting
+  filter?: boolean;
+  filteringCaseSensitive?: boolean;
+  label?: object;
+  locale?: string;
+  language?: string;
+  numericFormat?: object;
+  preserveNumericLiteral?: boolean;
+  preserveTextValue?: boolean;
+  selectOptions?: string[] | number[] | object[] | Record<string, string>
+    | ((visualRow: number, visualColumn: number, prop: string | number) => string[] | Record<string, string>);
+  strict?: boolean;
+  title?: string;
+  trimDropdown?: boolean;
+  visibleRows?: number;
+
+  // Empty checks
+  isEmptyCol?: (col: number) => boolean;
+  isEmptyRow?: (row: number) => boolean;
+
+  // Layout
+  ariaTags?: boolean;
+  injectCoreCss?: boolean;
+  layout?: LayoutConfig;
+  layoutDirection?: 'inherit' | 'ltr' | 'rtl';
+  licenseKey?: string;
+  preventOverflow?: boolean | string;
+  preventWheel?: boolean;
+
+  // Security
+  // Deliberately left as `...args: any[]` rather than naming `context: SanitizerContext` here.
+  // Declaring the second parameter would raise the option's minimum *call* arity from one to two,
+  // so `hot.getSettings().sanitizer?.(html)` would stop compiling (TS2555) for anyone who reuses the
+  // configured sanitizer. Declaring it optional instead types it `SanitizerContext | undefined`,
+  // which breaks any body that uses the parameter as a definite string. Both are build breaks on
+  // upgrade, so the contract is published as the exported `SanitizerContext` type that a user opts
+  // into on their own parameter - see its docs above.
+  //
+  // Returning a `TrustedHTML` is supported for pages enforcing Trusted Types; see `TrustedHTMLLike`.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sanitizer?: (html: string, ...args: any[]) => string | TrustedHTMLLike;
+
+  // Content projection
+  // The second parameter is absorbed by `...args: any[]` for the same reason as `sanitizer` above:
+  // naming it here would raise the option's minimum call arity to two, breaking anyone who reuses
+  // the configured extractor as `hot.getSettings().textExtractor?.(value)`. The contract is
+  // published as the exported `TextExtractorContext` type instead.
+  // `boolean`, not `true`: `false` reads as off at runtime, the JSDoc documents it, and typing the
+  // option narrower would stop a caller passing a plain `boolean` - a feature flag, a value read
+  // from configuration - without a ternary that only exists to satisfy the type.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  textExtractor?: boolean | ((content: string, ...args: any[]) => string);
+
+  // State
+  initialState?: Record<string, unknown>;
+
+  // Hook callbacks
+  afterAddChild?: (parent: RowObject, element: RowObject | undefined, index: number | undefined) => void;
+  afterAsyncValueCancel?: (physicalRow: number, prop: string | number, reason: AsyncValueCancelReason,
+    rowId: unknown) => void;
+  afterAsyncValueReject?: (physicalRow: number, prop: string | number, error: unknown, message: string,
+    rowId: unknown) => void;
+  afterAsyncValueResolve?: (physicalRow: number, prop: string | number, value: unknown, rowId: unknown) => void;
+  afterAsyncValuesIdle?: () => void;
+  afterAsyncValueStart?: (physicalRow: number, prop: string | number, rowId: unknown) => void;
+  afterAutofill?: (fillData: CellValue[][], sourceRange: WalkontableCellRange, targetRange: WalkontableCellRange,
+    direction: 'up' | 'down' | 'left' | 'right') => void;
+  afterBeginEditing?: (row: number, column: number) => void;
+  afterCellMetaReset?: () => void;
+  afterChange?: (changes: CellChange[] | null, source: ChangeSource) => void;
+  afterChangesObserved?: () => void;
+  afterColumnCollapse?: (currentCollapsedColumns: number[], destinationCollapsedColumns: number[],
+    collapsePossible: boolean, successfullyCollapsed: boolean) => void;
+  afterColumnExpand?: (currentCollapsedColumns: number[], destinationCollapsedColumns: number[],
+    expandPossible: boolean, successfullyExpanded: boolean) => void;
+  afterColumnFreeze?: (columnIndex: number, isFreezingPerformed: boolean) => void;
+  afterColumnMove?: (movedColumns: number[], finalIndex: number, dropIndex: number | undefined,
+    movePossible: boolean, orderChanged: boolean) => void;
+  afterColumnResize?: (newSize: number, column: number, isDoubleClick: boolean) => void;
+  afterFreezeChange?: (edge: FreezeEdge, newCount: number, oldCount: number, source: FreezeSource) => void;
+  afterColumnSequenceChange?: (source: ChangeSource) => void;
+  afterCustomBordersUpdate?: () => void;
+  afterColumnSequenceCacheUpdate?: (indexesChangesState: {
+    indexesSequenceChanged: boolean; trimmedIndexesChanged: boolean; hiddenIndexesChanged: boolean;
+    indexesChangeSource?: IndexesChangeSource;
+  }) => void;
+  afterColumnSort?: (currentSortConfig: ColumnSortingConfig[], destinationSortConfigs: ColumnSortingConfig[],
+    sortPossible: boolean) => void;
+  afterColumnUnfreeze?: (columnIndex: number, isFreezingPerformed: boolean, finalIndex: number) => void;
+  afterContextMenuDefaultOptions?: (predefinedItems: Array<PredefinedMenuItemKey | MenuItemConfig>)
+    => void;
+  afterContextMenuHide?: (context: ContextMenu) => void;
+  afterContextMenuShow?: (context: ContextMenu) => void;
+  afterCopy?: (data: CellValue[][], coords: RangeType[], copiedHeadersCount: { columnHeadersCount: number })
+    => void;
+  afterCopyLimit?: (selectedRows: number, selectedColumns: number, copyRowsLimit: number,
+    copyColumnsLimit: number) => void;
+  afterCreateCol?: (index: number, amount: number, source?: ChangeSource) => void;
+  afterCreateRow?: (index: number, amount: number, source?: ChangeSource) => void;
+  afterCut?: (data: CellValue[][], coords: RangeType[]) => void;
+  afterDeselect?: () => void;
+  afterDestroy?: () => void;
+  afterDetachChild?: (
+    parent: RowObject, element: RowObject, finalElementPosition: number | null, source?: string
+  ) => void;
+  afterDialogFocus?: (focusSource: 'tab_from_above' | 'tab_from_below' | 'click' | 'show') => void;
+  afterDialogHide?: () => void;
+  afterDialogShow?: () => void;
+  afterDocumentKeyDown?: (event: KeyboardEvent) => void;
+  afterDrawSelection?: (currentRow: number, currentColumn: number, cornersOfSelection: number[],
+    layerLevel?: number) => string | void;
+  afterDropdownMenuDefaultOptions?: (predefinedItems: Array<PredefinedMenuItemKey | MenuItemConfig>)
+    => void;
+  afterDropdownMenuHide?: (instance: DropdownMenu) => void;
+  afterDropdownMenuShow?: (instance: DropdownMenu) => void;
+  afterEmptyDataStateHide?: () => void;
+  afterEmptyDataStateShow?: () => void;
+  afterFilter?: (conditionsStack: ColumnConditions[]) => void;
+  afterFontsLoad?: () => void;
+  afterFormulasValuesUpdate?: (changes: unknown[]) => void;
+  afterGetCellMeta?: (row: number, column: number, cellProperties: CellProperties) => void;
+  afterGetColHeader?: (column: number, TH: HTMLTableHeaderCellElement, headerLevel: number) => void;
+  afterGetColumnHeaderRenderers?: (renderers: Array<(...args: unknown[]) => unknown>) => void;
+  afterGetRowHeader?: (row: number, TH: HTMLTableHeaderCellElement) => void;
+  afterGetRowHeaderRenderers?: (renderers: Array<(...args: unknown[]) => unknown>) => void;
+  afterHideColumns?: (currentHideConfig: number[], destinationHideConfig: number[],
+    actionPossible: boolean, stateChanged: boolean) => void;
+  afterHideRows?: (currentHideConfig: number[], destinationHideConfig: number[],
+    actionPossible: boolean, stateChanged: boolean) => void;
+  afterImport?: (result: ImportResult, format: string) => void;
+  afterInit?: () => void;
+  afterLanguageChange?: (languageCode: string) => void;
+  afterListen?: () => void;
+  afterLoadData?: (sourceData: unknown[], initialLoad: boolean, source: ChangeSource | undefined) => void;
+  afterLoadingHide?: () => void;
+  afterLoadingShow?: () => void;
+  afterMergeCells?: (cellRange: WalkontableCellRange,
+    mergeParent: { row: number; col: number; rowspan: number; colspan: number }, auto: boolean) => void;
+  afterModifyTransformEnd?: (coords: WalkontableCellCoords, rowTransformDir: number, colTransformDir: number) => void;
+  afterModifyTransformFocus?: (coords: WalkontableCellCoords, rowTransformDir: number, colTransformDir: number) => void;
+  afterModifyTransformStart?: (coords: WalkontableCellCoords, rowTransformDir: number, colTransformDir: number) => void;
+  afterMomentumScroll?: () => void;
+  /**
+   * Fired after a `moveCells` drag has relocated a selection.
+   *
+   * @since 18.1.0
+   */
+  afterMoveCells?: (sourceRange: WalkontableCellRange, targetRange: WalkontableCellRange, isCopy: boolean) => void;
+  afterNamedExpressionAdded?: (namedExpressionName: string, changes: unknown[]) => void;
+  afterNamedExpressionRemoved?: (namedExpressionName: string, changes: unknown[]) => void;
+  afterNotificationHide?: (id: string) => void;
+  afterNotificationShow?: (id: string, options: {
+    id: string;
+    variant: 'info' | 'success' | 'warning' | 'error';
+    duration: number;
+    position: 'top-start' | 'top-end' | 'bottom-start' | 'bottom-end';
+    closable: boolean;
+    actions: Array<{ label: string; type?: 'primary' | 'secondary'; callback: () => void }>;
+    title?: string;
+    message?: string | HTMLElement;
+  }) => void;
+  afterOnCellContextMenu?: (event: MouseEvent, coords: WalkontableCellCoords, TD: HTMLTableCellElement) => void;
+  afterOnCellCornerDblClick?: (event: MouseEvent) => void;
+  afterOnCellCornerMouseDown?: (event: MouseEvent) => void;
+  afterOnSelectionHandleMouseDown?: (event: MouseEvent, edge: 'top' | 'bottom' | 'start' | 'end') => void;
+  afterOnSelectionEdgeMouseDown?: (event: MouseEvent, edge: 'top' | 'bottom' | 'start' | 'end') => void;
+  afterOnCellMouseDown?: (event: MouseEvent, coords: WalkontableCellCoords, TD: HTMLTableCellElement) => void;
+  afterOnCellMouseOut?: (event: MouseEvent, coords: WalkontableCellCoords, TD: HTMLTableCellElement) => void;
+  afterOnCellMouseOver?: (event: MouseEvent, coords: WalkontableCellCoords, TD: HTMLTableCellElement) => void;
+  afterOnCellMouseOverOutside?: (event: MouseEvent, coords: WalkontableCellCoords, TD: HTMLTableCellElement) => void;
+  afterOnCellMouseUp?: (event: MouseEvent, coords: WalkontableCellCoords, TD: HTMLTableCellElement) => void;
+  afterPageChange?: (oldPage: number, newPage: number) => void;
+  afterPageCounterVisibilityChange?: (isVisible: boolean) => void;
+  afterPageNavigationVisibilityChange?: (isVisible: boolean) => void;
+  afterPageSizeChange?: (oldPageSize: number | 'auto', newPageSize: number | 'auto') => void;
+  afterPageSizeVisibilityChange?: (isVisible: boolean) => void;
+  afterPaste?: (data: CellValue[][], coords: RangeType[]) => void;
+  /**
+   * Declaring this callback here has no effect: the hook runs during the `beforeInit` dispatch,
+   * before Handsontable reads the callbacks from the settings object. Register it globally with
+   * `Handsontable.hooks.add('afterPluginsInitialized', callback)` instead.
+   */
+  afterPluginsInitialized?: () => void;
+  afterRedo?: (action: UndoRedoAction) => void;
+  afterRedoStackChange?: (undoneActionsBefore: UndoRedoAction[], undoneActionsAfter: UndoRedoAction[]) => void;
+  afterRefreshDimensions?: (previousDimensions: { width: number; height: number },
+    currentDimensions: { width: number; height: number }, stateChanged: boolean) => void;
+  afterRemoveCellMeta?: (row: number, column: number, key: string, value: unknown) => void;
+  afterRemoveCol?: (index: number, amount: number, physicalColumns: number[], source?: ChangeSource) => void;
+  afterRemoveRow?: (index: number, amount: number, physicalRows: number[], source?: ChangeSource) => void;
+  afterRender?: (isForced: boolean) => void;
+  afterRenderer?: (TD: HTMLTableCellElement, row: number, column: number, prop: string | number,
+    value: CellValue, cellProperties: CellProperties) => void;
+  afterResumeExecution?: () => void;
+  afterRowCollapse?: (currentCollapsedRows: number[], destinationCollapsedRows: number[],
+    collapsePossible: boolean, successfullyCollapsed: boolean) => void;
+  afterRowExpand?: (currentCollapsedRows: number[], destinationCollapsedRows: number[],
+    expandPossible: boolean, successfullyExpanded: boolean) => void;
+  afterRowMove?: (movedRows: number[], finalIndex: number, dropIndex: number | undefined,
+    movePossible: boolean, orderChanged: boolean) => void;
+  afterRowIdsRemoved?: (rowIds: unknown[], source?: ChangeSource) => void;
+  afterRowIdsReset?: () => void;
+  afterRowResize?: (newSize: number, row: number, isDoubleClick: boolean) => void;
+  afterRowSelectionChange?: (selectedRows: number[], deselectedRows: number[], source: RowSelectionSource) => void;
+  afterRowSequenceChange?: (source: ChangeSource) => void;
+  afterRowSequenceCacheUpdate?: (indexesChangesState: {
+    indexesSequenceChanged: boolean; trimmedIndexesChanged: boolean; hiddenIndexesChanged: boolean;
+    indexesChangeSource?: IndexesChangeSource;
+  }) => void;
+  afterRowsMutation?: (operation: string, payload: RowMutationPayload) => void;
+  afterRowsMutationError?: (operation: string, error: Error, payload: RowMutationPayload) => void;
+  afterScroll?: () => void;
+  afterScrollHorizontally?: () => void;
+  afterScrollVertically?: () => void;
+  afterSelectAll?: (from: WalkontableCellCoords, to: WalkontableCellCoords, highlight?: WalkontableCellCoords) => void;
+  afterSelectColumns?: (from: WalkontableCellCoords, to: WalkontableCellCoords,
+    highlight: WalkontableCellCoords) => void;
+  afterSelection?: (row: number, column: number, row2: number, column2: number,
+    preventScrolling: { value: boolean }, selectionLayerLevel: number) => void;
+  afterSelectionByProp?: (row: number, prop: string, row2: number, prop2: string,
+    preventScrolling: { value: boolean }, selectionLayerLevel: number) => void;
+  afterSelectionEnd?: (row: number, column: number, row2: number, column2: number,
+    selectionLayerLevel: number) => void;
+  afterSelectionEndByProp?: (row: number, prop: string, row2: number, prop2: string,
+    selectionLayerLevel: number) => void;
+  afterSelectionFocusSet?: (row: number, column: number, preventScrolling: { value: boolean }) => void;
+  afterSelectRows?: (from: WalkontableCellCoords, to: WalkontableCellCoords, highlight: WalkontableCellCoords) => void;
+  afterSetCellMeta?: (row: number, column: number, key: string, value: unknown) => void;
+  afterSetDataAtCell?: (changes: CellChange[], source?: ChangeSource) => void;
+  afterSetDataAtRowProp?: (changes: CellChange[], source?: ChangeSource) => void;
+  afterSetSourceDataAtCell?: (changes: CellChange[], source?: ChangeSource) => void;
+  afterSetTheme?: (themeName: string | boolean | undefined, firstRun: boolean) => void;
+  afterSheetAdded?: (addedSheetDisplayName: string) => void;
+  afterSheetRemoved?: (removedSheetDisplayName: string, changes: unknown[]) => void;
+  afterSheetRenamed?: (oldDisplayName: string, newDisplayName: string) => void;
+  afterSheetTabAdd?: (sheetId: number, name: string, duplicateOfId: number | null, source: string) => void;
+  afterSheetTabChange?: (oldSheetId: number, newSheetId: number, source: string) => void;
+  afterSheetTabMove?: (sheetId: number, finalIndex: number, source: string) => void;
+  afterSheetTabRemove?: (sheetId: number, source: string) => void;
+  afterSheetTabRename?: (sheetId: number, oldName: string, newName: string, source: string) => void;
+  afterSheetTabStateCapture?: (sheetId: number, viewState: SheetsBarViewState, source: string) => void;
+  afterSheetTabStateRestore?: (sheetId: number, viewState: SheetsBarViewState, source: string) => void;
+  afterSuspendExecution?: () => void;
+  afterTrimRow?: (currentTrimConfig: number[], destinationTrimConfig?: number[],
+    actionPossible?: boolean, stateChanged?: boolean) => void;
+  afterUndo?: (action: UndoRedoAction) => void;
+  afterUndoStackChange?: (doneActionsBefore: UndoRedoAction[], doneActionsAfter: UndoRedoAction[])
+    => void;
+  afterUnhideColumns?: (currentHideConfig: number[], destinationHideConfig: number[],
+    actionPossible: boolean, stateChanged: boolean) => void;
+  afterUnhideRows?: (currentHideConfig: number[], destinationHideConfig: number[],
+    actionPossible: boolean, stateChanged: boolean) => void;
+  afterUnlisten?: () => void;
+  afterUnmergeCells?: (cellRange: WalkontableCellRange, auto: boolean) => void;
+  afterUntrimRow?: (currentTrimConfig: number[], destinationTrimConfig: number[],
+    actionPossible: boolean, stateChanged: boolean) => void;
+  afterUpdateData?: (sourceData: unknown[], initialLoad: boolean, source: ChangeSource | undefined) => void;
+  afterUpdateSettings?: (newSettings: Partial<GridSettings>) => void;
+  afterValidate?: (isValid: boolean, value: CellValue, row: number, prop: string | number,
+    source: ChangeSource) => void | boolean;
+  afterDataProviderFetch?: (result: DataProviderFetchResult & { isRestored?: boolean }) => void;
+  afterDataProviderFetchAbort?: (queryParameters: DataProviderQueryParameters, reason?: Error) => void;
+  afterDataProviderFetchError?: (
+    error: Error, queryParameters: DataProviderQueryParameters, isVisible?: boolean
+  ) => void;
+  afterViewportColumnCalculatorOverride?: (calc: {
+    startColumn: number; endColumn: number; [key: string]: unknown;
+  }) => void;
+  afterViewportRowCalculatorOverride?: (calc: {
+    startRow: number; endRow: number; [key: string]: unknown;
+  }) => void;
+  afterViewRender?: (isForced: boolean) => void;
+  beforeAddChild?: (parent: RowObject, element?: RowObject, index?: number) => void;
+  beforeAlter?: (action: string, index: number | Array<[number, number]>, amount: number,
+    source?: ChangeSource, keepEmptyRows?: boolean) => boolean | void;
+  beforeAsyncValueResolve?: (value: unknown, physicalRow: number, prop: string | number, rowId: unknown) => unknown;
+  beforeAsyncValueStart?: (physicalRow: number, prop: string | number, rowId: unknown) => void | boolean;
+  beforeAutofill?: (selectionData: CellValue[][], sourceRange: WalkontableCellRange,
+    targetRange: WalkontableCellRange, direction: 'up' | 'down' | 'left' | 'right') => CellValue[][] | void;
+  beforeBeginEditing?: (row: number, column: number, initialValue: CellValue,
+    event: { preventDefault(): void; [key: string]: unknown }, fullEditMode: boolean) => boolean | void;
+  beforeCellAlignment?: (stateBefore: Record<string, string>, range: WalkontableCellRange[],
+    type: string, alignmentClass: string) => void;
+  beforeReadOnlyToggle?: (stateBefore: Record<number, boolean[]>, ranges: WalkontableCellRange[],
+    readOnly: boolean) => void;
+  beforeChange?: (changes: (CellChange | null)[], source: ChangeSource) => void | boolean;
+  beforeChangeRender?: (changes: CellChange[], source: ChangeSource) => void;
+  beforeColumnCollapse?: (currentCollapsedColumn: number[], destinationCollapsedColumns: number[],
+    collapsePossible: boolean) => void | boolean;
+  beforeColumnExpand?: (currentCollapsedColumn: number[], destinationCollapsedColumns: number[],
+    expandPossible: boolean) => void | boolean;
+  beforeColumnFreeze?: (columnIndex: number, isFreezingPerformed: boolean) => void | boolean;
+  beforeColumnMove?: (movedColumns: number[], finalIndex: number, dropIndex: number | undefined,
+    movePossible: boolean) => void | boolean;
+  beforeColumnResize?: (newSize: number, column: number, isDoubleClick: boolean) => void | number | false;
+  beforeFreezeChange?: (edge: FreezeEdge, newCount: number, oldCount: number, source: FreezeSource) => void | boolean;
+  beforeColumnSort?: (currentSortConfig: ColumnSortingConfig[],
+    destinationSortConfigs: ColumnSortingConfig[], sortPossible: boolean) => void | boolean;
+  beforeColumnUnfreeze?: (columnIndex: number, isUnfreezingPerformed: boolean, finalIndex: number) => void | boolean;
+  beforeColumnWrap?: (isActionInterrupted: { value: boolean }, newCoords: WalkontableCellCoords,
+    isColumnFlipped: boolean) => void;
+  beforeCompositionStart?: (event: CompositionEvent) => void;
+  beforeContextMenuSetItems?: (menuItems: Array<PredefinedMenuItemKey | MenuItemConfig>)
+    => void;
+  beforeContextMenuShow?: (context: ContextMenu) => void;
+  beforeCopy?: (data: CellValue[][], coords: RangeType[], copiedHeadersCount: { columnHeadersCount: number })
+    => void | boolean;
+  beforeCreateCol?: (index: number, amount: number, source?: ChangeSource) => void | boolean;
+  beforeCreateRow?: (index: number, amount: number, source?: ChangeSource) => void | boolean;
+  beforeCut?: (data: CellValue[][], coords: RangeType[]) => void | boolean;
+  beforeDataProviderFetch?: (queryParameters: DataProviderBeforeFetchParameters) => boolean | void;
+  beforeDetachChild?: (parent: RowObject, element: RowObject, source?: string) => void;
+  beforeDialogHide?: () => void;
+  beforeDialogShow?: () => void;
+  beforeDrawBorders?: (corners: number[], borderClassName: string | undefined) => void;
+  beforeDropdownMenuSetItems?: (menuItems: Array<PredefinedMenuItemKey | MenuItemConfig>) => void;
+  beforeDropdownMenuShow?: (instance: DropdownMenu) => void;
+  beforeEmptyDataStateHide?: () => void;
+  beforeEmptyDataStateShow?: () => void;
+  beforeFilter?: (conditionsStack: ColumnConditions[], previousConditionsStack: ColumnConditions[])
+    => void | boolean;
+  beforeGetCellMeta?: (row: number, column: number, cellProperties: CellProperties) => void;
+  beforeHeightChange?: (height: number | string) => number | string;
+  beforeHideColumns?: (currentHideConfig: number[], destinationHideConfig: number[],
+    actionPossible: boolean) => void | boolean;
+  beforeHideRows?: (currentHideConfig: number[], destinationHideConfig: number[],
+    actionPossible: boolean) => void | boolean;
+  beforeHighlightingColumnHeader?: (column: number, headerLevel: number,
+    highlightMeta: { selectionType: string; columnCursor: number; selectionWidth: number }) => number | void;
+  beforeHighlightingRowHeader?: (row: number, headerLevel: number,
+    highlightMeta: { selectionType: string; rowCursor: number; selectionHeight: number }) => number | void;
+  beforeImport?: (result: ImportResult, format: string) => boolean | void;
+  beforeInit?: (() => void) | (() => void)[];
+  beforeInitWalkontable?: (walkontableConfig: object) => void;
+  beforeKeyDown?: (event: KeyboardEvent) => void;
+  beforeLanguageChange?: (languageCode: string) => void;
+  beforeLoadData?: (sourceData: unknown[], initialLoad: boolean, source: ChangeSource | undefined) => void;
+  beforeLoadingHide?: () => boolean | void;
+  beforeLoadingShow?: () => boolean | void;
+  beforeMergeCells?: (cellRange: WalkontableCellRange, auto: boolean) => void;
+  /**
+   * Fired before a `moveCells` drag relocates a selection. Return `false` to cancel the move. To let
+   * the move through, return nothing, or the `sourceRange` the listener received. Any other value,
+   * `true` included, cancels the move too.
+   *
+   * @since 18.1.0
+   */
+  beforeMoveCells?: (
+    sourceRange: WalkontableCellRange,
+    targetTopLeft: WalkontableCellCoords,
+    isCopy: boolean
+  ) => void | boolean;
+  beforeNotificationHide?: (id: string) => boolean | void;
+  beforeNotificationShow?: (options: {
+    id: string;
+    variant: 'info' | 'success' | 'warning' | 'error';
+    duration: number;
+    position: 'top-start' | 'top-end' | 'bottom-start' | 'bottom-end';
+    closable: boolean;
+    actions: Array<{ label: string; type?: 'primary' | 'secondary'; callback: () => void }>;
+    title?: string;
+    message?: string | HTMLElement;
+  }) => boolean | void;
+  beforeOnCellContextMenu?: (event: MouseEvent, coords: WalkontableCellCoords, TD: HTMLTableCellElement) => void;
+  beforeOnCellMouseDown?: (event: MouseEvent, coords: WalkontableCellCoords, TD: HTMLTableCellElement,
+    controller: { preventDefault: boolean }) => void;
+  beforeOnCellMouseOut?: (event: MouseEvent, coords: WalkontableCellCoords, TD: HTMLTableCellElement) => void;
+  beforeOnCellMouseOver?: (event: MouseEvent, coords: WalkontableCellCoords, TD: HTMLTableCellElement,
+    controller: { preventDefault: boolean }) => void;
+  beforeOnCellMouseOverOutside?: (event: MouseEvent, coords: WalkontableCellCoords, TD: HTMLTableCellElement,
+    controller: { row: boolean, column: boolean, cell: boolean }) => void;
+  beforeOnCellMouseUp?: (event: MouseEvent, coords: WalkontableCellCoords, TD: HTMLTableCellElement) => void;
+  beforePageChange?: (oldPage: number, newPage: number) => void | boolean;
+  beforePageSizeChange?: (oldPageSize: number | 'auto', newPageSize: number | 'auto') => void | boolean;
+  beforePaste?: (data: CellValue[][], coords: RangeType[]) => void | boolean;
+  beforePasteParse?: (clipboardData: PasteClipboardData, event: ClipboardEvent | null) => void | false;
+  beforeRedo?: (action: UndoRedoAction) => void;
+  beforeRedoStackChange?: (undoneActions: UndoRedoAction[]) => void;
+  beforeRefreshDimensions?: (previousDimensions: { width: number; height: number },
+    currentDimensions: { width: number; height: number }, actionPossible: boolean) => boolean | void;
+  beforeRemoveCellClassNames?: () => string[] | void;
+  beforeRemoveCellMeta?: (row: number, column: number, key: string, value: unknown) => boolean | void;
+  beforeRemoveCol?: (index: number, amount: number, physicalColumns: number[], source?: ChangeSource) => void;
+  beforeRemoveRow?: (index: number, amount: number, physicalRows: number[], source?: ChangeSource) => void;
+  beforeRender?: (isForced: boolean) => void;
+  beforeRenderer?: (TD: HTMLTableCellElement, row: number, column: number, prop: string | number,
+    value: CellValue, cellProperties: CellProperties) => void;
+  beforeResumeExecution?: () => void;
+  beforeRowCollapse?: (currentCollapsedRows: number[], destinationCollapsedRows: number[],
+    collapsePossible: boolean) => void | boolean;
+  beforeRowExpand?: (currentCollapsedRows: number[], destinationCollapsedRows: number[],
+    expandPossible: boolean) => void | boolean;
+  beforeRowMove?: (movedRows: number[], finalIndex: number, dropIndex: number | undefined,
+    movePossible: boolean) => void | boolean;
+  beforeRowResize?: (newSize: number, row: number, isDoubleClick: boolean) => number | void | false;
+  beforeRowSelectionChange?: (rowsToSelect: number[], rowsToDeselect: number[],
+    source: RowSelectionSource) => void | boolean;
+  beforeRowsMutation?: (operation: string, payload: RowMutationPayload) => void | boolean;
+  beforeRowWrap?: (isActionInterrupted: { value: boolean }, newCoords: WalkontableCellCoords,
+    isRowFlipped: boolean) => void;
+  beforeSelectAll?: (from: WalkontableCellCoords, to: WalkontableCellCoords,
+    highlight?: WalkontableCellCoords) => void;
+  beforeSelectColumns?: (from: WalkontableCellCoords, to: WalkontableCellCoords,
+    highlight: WalkontableCellCoords) => void;
+  beforeSelectionFocusSet?: (coords: WalkontableCellCoords) => void;
+  beforeSelectionHighlightSet?: () => void;
+  beforeSelectRows?: (from: WalkontableCellCoords, to: WalkontableCellCoords,
+    highlight: WalkontableCellCoords) => void;
+  beforeSetCellMeta?: (row: number, column: number, key: string, value: unknown) => boolean | void;
+  beforeSetRangeEnd?: (coords: WalkontableCellCoords) => void;
+  beforeSetRangeStart?: (coords: WalkontableCellCoords) => void;
+  beforeSetRangeStartOnly?: (coords: WalkontableCellCoords) => void;
+  beforeSheetTabAdd?: (name: string | null, duplicateOfId: number | null, source: string) => void | boolean;
+  beforeSheetTabChange?: (oldSheetId: number, newSheetId: number, source: string) => void | boolean;
+  beforeSheetTabMove?: (sheetId: number, finalIndex: number, source: string) => void | boolean;
+  beforeSheetTabRemove?: (sheetId: number, source: string) => void | boolean;
+  beforeSheetTabRename?: (sheetId: number, oldName: string, newName: string, source: string) => void | boolean;
+  beforeStretchingColumnWidth?: (stretchedWidth: number, column: number) => void | number;
+  beforeSuspendExecution?: () => void;
+  beforeTouchScroll?: () => void;
+  beforeTrimRow?: (currentTrimConfig: number[], destinationTrimConfig: number[],
+    actionPossible: boolean) => void | boolean;
+  beforeUndo?: (action: UndoRedoAction) => void;
+  beforeUndoStackChange?: (doneActions: UndoRedoAction[], source?: string) => void;
+  beforeUnhideColumns?: (currentHideConfig: number[], destinationHideConfig: number[],
+    actionPossible: boolean) => void | boolean;
+  beforeUnhideRows?: (currentHideConfig: number[], destinationHideConfig: number[],
+    actionPossible: boolean) => void | boolean;
+  beforeUnmergeCells?: (cellRange: WalkontableCellRange, auto: boolean) => void;
+  beforeUntrimRow?: (currentTrimConfig: number[], destinationTrimConfig: number[],
+    actionPossible: boolean) => void | boolean;
+  beforeUpdateData?: (sourceData: unknown[], initialLoad: boolean, source: ChangeSource | undefined) => void;
+  beforeValidate?: (value: CellValue, row: number, prop: string | number, source?: ChangeSource) => void;
+  beforeValueRender?: (value: CellValue, cellProperties: CellProperties) => void;
+  beforeViewportScroll?: () => void;
+  beforeViewportScrollHorizontally?: (visualColumn: number, snapping: 'auto' | 'start' | 'end')
+    => number | boolean | null;
+  beforeViewportScrollVertically?: (visualRow: number, snapping: 'auto' | 'top' | 'bottom') => number | boolean | null;
+  beforeViewRender?: (isForced: boolean, skipRender: { skipRender?: boolean }) => void;
+  beforeWidthChange?: (width: number | string) => number | string;
+  /**
+   * Declaring this callback here has no effect: the hook runs inside the constructor, before
+   * Handsontable reads the callbacks from the settings object. Register it globally with
+   * `Handsontable.hooks.add('construct', callback)` instead.
+   */
+  construct?: () => void;
+  dialogFocusNextElement?: () => void;
+  dialogFocusPreviousElement?: () => void;
+  hasExternalDataSource?: () => boolean | void;
+  init?: () => void;
+  modifyAutoColumnSizeSeed?: (seed: string, cellProperties: CellProperties,
+    cellValue: CellValue) => string | void;
+  modifyAutofillRange?: (entireArea: [number, number, number, number],
+    startArea: [number, number, number, number]) => [number, number, number, number] | void;
+  modifyColHeader?: (column: number) => void;
+  modifyColumnHeaderHeight?: () => void;
+  modifyColumnHeaderValue?: (headerValue: string, visualColumnIndex: number, headerLevel: number) => void | string;
+  modifyColWidth?: (width: number, column: number, source?: string) => void | number;
+  modifyCopyableRange?: (copyableRanges: RangeType[]) => RangeType[] | void;
+  modifyData?: (row: number, column: number | null, valueHolder: { value: CellValue }, ioMode: 'get' | 'set') => void;
+  modifyFiltersMatchedRows?: (matchedRows: number[], blankMatchedRows: number[]) => number[] | void;
+  modifyFiltersMultiSelectValue?: (value: string, meta: CellProperties) => void | string;
+  modifyFocusedElement?: (row: number, column: number, focusedElement: HTMLElement) => void | HTMLElement;
+  modifyFocusOnTabNavigation?: (tabActivationDir: string, visualCoords: WalkontableCellCoords) => void;
+  modifyGetCellCoords?: (row: number, column: number, topmost: boolean, source: string | undefined)
+    => void | [number, number] | [number, number, number, number];
+  modifyGetCoordsElement?: (row: number, column: number) => void | [number, number];
+  modifyRowData?: (row: number) => void;
+  modifyRowHeader?: (row: number) => void;
+  modifyRowHeaderWidth?: (rowHeaderWidth: number | number[]) => void | number | number[];
+  modifyRowHeight?: (height: number, row: number, source?: string) => void | number;
+  modifyRowHeightByOverlayName?: (height: number, row: number, overlayType: string) => void | number;
+  modifySinglePassLayout?: (singlePassLayout: boolean) => void | boolean;
+  // Method syntax on purpose: the `column` parameter was widened after the hook started receiving
+  // a `columns[].data` accessor function, and only bivariant method-style checking keeps existing
+  // `(row, column: number, ...)` handlers assignable under `strictFunctionTypes`.
+  modifySourceData?(
+    row: number, column: number | string | ColumnDataGetterSetterFunction,
+    valueHolder: { value: CellValue }, ioMode: 'get' | 'set'
+  ): void;
+  modifyTransformEnd?: (delta: WalkontableCellCoords) => void;
+  modifyTransformFocus?: (delta: WalkontableCellCoords) => void;
+  modifyTransformStart?: (delta: WalkontableCellCoords) => void;
+
+  // Allow additional plugin-specific keys
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
+}
+
+/**
+ * Extracts all hook callback keys from GridSettings.
+ * Used to derive the Events type for addHook/removeHook generics.
+ *
+ * Derived from `RemoveIndexSignature<GridSettings>` rather than `GridSettings` directly -- the raw
+ * type's `[key: string]: any` index signature makes `keyof GridSettings` include `string`, which
+ * collapses this mapped type to `string` and, in turn, collapses `Events` to `{ [key: string]: any }`.
+ */
+type HookKey = {
+  [K in keyof RemoveIndexSignature<GridSettings>]-?:
+    NonNullable<GridSettings[K]> extends (...args: never[]) => unknown ? K : never;
+}[keyof RemoveIndexSignature<GridSettings>];
+
+/**
+ * The shape of a configured `sanitizer`, derived from the option so the two cannot drift apart.
+ *
+ * `RemoveIndexSignature` is what makes that guarantee real. `GridSettings` carries a
+ * `[key: string]: any`, so a plain `GridSettings['sanitizer']` lookup would keep resolving - to
+ * `any` - if the option were ever renamed, silently un-typing every internal consumer. Stripping the
+ * index signature first turns the same rename into a compile error here.
+ *
+ * Not re-exported from the package entry points: with the option's second parameter absorbed by
+ * `...args: any[]`, annotating with this type conveys no context, so `SanitizerContext` is what
+ * users are given instead.
+ */
+export type SanitizerFn = NonNullable<RemoveIndexSignature<GridSettings>['sanitizer']>;
+
+/**
+ * The shape of a configured `textExtractor` in its function form, derived from the option so the two
+ * cannot drift apart. `true` is excluded because it selects the built-in extraction rather than
+ * supplying one.
+ *
+ * `RemoveIndexSignature` earns its place here for the same reason it does in `SanitizerFn`:
+ * `GridSettings` carries a `[key: string]: any`, so a plain lookup would keep resolving - to `any` -
+ * if the option were renamed, silently un-typing every internal consumer.
+ *
+ * Not re-exported from the package entry points: with the option's second parameter absorbed by
+ * `...args: any[]`, annotating with this type conveys no context, so `TextExtractorContext` is what
+ * users are given instead.
+ */
+export type TextExtractorFn =
+  Exclude<NonNullable<RemoveIndexSignature<GridSettings>['textExtractor']>, boolean>;
+
+/**
+ * Map of all Handsontable hook names to their typed callback signatures.
+ * Use with addHook/addHookOnce/removeHook for IDE autocomplete and compile-time safety.
+ */
+export type Events = Required<Pick<GridSettings, HookKey>>;
+
+/**
+ * Resolves the typed callback signature for a specific hook name.
+ * Use as the type of private hook-handler fields in plugins to enable direct passing
+ * to addHook without as-Function wrapper casts.
+ *
+ * @example
+ * #onAfterRender: Hook<'afterRender'> = () => { ... };
+ * this.addHook('afterRender', this.#onAfterRender);
+ */
+export type Hook<K extends keyof Events> = Events[K];

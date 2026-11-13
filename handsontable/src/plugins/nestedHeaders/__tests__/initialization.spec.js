@@ -20,13 +20,13 @@ describe('NestedHeaders', () => {
   });
 
   describe('initialization', () => {
-    it('should be possible to initialize the plugin with minimal setup', () => {
-      const hot = handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+    it('should be possible to initialize the plugin with minimal setup', async() => {
+      handsontable({
+        data: createSpreadsheetData(10, 10),
         colHeaders: true,
       });
 
-      hot.updateSettings({
+      await updateSettings({
         nestedHeaders: [[]],
       });
 
@@ -42,11 +42,11 @@ describe('NestedHeaders', () => {
             <th class=""></th>
             <th class=""></th>
             <th class=""></th>
-            <th class=""></th>
+            <th class="htLastVisibleHeader"></th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">C1</td>
@@ -62,9 +62,9 @@ describe('NestedHeaders', () => {
         `);
     });
 
-    it('should be possible to disable the plugin using the disablePlugin method', () => {
-      const hot = handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+    it('should be possible to disable the plugin using the disablePlugin method', async() => {
+      handsontable({
+        data: createSpreadsheetData(10, 10),
         colHeaders: true,
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 3 }, 'E1', 'F1', 'G1'],
@@ -72,10 +72,10 @@ describe('NestedHeaders', () => {
         ],
       });
 
-      const plugin = hot.getPlugin('nestedHeaders');
+      const plugin = getPlugin('nestedHeaders');
 
       plugin.disablePlugin();
-      hot.render();
+      await render();
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
@@ -89,11 +89,11 @@ describe('NestedHeaders', () => {
             <th class="">G</th>
             <th class="">H</th>
             <th class="">I</th>
-            <th class="">J</th>
+            <th class="htLastVisibleHeader">J</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">C1</td>
@@ -109,9 +109,9 @@ describe('NestedHeaders', () => {
         `);
     });
 
-    it('should be possible to re-enable the plugin using the enablePlugin method', () => {
-      const hot = handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+    it('should be possible to re-enable the plugin using the enablePlugin method', async() => {
+      handsontable({
+        data: createSpreadsheetData(10, 10),
         colHeaders: true,
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 3 }, 'E1', 'F1', 'G1'],
@@ -119,12 +119,12 @@ describe('NestedHeaders', () => {
         ],
       });
 
-      const plugin = hot.getPlugin('nestedHeaders');
+      const plugin = getPlugin('nestedHeaders');
 
       plugin.disablePlugin();
-      hot.render();
+      await render();
       plugin.enablePlugin();
-      hot.render();
+      await render();
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
@@ -138,7 +138,7 @@ describe('NestedHeaders', () => {
             <th class="">G1</th>
             <th class=""></th>
             <th class=""></th>
-            <th class=""></th>
+            <th class="htLastVisibleHeader"></th>
           </tr>
           <tr>
             <th class="">A2</th>
@@ -150,11 +150,11 @@ describe('NestedHeaders', () => {
             <th class="">G2</th>
             <th class=""></th>
             <th class=""></th>
-            <th class=""></th>
+            <th class="htLastVisibleHeader"></th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">C1</td>
@@ -170,13 +170,13 @@ describe('NestedHeaders', () => {
         `);
     });
 
-    it('should be possible to initialize the plugin using the updateSettings method', () => {
-      const hot = handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+    it('should be possible to initialize the plugin using the updateSettings method', async() => {
+      handsontable({
+        data: createSpreadsheetData(10, 10),
         colHeaders: true,
       });
 
-      hot.updateSettings({
+      await updateSettings({
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 3 }, 'E1', 'F1', 'G1'],
           ['A2', 'B2', 'C2', 'D2', 'E2', 'F2', 'G2']
@@ -195,7 +195,7 @@ describe('NestedHeaders', () => {
             <th class="">G1</th>
             <th class=""></th>
             <th class=""></th>
-            <th class=""></th>
+            <th class="htLastVisibleHeader"></th>
           </tr>
           <tr>
             <th class="">A2</th>
@@ -207,11 +207,11 @@ describe('NestedHeaders', () => {
             <th class="">G2</th>
             <th class=""></th>
             <th class=""></th>
-            <th class=""></th>
+            <th class="htLastVisibleHeader"></th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">C1</td>
@@ -227,9 +227,9 @@ describe('NestedHeaders', () => {
         `);
     });
 
-    it('should be possible to disable the plugin using updateSettings method', () => {
-      const hot = handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+    it('should be possible to disable the plugin using updateSettings method', async() => {
+      handsontable({
+        data: createSpreadsheetData(10, 10),
         colHeaders: true,
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 3 }, 'E1', 'F1', 'G1'],
@@ -237,7 +237,7 @@ describe('NestedHeaders', () => {
         ],
       });
 
-      hot.updateSettings({
+      await updateSettings({
         nestedHeaders: false,
       });
 
@@ -253,11 +253,11 @@ describe('NestedHeaders', () => {
             <th class="">G</th>
             <th class="">H</th>
             <th class="">I</th>
-            <th class="">J</th>
+            <th class="htLastVisibleHeader">J</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">C1</td>
@@ -273,9 +273,9 @@ describe('NestedHeaders', () => {
         `);
     });
 
-    it('should be possible to update the plugin settings using the updateSettings method', () => {
-      const hot = handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+    it('should be possible to update the plugin settings using the updateSettings method', async() => {
+      handsontable({
+        data: createSpreadsheetData(10, 10),
         colHeaders: true,
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 3 }, 'E1', 'F1', 'G1'],
@@ -283,7 +283,7 @@ describe('NestedHeaders', () => {
         ],
       });
 
-      hot.updateSettings({
+      await updateSettings({
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 4 }, 'F1', 'G1', 'H1', 'I1', 'J1'],
           ['A2', { label: 'B2', colspan: 3 }, 'E2', 'F2', 'G2', 'H2', 'I2', 'J2'],
@@ -303,7 +303,7 @@ describe('NestedHeaders', () => {
             <th class="">G1</th>
             <th class="">H1</th>
             <th class="">I1</th>
-            <th class="">J1</th>
+            <th class="htLastVisibleHeader">J1</th>
           </tr>
           <tr>
             <th class="">A2</th>
@@ -315,7 +315,7 @@ describe('NestedHeaders', () => {
             <th class="">G2</th>
             <th class="">H2</th>
             <th class="">I2</th>
-            <th class="">J2</th>
+            <th class="htLastVisibleHeader">J2</th>
           </tr>
           <tr>
             <th class="">A3</th>
@@ -327,11 +327,11 @@ describe('NestedHeaders', () => {
             <th class="">G3</th>
             <th class="">H3</th>
             <th class="">I3</th>
-            <th class="">J3</th>
+            <th class="htLastVisibleHeader">J3</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">C1</td>
@@ -347,11 +347,11 @@ describe('NestedHeaders', () => {
         `);
     });
 
-    it('should warn the developer when the settings contains overlaping headers', () => {
-      const warnSpy = spyOn(console, 'warn');
+    it('should warn the developer when the settings contains overlaping headers', async() => {
+      const warnSpy = spyOnConsoleWarn();
 
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(5, 5),
+        data: createSpreadsheetData(5, 5),
         colHeaders: true,
         nestedHeaders: [
           ['a', { label: 'b', colspan: 2 }, 'c'],
@@ -362,9 +362,17 @@ describe('NestedHeaders', () => {
       expect(warnSpy).toHaveBeenCalledWith('Your Nested Headers plugin setup contains overlapping headers. ' +
                                            'This kind of configuration is currently not supported.');
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
-        <thead></thead>
-        <tbody>
+        <thead>
           <tr>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class="htLastVisibleHeader"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">C1</td>
@@ -374,9 +382,17 @@ describe('NestedHeaders', () => {
         </tbody>
         `);
       expect(extractDOMStructure(getMaster(), getMaster())).toMatchHTML(`
-        <thead></thead>
-        <tbody>
+        <thead>
           <tr>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class="htLastVisibleHeader"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">C1</td>
@@ -387,14 +403,15 @@ describe('NestedHeaders', () => {
         `);
     });
 
-    it('should warn the developer when the settings are invalid', () => {
-      const warnSpy = spyOn(console, 'warn');
-      const hot = handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+    it('should warn the developer when the settings are invalid', async() => {
+      const warnSpy = spyOnConsoleWarn();
+
+      handsontable({
+        data: createSpreadsheetData(10, 10),
         colHeaders: true,
       });
 
-      hot.updateSettings({
+      await updateSettings({
         nestedHeaders: true,
       });
 
@@ -408,20 +425,20 @@ describe('NestedHeaders', () => {
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
           <tr>
-            <th class="">A</th>
-            <th class="">B</th>
-            <th class="">C</th>
-            <th class="">D</th>
-            <th class="">E</th>
-            <th class="">F</th>
-            <th class="">G</th>
-            <th class="">H</th>
-            <th class="">I</th>
-            <th class="">J</th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class="htLastVisibleHeader"></th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">C1</td>
@@ -436,7 +453,7 @@ describe('NestedHeaders', () => {
         </tbody>
         `);
 
-      hot.updateSettings({
+      await updateSettings({
         nestedHeaders: [],
       });
 
@@ -444,20 +461,20 @@ describe('NestedHeaders', () => {
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
           <tr>
-            <th class="">A</th>
-            <th class="">B</th>
-            <th class="">C</th>
-            <th class="">D</th>
-            <th class="">E</th>
-            <th class="">F</th>
-            <th class="">G</th>
-            <th class="">H</th>
-            <th class="">I</th>
-            <th class="">J</th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class="htLastVisibleHeader"></th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">C1</td>
@@ -472,7 +489,7 @@ describe('NestedHeaders', () => {
         </tbody>
         `);
 
-      hot.updateSettings({
+      await updateSettings({
         nestedHeaders: {},
       });
 
@@ -480,20 +497,20 @@ describe('NestedHeaders', () => {
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
           <tr>
-            <th class="">A</th>
-            <th class="">B</th>
-            <th class="">C</th>
-            <th class="">D</th>
-            <th class="">E</th>
-            <th class="">F</th>
-            <th class="">G</th>
-            <th class="">H</th>
-            <th class="">I</th>
-            <th class="">J</th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class=""></th>
+            <th class="htLastVisibleHeader"></th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">C1</td>
@@ -508,7 +525,7 @@ describe('NestedHeaders', () => {
         </tbody>
         `);
 
-      hot.updateSettings({
+      await updateSettings({
         nestedHeaders: '',
       });
 
@@ -525,11 +542,11 @@ describe('NestedHeaders', () => {
             <th class="">G</th>
             <th class="">H</th>
             <th class="">I</th>
-            <th class="">J</th>
+            <th class="htLastVisibleHeader">J</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">C1</td>

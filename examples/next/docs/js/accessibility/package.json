@@ -11,12 +11,13 @@
   },
   "dependencies": {
     "@ngneat/falso": "^7.1.1",
-    "handsontable": "0.0.0-next-ff8465d-20231006"
+    "handsontable": "latest"
   },
   "devDependencies": {
-    "vite": "^4.4.5",
+    "http-server": "^14.1.1",
+    "vite": "^6.4.5",
     "jasmine": "3.7.0",
     "jasmine-console-reporter": "3.1.0",
-    "puppeteer": "14.3.0"
+    "puppeteer": "^25.16.0"
   }
 }

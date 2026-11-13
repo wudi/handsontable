@@ -1,0 +1,257 @@
+import {
+  RENDERER_TYPE,
+  baseRenderer,
+} from '../';
+import {
+  getRegisteredRendererNames,
+  getRenderer,
+  registerRenderer,
+} from '../../registry';
+
+describe('baseRenderer', () => {
+  const toMatchHTMLConfig = ['class'];
+
+  describe('registering', () => {
+    it('should throw an error if renderer is not registered', () => {
+      expect(getRegisteredRendererNames()).toEqual([]);
+      expect(() => {
+        getRenderer(RENDERER_TYPE);
+      }).toThrowWithCause(undefined, { handsontable: true });
+    });
+
+    it('should register renderer', () => {
+      registerRenderer(RENDERER_TYPE, baseRenderer);
+
+      expect(getRegisteredRendererNames()).toEqual([RENDERER_TYPE]);
+      expect(getRenderer(RENDERER_TYPE)).toBeInstanceOf(Function);
+    });
+  });
+
+  describe('rendering', () => {
+    it('should add className', () => {
+      const TD = document.createElement('td');
+
+      baseRenderer(undefined, TD, undefined, undefined, undefined, '', {
+        className: 'custom',
+      });
+
+      expect(TD.outerHTML).toMatchHTML('<td class="custom"></td>', toMatchHTMLConfig);
+    });
+
+    it('should manage readOnly class name', () => {
+      const TD = document.createElement('td');
+
+      baseRenderer(undefined, TD, undefined, undefined, undefined, '', {
+        readOnly: true,
+        readOnlyCellClassName: 'read-only',
+      });
+
+      expect(TD.outerHTML).toMatchHTML('<td class="read-only"></td>', toMatchHTMLConfig);
+    });
+
+    it('should not add the readOnly class name when `readOnlyStyling` is `false`', () => {
+      const TD = document.createElement('td');
+
+      baseRenderer(undefined, TD, undefined, undefined, undefined, '', {
+        readOnly: true,
+        readOnlyCellClassName: 'read-only',
+        readOnlyStyling: false,
+      });
+
+      expect(TD.outerHTML).toMatchHTML('<td></td>', toMatchHTMLConfig);
+    });
+
+    it('should add the readOnly class name when `readOnlyStyling` is `true` or left unset', () => {
+      const explicit = document.createElement('td');
+      const unset = document.createElement('td');
+
+      baseRenderer(undefined, explicit, undefined, undefined, undefined, '', {
+        readOnly: true,
+        readOnlyCellClassName: 'read-only',
+        readOnlyStyling: true,
+      });
+      baseRenderer(undefined, unset, undefined, undefined, undefined, '', {
+        readOnly: true,
+        readOnlyCellClassName: 'read-only',
+      });
+
+      expect(explicit.outerHTML).toMatchHTML('<td class="read-only"></td>', toMatchHTMLConfig);
+      expect(unset.outerHTML).toMatchHTML('<td class="read-only"></td>', toMatchHTMLConfig);
+    });
+
+    it('should still announce the cell as read-only when `readOnlyStyling` is `false`', () => {
+      const TD = document.createElement('td');
+
+      baseRenderer(undefined, TD, undefined, undefined, undefined, '', {
+        readOnly: true,
+        readOnlyCellClassName: 'read-only',
+        readOnlyStyling: false,
+        ariaTags: true,
+      });
+
+      // Only the appearance is withheld — the accessibility contract is untouched.
+      expect(TD.getAttribute('aria-readonly')).toBe('true');
+    });
+
+    it('should manage validation class name', () => {
+      const TD = document.createElement('td');
+      const cellMeta = {
+        valid: false,
+        invalidCellClassName: 'invalid',
+      };
+
+      baseRenderer(undefined, TD, undefined, undefined, undefined, '', cellMeta);
+
+      expect(TD.outerHTML).toMatchHTML('<td class="invalid"></td>', toMatchHTMLConfig);
+
+      cellMeta.valid = true;
+
+      baseRenderer(undefined, TD, undefined, undefined, undefined, '', cellMeta);
+
+      expect(TD.outerHTML).toMatchHTML('<td class=""></td>', toMatchHTMLConfig);
+    });
+
+    it('should manage wordWrap class name', () => {
+      const TD = document.createElement('td');
+
+      baseRenderer(undefined, TD, undefined, undefined, undefined, '', {
+        wordWrap: false,
+        noWordWrapClassName: 'no-word-wrap',
+      });
+
+      expect(TD.outerHTML).toMatchHTML('<td class="htNoWrap no-word-wrap"></td>', toMatchHTMLConfig);
+    });
+
+    it('should keep the default no-wrap class name when a custom noWordWrapClassName is set', () => {
+      const TD = document.createElement('td');
+
+      baseRenderer(undefined, TD, undefined, undefined, undefined, '', {
+        wordWrap: false,
+        noWordWrapClassName: 'custom-no-wrap',
+      });
+
+      expect(TD.classList.contains('htNoWrap')).toBe(true);
+      expect(TD.classList.contains('custom-no-wrap')).toBe(true);
+    });
+
+    it('should add the default no-wrap class name once when noWordWrapClassName is the default', () => {
+      const TD = document.createElement('td');
+
+      baseRenderer(undefined, TD, undefined, undefined, undefined, '', {
+        wordWrap: false,
+        noWordWrapClassName: 'htNoWrap',
+      });
+
+      expect(TD.outerHTML).toMatchHTML('<td class="htNoWrap"></td>', toMatchHTMLConfig);
+    });
+
+    it('should not add any no-wrap class name when noWordWrapClassName is empty or null', () => {
+      ['', null].forEach((noWordWrapClassName) => {
+        const TD = document.createElement('td');
+
+        baseRenderer(undefined, TD, undefined, undefined, undefined, '', {
+          wordWrap: false,
+          noWordWrapClassName,
+        });
+
+        expect(TD.outerHTML).toMatchHTML('<td></td>', toMatchHTMLConfig);
+      });
+    });
+
+    it('should not add any no-wrap class name when wordWrap is not false', () => {
+      const TD = document.createElement('td');
+
+      baseRenderer(undefined, TD, undefined, undefined, undefined, '', {
+        wordWrap: true,
+        noWordWrapClassName: 'custom-no-wrap',
+      });
+
+      expect(TD.outerHTML).toMatchHTML('<td></td>', toMatchHTMLConfig);
+    });
+
+    it('should manage placeholder class name', () => {
+      const TD = document.createElement('td');
+
+      baseRenderer(undefined, TD, undefined, undefined, undefined, '', {
+        placeholder: 'Placeholder',
+        placeholderCellClassName: 'placeholder'
+      });
+
+      expect(TD.outerHTML).toMatchHTML('<td class="placeholder"></td>', toMatchHTMLConfig);
+    });
+
+    it('should not add placeholder class name when value is 0', () => {
+      const TD = document.createElement('td');
+
+      baseRenderer(undefined, TD, undefined, undefined, undefined, 0, {
+        placeholder: 'Placeholder',
+        placeholderCellClassName: 'placeholder'
+      });
+
+      expect(TD.outerHTML).toMatchHTML('<td></td>', toMatchHTMLConfig);
+    });
+
+    it('should not add placeholder class name when value is false', () => {
+      const TD = document.createElement('td');
+
+      baseRenderer(undefined, TD, undefined, undefined, undefined, false, {
+        placeholder: 'Placeholder',
+        placeholderCellClassName: 'placeholder'
+      });
+
+      expect(TD.outerHTML).toMatchHTML('<td></td>', toMatchHTMLConfig);
+    });
+
+    it('should manage text-truncate class name', () => {
+      const TD = document.createElement('td');
+
+      baseRenderer(undefined, TD, undefined, undefined, undefined, '', {
+        textEllipsis: true,
+      });
+
+      expect(TD.outerHTML).toMatchHTML('<td class="htTextEllipsis"></td>', toMatchHTMLConfig);
+    });
+
+    it('should add the single-line class name when `textEllipsis` is a number of 2 or more, as the fallback for a renderer that cannot clamp', () => {
+      const TD = document.createElement('td');
+
+      baseRenderer(undefined, TD, undefined, undefined, undefined, '', {
+        textEllipsis: 3,
+      });
+
+      expect(TD.outerHTML).toMatchHTML('<td class="htTextEllipsis"></td>', toMatchHTMLConfig);
+    });
+
+    it('should add the single-line ellipsis class name when `textEllipsis` is `1`', () => {
+      const TD = document.createElement('td');
+
+      baseRenderer(undefined, TD, undefined, undefined, undefined, '', {
+        textEllipsis: 1,
+      });
+
+      expect(TD.outerHTML).toMatchHTML('<td class="htTextEllipsis"></td>', toMatchHTMLConfig);
+    });
+
+    it('should add the single-line ellipsis class name instead of the line-clamp one when `wordWrap` is `false`', () => {
+      const TD = document.createElement('td');
+
+      baseRenderer(undefined, TD, undefined, undefined, undefined, '', {
+        textEllipsis: 3,
+        wordWrap: false,
+      });
+
+      expect(TD.outerHTML).toMatchHTML('<td class="htTextEllipsis"></td>', toMatchHTMLConfig);
+    });
+
+    it.each([0, -2, 2.5, NaN, Infinity])('should not truncate the text when `textEllipsis` is %p', (value) => {
+      const TD = document.createElement('td');
+
+      baseRenderer(undefined, TD, undefined, undefined, undefined, '', {
+        textEllipsis: value,
+      });
+
+      expect(TD.outerHTML).toMatchHTML('<td></td>', toMatchHTMLConfig);
+    });
+  });
+
+});

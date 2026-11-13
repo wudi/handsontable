@@ -1,0 +1,387 @@
+# NestedHeaders + CollapsibleColumns — architecture
+
+Non-obvious internals of `NestedHeaders` and its tight partner `CollapsibleColumns`. Read this before
+changing the header tree, the move/reparent logic, or collapse behavior. Surface API lives in JSDoc and
+`docs/content/guides/columns/column-groups/`; this file is the stuff that is **not** discoverable by
+skimming the public option.
+
+## Mental model (read this first)
+
+```
+authored nestedHeaders setting
+  → SourceSettings           (#sourceSettings — normalized, PHYSICAL-keyed, never mutated by moves)
+  → deriveVisualSettings()   (applies ColumnArrangement + #membershipOverrides)
+  → #derivedSettings         (VISUAL-keyed, move-aware)
+  → HeadersTree.buildTree()  (TreeNode forest; collapse/identity logic lives here)
+  → generateMatrix()         (#matrix — 2D [headerLevel][visualColumn]; the ONLY thing the DOM reads)
+  → header renderers         (afterGetColumnHeaderRenderers)
+```
+
+**The one principle that explains the whole design: _derive, don't mutate._** `#sourceSettings` is the
+authored truth and is never rewritten by a column move. Everything that "follows the move" is recomputed
+into `#derivedSettings` from (source + arrangement + overrides). If you find yourself wanting to mutate
+the source or the tree to reflect a move, you are fighting the architecture — record an override instead.
+
+`StateManager` (`stateManager/index.ts`) owns all of this. `NestedHeaders` (the plugin) is mostly hooks,
+selection/keyboard wiring, and the renderers; `CollapsibleColumns` is UI (buttons) + two hiding maps and
+delegates every structural decision to the same `StateManager`.
+
+## Matrix vs Tree — they are not interchangeable
+
+| | `HeadersTree` | matrix (`generateMatrix`) |
+|---|---|---|
+| Shape | TreeNode forest (parent→children) | `matrix[level][visualColumn]` |
+| Purpose | collapse state, ancestry, identity across moves | flat per-`<th>` settings |
+| Drives DOM? | **No** | **Yes** — renderers read `getHeaderSettings(level, visualCol)` |
+
+The matrix is regenerated from the tree on every structural/visibility change. `createHeaderSettings`
+in `matrixGenerator.ts` **strips `crossHiddenColumns` and `columnDropMode`** from the matrix node — the
+former is a visibility detail, the latter a structural input only the tree derive needs. Don't expect to
+read `columnDropMode` off the matrix.
+
+`colspan` (matrix) = visible-column count, excludes hidden columns. `origColspan` = authored span. A
+`<th>` whose run is partly hidden gets `colspan` shrunk; column-header **height** must use `origRowspan`,
+not the shrunk value.
+
+## Coordinate systems (the usual three, and they bite here)
+
+- **Physical** — index in source data. `#sourceSettings` and `#membershipOverrides` are physical-keyed.
+- **Visual** — after trimming/moves. The tree, `#derivedSettings`, and the matrix are visual-keyed; a
+  tree node's `columnIndex` is **visual**.
+- **Renderable** — after hiding. Renderers receive a renderable index and call
+  `columnIndexMapper.getVisualFromRenderableIndex()` before touching the matrix.
+
+`ColumnArrangement` (`stateManager/columnArrangement.ts`) is the physical↔visual adapter the derive runs
+against. With no moves it is the identity arrangement (visual ≡ physical ≡ authored). The plugin installs
+a live adapter wrapping `hot.columnIndexMapper` so the structure follows moves.
+
+## Membership overrides & reparenting (the move model)
+
+When a move makes a group's columns non-contiguous, the derive needs a fact it cannot infer from the
+final arrangement alone: *which group does a moved column now belong to?* That fact is
+`#membershipOverrides: Map<physical, Map<level, ownerIdentity>>`.
+
+- `ownerIdentity >= 0` → adopted into the group anchored at that authored owner column.
+- `ownerIdentity < 0` → standalone; encoded as the sentinel `-1 - physical` (so the physical index is
+  recoverable). See `resolveOwnerKey` / `computeOwnerIndex` in `deriveSettings.ts`.
+
+`reparentColumns` (in `stateManager/index.ts`) decides overrides from the **pre-move** layout, then
+applies them, so a whole group moved together stays intact. The load-bearing rule:
+
+```
+enclosing >= 0 && authoredLayers[level][enclosing]?.columnDropMode !== 'split'  // → adopt at this level
+```
+
+i.e. a foreign column dropped strictly inside a group is **adopted** unless that group opted into
+`columnDropMode: 'split'`. **A group always reclaims its OWN columns** regardless of `columnDropMode` —
+an origin column's authored owner *is* that group, so it rejoins by contiguity; only foreign columns are
+affected by the flag. (`columnDropMode` is the renamed, future-proofed successor to the old boolean
+`splittable`: `'adopt'` = old `false`/default, `'split'` = old `true`. Values are an open enum so a
+future `'reject'`/`'displace'` can be added without a breaking change.)
+
+**Override lifetime — reset vs preserved is deliberate, don't "simplify" it:**
+- **Reset** (`#resetMembershipOverrides`) on `setState`, `insertColumns`, `removeColumns` — authored
+  identities/physical indexes shift, so old overrides are stale and would mis-adopt.
+- **Preserved** on `rebuildState` (move), `mergeStateWith`, `mapState` — these use identity shift, so
+  overrides stay valid.
+
+**Two version counters on the state manager, for UndoRedo.** `getConfigVersion()` advances on a
+`setState()` whose configuration differs from the previous one (compared as JSON) - not on
+`rebuildState()`, and not on a wrapper re-render that re-sends the same configuration: a counter that
+moved on every re-send made CollapsibleColumns skip the groups of every older step, so an undo and a
+redo brought the hidden columns back without their collapsed group. `captureState()` records it next to the overrides, and
+`restoreState()` imports the overrides only when it still matches: overrides recorded under an earlier
+`nestedHeaders` config name that config's groups. It still runs `rebuildState()` either way, so the tree is
+derived with the imported overrides; the restored column order itself (`setIndexesSequence()`, source
+`'update'`) has already re-derived it once through `#onColumnIndexMapperCacheUpdated` (see the next section). `getCollapsedGroupsVersion()`
+advances on every `#applyNodeModification()` that finds a node, every `#deriveTree()` and `clear()`;
+CollapsibleColumns reads it to skip walking the tree on a step that changed no header group. A re-sent
+config still runs the whole `setState()` - it resets the overrides and expands every group, as it always
+did - but an undo of an older step can put back that step's overrides and collapsed groups, because
+they were recorded under the same config.
+
+## State rebuild paths
+
+| Path | Trigger | Collapse kept | Overrides reset | Regens matrix |
+|---|---|---|---|---|
+| `setState` | new `nestedHeaders` config | no | **yes** | yes |
+| `rebuildState` | column move | yes (by authored identity) | no | yes |
+| `insertColumns` | `afterCreateCol` | yes | **yes** | yes |
+| `removeColumns` | `afterRemoveCol` | yes | **yes** | yes |
+| `mergeStateWith` / `mapState` | CollapsibleColumns sync | yes | no | yes |
+| `triggerNodeModification` | collapse/expand click | n/a | no | **only if modified** |
+
+Collapse is re-applied after a rebuild **by authored group identity, not visual column** — so a
+`columnDropMode: 'split'` group that fragments across non-adjacent visual columns has every fragment
+re-collapsed (same authored identity, multiple same-label banners).
+
+`triggerNodeModification` is split into a public method (regenerates the matrix once when something
+changed) and an internal `#applyNodeModification` (matrix-free). The collapse-reapply loops call the
+internal form so a single trailing `#applySyncVisibility` regenerates the matrix **once** — calling the
+public one in a loop regenerates per iteration (expensive). If you call `triggerNodeModification` from
+outside, do not assume each call rebuilds the matrix.
+
+## The header state is built in the ready step (DEV-3646)
+
+Both plugins build their state in `onGridReady()` (`../base/AGENTS.md`, "The ready step"), never in
+`enablePlugin()`/`updatePlugin()`. NestedHeaders' step is the old `updatePlugin()` body: column limit, the
+live column arrangement, `setState(nestedHeaders)`, the rowspan class, `syncVisibility()` and the widths-map
+flag. CollapsibleColumns' step marks the `collapsible` flags (`mapState`/`mergeStateWith`) and re-derives the
+`visibleWhen` set. Core runs the steps in priority order, so NestedHeaders' tree is built before
+CollapsibleColumns reads it, at init, on `updateSettings()`, and on `loadData()`. Five rules:
+
+- **`updatePlugin()` only owes the step.** It sets `#stateOwed` and calls `super.updatePlugin()`; the step runs
+  when the call returns. A direct `getPlugin('nestedHeaders').updatePlugin()` still rebuilds the tree before it
+  returns control to the caller's next line, but the caller renders, as before.
+- **No `init` listener and no `updatePlugin()` call from `enablePlugin()`.** Those were the `#6806` replays.
+  `updateSettings()` that turns either plugin on now builds the state once; it used to build it twice (from
+  `enablePlugin()`, then from `updatePlugin()` in the same pass).
+- **`afterLoadData` (not the initial load) builds the state at once, through `#buildHeaderState()`.** Plugins
+  enable before the settings hooks are added, so this listener runs before every `afterLoadData` listener of the
+  application, and those read the rebuilt tree. Deferred to the ready step (which runs after every listener),
+  a listener that called `collapseAll()` collapsed the old tree, and the step's `setState()` then expanded every
+  group while the hiding map kept their columns hidden. The build clears `#stateOwed`, so a call that also
+  updated the plugin (a sheets bar switch) builds once: its ready step finds nothing owed.
+- **The `!this.hot.view` guards in `clearColspans()` and `clearButtons()` stay.** They run from
+  `disablePlugin()`, which can run before the view exists (a settings pass inside the init sequence turning a
+  plugin off), and disabling has no ready step.
+- **At init the state now exists before the `init` hook, and that changes the first widths by 1–2 px.**
+  AutoColumnSize (10) measures from its `init` listener, which used to run before NestedHeaders' `init` listener
+  built the tree, so it read every bottom-level header as `''` (`#onModifyColumnHeaderValue` falls back to an
+  empty label) and the ghost table's fractional widths won (`#onModifyColWidth` takes the larger). Now it
+  measures the real labels and its whole-pixel widths win: measured in Chrome over six configurations in all
+  three themes, a column whose bottom label decides its width is 1–2 px wider at init (174.2 → 176 in main).
+  Those are exactly the widths the old code reached after any `loadData()`, when AutoColumnSize re-measured with
+  the tree built (18 of 18 configurations identical), so only the first draw of such a grid changes.
+
+## CollapsibleColumns relationship (priority ordering is load-bearing)
+
+- `NestedHeaders.PLUGIN_PRIORITY = 280`, `CollapsibleColumns.PLUGIN_PRIORITY = 290`. Lower runs first, so
+  on insert/remove/move **NestedHeaders rebuilds the tree (+ applies overrides + re-attaches collapse)
+  before** CollapsibleColumns re-derives its `visibleWhen` hidden set against the finalized tree. Reverse
+  the order and `visibleWhen` is derived against a stale tree.
+- `CollapsibleColumns` requires NestedHeaders (`PLUGIN_DEPS` is `['plugin:NestedHeaders']`, generated from its
+  `feature.json`) and reads the same
+  StateManager via `nestedHeadersPlugin.getStateManager()`. The data flow is one-directional:
+  CollapsibleColumns **reads** tree/matrix state and **writes** hiding maps; NestedHeaders never asks
+  CollapsibleColumns what is collapsed — it reads the hiding maps back through `syncVisibility`.
+- **Two separate hiding maps**, both type `'hiding'` on `columnIndexMapper`:
+  - `this.pluginName` (`'collapsibleColumns'`) — legacy first-visible-child collapse. This is what
+    `getCollapsedColumns()` reports (PHYSICAL indexes).
+  - `'collapsibleColumns.visibleWhen'` — columns hidden by per-header `visibleWhen` markers in
+    *declarative* groups. Kept separate so `getCollapsedColumns()` stays a faithful record of explicit
+    collapses. A consumer wanting "all hidden header columns" must consider both.
+- **`visibleWhen`** (`'collapsed' | 'expanded' | 'always'`, default `'expanded'`) is per-child and only
+  meaningful in a *declarative* group (a group where at least one child sets it). Derivation never hides
+  every child — the first stays visible so the collapse indicator survives.
+- On a move that would split a *collapsed* group, CollapsibleColumns **preemptively expands it** in
+  `beforeColumnMove`, so reading `getCollapsedGroups()` inside/after that hook can show fewer groups than
+  before.
+- **`setState()` drops every `collapsible` flag CollapsibleColumns wrote, so the plugin runs the
+  `afterHeaderStateRebuild` local hook (the `localHooks` mixin) at the end of its ready step**, the path that
+  calls `setState()`: after an enable, a `nestedHeaders` update, and every `afterLoadData`. CollapsibleColumns writes its
+  flags again from that hook. Its own `afterLoadData` listener ran first, by plugin order, and lost them, so
+  a `loadData()` or a sheets bar switch onto a sheet declaring `nestedHeaders` showed no collapse buttons. A
+  new path that rebuilds the state from the setting must run the hook too. `rebuildState()`, `insertColumns()`
+  and `removeColumns()` keep the flags and do not.
+
+## Hook timing & move gotchas (hard-won)
+
+- `columnIndexMapper.moveIndexes` is **not batched**: it sets `indexesChangeSource = 'move'` and fires a
+  synchronous `cacheUpdated`. NestedHeaders rebuilds in its `cacheUpdated` local hook when the change
+  source is a move (or a pending rebuild flag is set).
+- **Any write that reorders the same columns re-derives the tree, whatever its source.** `setIndexesSequence()`
+  reports `'update'`, not `'move'`, and UndoRedo, ViewState and a SheetsBar return all write the column order
+  that way; gated on `'move'` only, the tree kept the order it was last derived for, so after a sheet round trip
+  a moved column showed another column's header. The plugin keeps a copy of the sequence each derive used
+  (`#derivedColumnSequence`, refreshed by `#markDerived()` after `setState`, `rebuildState`, `insertColumns` and
+  `removeColumns`) and re-derives on a cache update that leaves a different permutation of the same length
+  (`#isReorderedSinceDerive()`). A sequence of another length is an insert or a removal, which
+  `afterCreateCol`/`afterRemoveCol` derive with their own overrides reset, so it is left to them. A batched
+  write is caught on the resume's cache update, because the comparison reads the sequence, not the source
+  (the source is cleared by then). Plain-grid consequence: `columnIndexMapper.setIndexesSequence()` now relabels
+  the headers. Pinned by `__tests__/columnOrderUpdate.unit.js` and `tests/e2e/sheets-bar-nested-headers-order.spec.ts`.
+  Such a write can split a collapsed group, and the re-derive drops its collapse without a `beforeColumnMove`
+  to expand it first. CollapsibleColumns notices the collapsed-groups version moving across the cache update
+  and rebuilds its hiding map from the groups (see `../collapsibleColumns/AGENTS.md`); pinned by
+  `../collapsibleColumns/__tests__/columnOrderUpdate.unit.js`.
+- **A data load is not a reorder.** `loadData()` re-initializes the column index mapper to the identity order,
+  and its cache update leaves a sequence that differs from a moved one. `beforeLoadData` drops
+  `#derivedColumnSequence`, so that update does not re-derive the tree; the `setState()` of the load's ready step
+  (owed from `afterLoadData`) derives it and marks the new order. Without that, every load after a column move derived the tree twice (one
+  `rebuildState()` thrown away by the `setState()` right after it), which is every sheet switch. A sequence
+  written after the load (a sheets bar return, `setIndexesSequence()`) still re-derives.
+- **The sheets bar keeps the membership overrides per sheet** through the `@private`
+  `_exportViewState()`/`_importViewState()` pair (silent, no hooks). The import re-derives only when the
+  overrides changed, and the sheets bar calls it after the column order is written back and before
+  CollapsibleColumns re-collapses its groups. See `utils/viewState/AGENTS.md`.
+- `manualColumnFreeze.freezeColumn`/`unfreezeColumn` call `columnIndexMapper.moveIndexes` **directly**,
+  bypassing `beforeColumnMove`/`afterColumnMove`. So a captured move can still be "open" when an
+  unrelated reorder (freeze) fires `cacheUpdated`.
+- Guard against that with `#capturedMoveExplainsReorder` (in `nestedHeaders.ts`): it only reparents if
+  the residual sequence (everything except the captured columns) is unchanged between pre- and post-move
+  — otherwise the capture didn't cause this reorder and is skipped.
+- The captured move state (`#movedPhysicalColumns`, `#preMoveColumnSequence`) is cleared **only after it
+  is consumed** in the cacheUpdated handler, not unconditionally — a CollapsibleColumns auto-expand fires
+  a synchronous hidden-only `cacheUpdated` *before* `moveIndexes`, and clearing eagerly dropped the
+  pending move. The one other release is `#onAfterColumnMove` with `orderChanged === false`: a move that
+  changes nothing never reaches `moveIndexes()` (see `../manualColumnMove/AGENTS.md`), so no cache update
+  consumes the capture, and a later reorder that skips `beforeColumnMove` (`freezeColumn`) would meet it
+  stale. Pinned by `__tests__/noopMoveCapture.unit.js`.
+- The header renderer strips `beforeHiddenColumn` / `afterHiddenColumn` from every header that does not
+  reach the cells (`reachesCells`). It runs *after* HiddenColumns' `afterGetColHeader` hook, which — since
+  icons became elements — also appends a real `<i class="ht-icon …">` caret into `.relative`. Stripping the class does
+  not remove that element, so HiddenColumns now withholds it with the same `isBottomMostColumnHeader(TH)`
+  test, and its SCSS hides any stray caret under `th:not(.beforeHiddenColumn)`. If you change what
+  `reachesCells` means, change `../hiddenColumns/hiddenColumns.ts` to match, or the two disagree about
+  which level shows the caret (`../hiddenColumns/AGENTS.md`, "With NestedHeaders…").
+
+## Header-highlight redirect must list every selection type that can reach a group level
+
+`#onBeforeHighlightingColumnHeader` redirects a non-root (`hiddenHeader`) column onto the group's
+visible origin `<th>` so a highlight painted at a group level lands on the cell that actually carries
+the `colspan`, not an invisible placeholder. It only redirects the selection types it explicitly checks
+(`HEADER_TYPE`, `COLUMN_TYPE`; `ACTIVE_HEADER_TYPE` takes a separate branch) — any other selection type
+whose header extent later grows to span more than the leaf level (see `Selection#createHeaderExtentCoords`
+in `handsontable/src/selection/selection.ts`) will silently paint its class onto a hidden `<th>` instead
+of the group cell until this hook is taught about it too (DEV-3012 added `COLUMN_TYPE` for
+`currentColClassName`).
+
+## A Shift+click measures the range and the focus from one anchor (`#focusInitialCoords`)
+
+`#onAfterOnCellMouseDown` records the pressed header in `#focusInitialCoords`, and with `navigableHeaders`
+`#onBeforeSelectionHighlightSet` moves the focus there. A Shift+click extends a range, so both the focus and
+the far end of the range have to come from the header the range started from, as they do for a drag,
+Shift+ArrowRight and row headers. Recording the Shift-clicked header moved the focus to it, and building the
+range from the corners of the old range let a later Shift+click that landed back past the start drift away
+from the focus (5, Shift+2, Shift+7 selected 2..7 with the focus left on 5).
+
+`#resolveShiftClickAnchor()` therefore takes the focus of the current range as the anchor: its header when the
+focus sits in a header row, the bottom header of its column when the range started from a cell. The range then
+runs from the anchor's span to the span of the clicked header (`#getColumnsToSelectFromAnchor()`). When the
+range does not start under a nested header (a row header, the corner) there is no anchor, and the old corner
+based range and the clicked header as focus stay (`#getColumnsToSelectFromRange()`). Without `navigableHeaders` the
+focus is a cell and says nothing about the header, so `#findRangeStartHeader()` takes the recorded `#focusInitialCoords`
+while the first corner of the range still sits under it (`selectColumns()` rebuilds that corner from the start column,
+so it cannot tell a group from one of its leaf headers). The anchor is a snapshot
+of the focus, so it does not depend on what the selection layer does with the highlight object afterwards.
+Pinned by `tests/e2e/header-range-selection.spec.ts`, where the cases cover a leaf and a group anchor, both
+directions, a second Shift+click and a cell start.
+
+## A Ctrl click on a sortable header matches a plain click
+
+Hook order is column sorting (50), multi-column sorting (170), then nested headers (280). On a Ctrl click
+the sorting plugin selects the column in `afterOnCellMouseDown` (`deselectCell` + `selectColumns(col)`).
+`Selection#setRangeStart` treats a held Ctrl as "add a layer", so a second `selectColumns` stacks a
+duplicate (DEV-605).
+
+`#ctrlClickRewroteColumnInsideHeader` is true when that press left one full-height column range whose
+columns sit inside the clicked header. Nested headers then calls `deselectCell()` and `selectColumns`
+for that header. The duplicate starts in columnSorting's Ctrl+click handling. The fix lives in
+nestedHeaders while #13904 (sorting) is open. Pinned by `tests/e2e/nested-headers-mouse-selection.spec.ts`.
+
+## A drag selects whole columns only when it started on a header
+
+`#isColumnsSelectionInProgress` is set in `afterOnCellMouseDown` when the press hit a header node.
+With `navigableHeaders`, `#onBeforeSelectionHighlightSet` moves the focus onto that header while the
+flag is set and `isMouseDown()` is true. The flag is cleared in `beforeOnCellMouseUp`, because
+`afterOnCellMouseUp` and `afterSelectionEnd` still see `isMouseDown()` as true. The document `mouseup`
+in `tableView.ts` clears it only after `selection.finish()`. A hook that selects a cell from
+`afterOnCellMouseUp` would otherwise have its focus pulled back onto the header.
+
+The flag is also cleared at the start of the next `beforeOnCellMouseDown`. A release outside the grid
+never fires a cell mouseup. It goes through that document `mouseup`, and a flag cleared only on cell
+mouseup stays true for the next cell-to-header drag.
+
+`#onBeforeOnCellMouseOver` may take over the drag (set `controller.column` and `controller.cell`, then
+`selectColumns`) only while the flag is set. A press that started on a cell leaves the flag clear, so the
+core `mouseOver` keeps the range on the cells (`to.normalize()` drops the header row). Gating on
+`isSelectedByColumnHeader()` is weaker: a column selection from before this press can still be marked.
+Header-started drags keep working because the after hook sets the flag again (DEV-799).
+Pinned by `tests/e2e/nested-headers-mouse-selection.spec.ts`.
+
+## `fixedColumnsEnd`: a group that crosses the end line is drawn by the end clone
+
+The inline-end clone and the top inline-end corner render only the LAST `fixedColumnsEnd` columns, so their
+header cells do not line up by position with the master's, and a group that starts before the band has no
+header cell of its own there: its covered columns are placeholders. This is the mirror of a group that starts in
+the `fixedColumnsStart` band and reaches past it, and it follows the same rule: **the fixed band shows the label**.
+
+- `headerRendererFactory` turns the placeholder at the FIRST end column (`renderedColumnIndex ===
+  totalColumns - fixedColumnsEnd`, read from the Walkontable settings, so they are the clamped values) into a
+  continuation: `#renderEndGroupContinuation` finds the group's origin with `findLeftMostColumnIndex`, sets a
+  `colspan` of the columns left in the band and renders the origin's label. The cell is a continuation only when
+  `#isEndOverlayHeader(TH)` says it sits in an end clone, so the master and the top clone are untouched.
+- The label comes from the ORIGIN column, but the cell is rendered FOR the column it sits on: the renderer calls
+  `appendColHeader` with that column and a label callback that reads the origin's value. Passing the origin column
+  itself looks natural and works on the first draw, but `TableView#updateCellHeader` maps the column to a rendered
+  index of the CLONE, and the origin is not in the end clone, so every later draw of the same `<th>` (a scroll
+  that does not rebuild it) wrote an empty label. Pinned by the scrolled case in `fixed-columns-end-headers.spec.ts`.
+  `afterGetColHeader` listeners therefore see the placeholder column, not the origin.
+- The top clone's `<th>` of a group that reaches into the band gets `hiddenHeaderText`, like a group that starts in the
+  start band. Without it the label would be painted twice, half of it under the end corner.
+- The cells of the end clones are NOT index-aligned with the master's `<th>` list. `clearColspans()` therefore walks
+  `getEndOverlayHeaders(this.hot)` (shared with collapsibleColumns, in `src/utils/endOverlayHeaders.ts`; plugins must not
+  import each other) on their own instead of reusing the loop index `j`.
+- A continuation cell is still a placeholder in the state, so the renderer draws it from the ORIGIN group's settings:
+  `headerClassName` of the group is applied to it, and `reachesCells` (hidden-column indicators) and the rowspan read
+  the group's `rowspan`, not the placeholder's. Reading the placeholder's own settings drops the class and the
+  indicators of a group with `rowspan > 1`.
+- With `fixedColumnsEnd: 0` none of this runs (`firstEndColumn` is `Infinity`).
+- Pinned by `tests/e2e/fixed-columns-end-headers.spec.ts` (the continuation in LTR and RTL, the label and the zero-band
+  control in LTR). Toggle `#renderEndGroupContinuation` off to see the end band header lose the label of a crossing
+  group.
+
+## TypeScript notes
+
+- `utils/dataStructures/tree.ts` `TreeNode<T>` is generic with a permissive default; nestedHeaders
+  consumes `TreeNode<HeaderNodeData>` so consumers don't cast `node.data`. Don't reintroduce
+  `node.data as HeaderNodeData` casts — fix the generic instead.
+- `ColumnDropMode` is declared in `stateManager/utils.ts` and re-used across the pipeline; import the
+  type, don't inline `'adopt' | 'split'` string unions.
+
+## Ghost-table widths drop the engine's column-width cache
+
+`GhostTable#buildWidthsMap()` and `GhostTable#clear()` end with `hot.view?.invalidateColumnWidthCache()`.
+The widths map feeds `modifyColWidth`, and the engine's column `PositionCache` tests only the column
+COUNT, so a width-only change is invisible to it. Left stale, the cache kept the narrow pre-growth sums
+while the scroll range used the grown widths, and a grid scrolled to the right edge showed a blank area
+instead of its last columns. A second writer of the widths map must call it too.
+
+## A web font load rebuilds the widths map (DEV-199)
+
+The ghost table measures the multi-column labels with whatever font has loaded, so a web font that arrives
+later leaves them clipped, and no resize observer sees it. `#onAfterFontsLoad` sets `#updateWidthsMap`, so
+the render core makes after the `afterFontsLoad` hook rebuilds the map; it listens with
+`FONT_REMEASURE_ORDER_INDEX` (`core/fontLoad.ts`), after the application's listeners. **A test of it must
+put the label over columns whose cells do not widen with the font**: AutoColumnSize measures the nested
+labels too, so a label over an auto-sized column grows without this handler and the test passes on a
+build without it (`tests/e2e/web-font-load.spec.ts`, "re-measures row header and nested header labels",
+puts it over an empty column and a fixed-width one).
+
+## The ghost table reads other plugins' settings, on purpose
+
+`#buildGhostTable()` (`utils/ghostTable.ts`) adds room for the dropdown and collapse buttons from the
+`dropdownMenu` and `collapsibleColumns` settings, not from whether those plugins run. The table is built during
+init, and CollapsibleColumns (290) enables after this plugin (280), so `.enabled` would read `false` there and
+shrink the measured headers. The cost: a license key that keeps one of them off leaves a little unused room in
+the header width.
+
+## Testing
+
+- E2E: `npm run test:e2e --prefix handsontable -- --testPathPattern='nestedHeaders'`
+- Unit: `npm run test:unit --prefix handsontable -- --testPathPattern='nestedHeaders'`
+- A collapsible group whose label is longer than the group:
+  `npm --prefix tests run test:e2e -- e2e/nested-headers-long-label.spec.ts` (Shift+Tab reaching the group,
+  Enter collapsing it, and the label cut with an ellipsis before the collapse icon, measured against the
+  icon element `.collapsibleIndicator__icon`, not the indicator's wider hit area, on every theme).
+- Ghost-table growth and the column-width cache:
+  `npm --prefix tests run test:e2e -- e2e/nested-headers-grown-widths.spec.ts` (scrolled to the right edge,
+  the last column's cell must lie inside the holder's visible area).
+- Move/reparent behavior: `__tests__/plugins/manualColumnMove/` — `general.spec.js` (cooperation:
+  follow-data, collapse coordination, insert/remove, freeze) plus one file per `columnDropMode`
+  strategy (`adopt.spec.js`, `split.spec.js`). **Add a new drop strategy's tests in its own
+  `<strategy>.spec.js` here.** Collapse + hidden interplay: `__tests__/hidingColumns.spec.js`.
+  Derive/override logic: `__tests__/stateManager/*.unit.ts`.
+- Discipline for move/derive fixes: write the test, confirm green, toggle the fix off to confirm red,
+  restore. The derive bugs in this area pass shallow tests easily.

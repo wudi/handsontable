@@ -1,0 +1,1748 @@
+import { BasePlugin } from '../base';
+import { Hooks } from '../../core/hooks';
+import type { HotInstance } from '../../core/types';
+import type { CellChange } from '../../settings';
+import { stringify, parse } from '../../3rdparty/SheetClip';
+import { arrayEach } from '../../helpers/array';
+import { isJSON } from '../../helpers/string';
+import { isObject, deepClone } from '../../helpers/object';
+import {
+  removeContentEditableFromElementAndDeselect,
+  runWithSelectedContendEditableElement,
+  makeElementContentEditableAndSelectItsContent,
+  getDeepActiveElement,
+  isHTMLElement,
+  isInternalElement,
+  isShadowRoot,
+} from '../../helpers/dom/element';
+import { sanitizeHTML } from '../../utils/sanitizer';
+import { warnOnce } from '../../helpers/console';
+import { extractText, getTextExtractor } from '../../utils/textExtractor';
+import { isSafari, isMacOS } from '../../helpers/browser';
+import { GRID_SCOPE, GRID_CLIPBOARD_KEYS } from '../../shortcuts/contexts/constants';
+import { normalizeKeys, getEventKeyCombinations } from '../../shortcuts/utils';
+import copyItem from './contextMenuItem/copy';
+import copyColumnHeadersOnlyItem from './contextMenuItem/copyColumnHeadersOnly';
+import copyWithColumnGroupHeadersItem from './contextMenuItem/copyWithColumnGroupHeaders';
+import copyWithColumnHeadersItem from './contextMenuItem/copyWithColumnHeaders';
+import cutItem from './contextMenuItem/cut';
+import { registerMenuEntries } from '../../utils/menu/menuEntries';
+import PasteEvent from './pasteEvent';
+import { PasteClipboardSnapshot, SOURCE_DATA_HTML_MIME_TYPE, type PasteClipboardSource } from './pasteClipboardData';
+import {
+  CopyableRangesFactory,
+  normalizeRanges,
+} from './copyableRanges';
+import { _dataToHTML, htmlToGridSettings } from '../../utils/parseTable';
+import { LICENSE } from './feature.generated';
+
+const CLIPBOARD_KEYS = new Set(GRID_CLIPBOARD_KEYS.map(keys => normalizeKeys(keys)));
+
+/**
+ * The rows of the copied data, and a fingerprint of each of their cells, recorded before a hook may edit them.
+ * An object or array cell is fingerprinted by its JSON, so an edit made in place is still seen.
+ */
+interface RangedDataSnapshot {
+  rows: unknown[][];
+  cells: unknown[][];
+}
+
+/**
+ * Reduces a copied cell to a value that changes when the cell's content changes, even for an object or array
+ * edited in place. An object that cannot be serialized (a `BigInt`, a circular reference) reduces to a fresh
+ * symbol, so it always counts as changed instead of throwing out of the copy.
+ *
+ * @param {*} value The copied cell value.
+ * @returns {*} The JSON of an object or array, the value itself otherwise.
+ */
+function fingerprintCell(value: unknown): unknown {
+  if (!isObject(value) && !Array.isArray(value)) {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return Symbol('unserializable');
+  }
+}
+
+/**
+ * Internet Explorer-specific window extension with legacy clipboard API.
+ */
+interface IEWindow extends Window {
+  clipboardData: DataTransfer;
+}
+
+/**
+ * `HotInstance` augmented with the internal `_getCopyableData` method. It exists on the Core runtime
+ * object but is intentionally NOT part of the public `HotInstance` type, so it is not exposed to
+ * third-party code. CopyPaste reads cell values through it to keep the copy hooks and the clipboard
+ * text working with the stored values.
+ */
+type HotInstanceInternal = HotInstance & {
+  _getCopyableData(row: number, column: number): unknown;
+};
+
+Hooks.getSingleton().register('afterCopyLimit');
+Hooks.getSingleton().register('modifyCopyableRange');
+Hooks.getSingleton().register('beforeCut');
+Hooks.getSingleton().register('afterCut');
+Hooks.getSingleton().register('beforePasteParse');
+Hooks.getSingleton().register('beforePaste');
+Hooks.getSingleton().register('afterPaste');
+Hooks.getSingleton().register('beforeCopy');
+Hooks.getSingleton().register('afterCopy');
+
+export const PLUGIN_KEY = 'copyPaste';
+export const PLUGIN_PRIORITY = 80;
+const SETTING_KEYS = ['fragmentSelection'];
+const META_HEAD = [
+  '<meta name="generator" content="Handsontable"/>',
+  '<style type="text/css">td{white-space:normal}br{mso-data-placement:same-cell}</style>',
+].join('');
+
+/**
+ * Squares off a ragged clipboard in place, filling the gaps with the empty-cell value.
+ *
+ * The grid pastes as wide as the widest row, so the rows that are shorter cover cells too. Doing
+ * this before the `beforePaste` hook keeps the hooks and the grid describing the same paste.
+ *
+ * @param {Array} data The parsed clipboard data.
+ */
+function padRowsToWidest(data: unknown[][]) {
+  const width = data.reduce((widest: number, row: unknown[]) => Math.max(widest, row.length), 0);
+
+  data.forEach((row: unknown[]) => {
+    for (let column = 0; column < width; column += 1) {
+      if (row[column] === undefined) {
+        row[column] = null;
+      }
+    }
+  });
+}
+
+/**
+ * `warnOnce` key for a clipboard payload the HTML parser refused.
+ *
+ * Distinct from `SANITIZER_WARN_KEY` on purpose. The case that needs this message most - a
+ * `sanitizer` that is configured but returns a plain string under `require-trusted-types-for
+ * 'script'` - is exactly the case where the missing-sanitizer warning does not fire, so sharing a
+ * key would let one suppress the other.
+ */
+const CLIPBOARD_PARSE_WARN_KEY = 'copyPaste.clipboardParse';
+
+/**
+ * The `type`s of an `input` the user cannot enter text into. A focus on one is no reason to skip the
+ * Safari `mouseleave` workaround.
+ */
+const NON_TEXT_INPUT_TYPES = new Set([
+  'checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'file', 'image', 'color',
+]);
+
+/**
+ * Reads the `text/plain` clipboard flavor.
+ *
+ * Shared by the no-table branch and by the fallback taken when the HTML parse throws, so the two
+ * cannot drift on the trailing-newline rule below.
+ *
+ * The `typeof` test is not redundant: `ClipboardData.getData()` is declared `string | undefined`,
+ * and `onPaste` treats `undefined` as "no paste" while an empty string would parse into a single
+ * blank cell and clear the target.
+ *
+ * It reads `PasteClipboardSnapshot#resolve()`, which answers what the source answered for a flavor
+ * no `beforePasteParse` callback touched: `''` from a real `DataTransfer`, `undefined` from the
+ * `PasteEvent` stand-in the public `paste()` method builds.
+ *
+ * @param {PasteClipboardSnapshot} clipboardData The snapshot of the paste event's clipboard.
+ * @returns {unknown} The plain-text payload, with a single trailing newline removed.
+ */
+function readPlainText(clipboardData: PasteClipboardSnapshot): unknown {
+  const text = clipboardData.resolve('text/plain');
+
+  // Excel terminates every row (including the last) with a CRLF. For a single-cell copy that
+  // produces a trailing newline, which `SheetClip.parse` would read as a row separator and emit
+  // an extra empty row, blanking the cell below the paste target. Treat a single trailing
+  // newline as a terminator, not a separator.
+  return typeof text === 'string' ? text.replace(/(\r\n|\r|\n)$/, '') : text;
+}
+
+/* eslint-disable jsdoc/require-description-complete-sentence */
+
+/**
+ * @description
+ * Copy, cut, and paste data by using the `CopyPaste` plugin.
+ *
+ * Control the `CopyPaste` plugin programmatically through its [API methods](#methods).
+ *
+ * The user can access the copy-paste features through:
+ * - The [context menu](@/guides/cell-features/clipboard/clipboard.md#context-menu).
+ * - The [keyboard shortcuts](@/guides/cell-features/clipboard/clipboard.md#related-keyboard-shortcuts).
+ * - The browser's menu bar.
+ *
+ * Read more:
+ * - [Setting options: `copyPaste`](@/api/options.md#copypaste)
+ *
+ * @example
+ * ```js
+ * // enable the plugin with the default configuration
+ * copyPaste: true,
+ *
+ * // or, enable the plugin with a custom configuration
+ * copyPaste: {
+ *   columnsLimit: 25,
+ *   rowsLimit: 50,
+ *   pasteMode: 'shift_down',
+ *   copyColumnHeaders: true,
+ *   copyColumnGroupHeaders: true,
+ *   copyColumnHeadersOnly: true,
+ *   uiContainer: document.body,
+ * },
+ * ```
+ * @class CopyPaste
+ * @plugin CopyPaste
+ */
+export class CopyPaste extends BasePlugin {
+  /**
+   * Returns the plugin key used to identify this plugin in Handsontable settings.
+   */
+  static get PLUGIN_KEY() {
+    return PLUGIN_KEY;
+  }
+
+  /**
+   * Returns the setting keys that trigger a plugin update when changed via `updateSettings`.
+   */
+  static get SETTING_KEYS() {
+    return [
+      PLUGIN_KEY,
+      ...SETTING_KEYS
+    ];
+  }
+
+  /**
+   * Returns the priority order used to determine the order in which plugins are initialized.
+   */
+  static get PLUGIN_PRIORITY() {
+    return PLUGIN_PRIORITY;
+  }
+
+  /**
+   * Returns the license token of the plugin, its display name, where it is checked, and the tokens it
+   * requires.
+   */
+  static get LICENSE() {
+    return LICENSE;
+  }
+
+  /**
+   * Returns the default settings applied when the plugin is enabled without explicit configuration.
+   */
+  static get DEFAULT_SETTINGS() {
+    return {
+      pasteMode: 'overwrite',
+      rowsLimit: Infinity,
+      columnsLimit: Infinity,
+      copyColumnHeaders: false,
+      copyColumnGroupHeaders: false,
+      copyColumnHeadersOnly: false,
+    };
+  }
+
+  /**
+   * The maximum number of columns than can be copied to the clipboard.
+   *
+   * @type {number}
+   * @default Infinity
+   */
+  columnsLimit: number = Infinity;
+  /**
+   * The maximum number of rows than can be copied to the clipboard.
+   *
+   * @type {number}
+   * @default Infinity
+   */
+  rowsLimit: number = Infinity;
+  /**
+   * When pasting:
+   * - `'overwrite'` - overwrite the currently-selected cells
+   * - `'shift_down'` - move currently-selected cells down
+   * - `'shift_right'` - move currently-selected cells to the right
+   *
+   * @type {string}
+   * @default 'overwrite'
+   */
+  pasteMode: string = 'overwrite';
+  /**
+   * The UI container for the secondary focusable element.
+   *
+   * @type {HTMLElement}
+   */
+  uiContainer = this.hot.rootDocument.body;
+  /**
+   * Shows the "Copy with headers" item in the context menu and extends the context menu with the
+   * `'copy_with_column_headers'` option that can be used for creating custom menus arrangements.
+   *
+   * @type {boolean}
+   * @default false
+   */
+  #enableCopyColumnHeaders = false;
+  /**
+   * Shows the "Copy with group headers" item in the context menu and extends the context menu with the
+   * `'copy_with_column_group headers'` option that can be used for creating custom menus arrangements.
+   *
+   * @type {boolean}
+   * @default false
+   */
+  #enableCopyColumnGroupHeaders = false;
+  /**
+   * Shows the "Copy headers only" item in the context menu and extends the context menu with the
+   * `'copy_column_headers_only'` option that can be used for creating custom menus arrangements.
+   *
+   * @type {boolean}
+   * @default false
+   */
+  #enableCopyColumnHeadersOnly = false;
+  /**
+   * Defines the data range to copy. Possible values:
+   *  * `'cells-only'` Copy selected cells only;
+   *  * `'column-headers-only'` Copy column headers only;
+   *  * `'with-column-group-headers'` Copy cells with all column headers;
+   *  * `'with-column-headers'` Copy cells with column headers;
+   *
+   * @type {'cells-only' | 'column-headers-only' | 'with-column-group-headers' | 'with-column-headers'}
+   */
+  #copyMode = 'cells-only';
+  /**
+   * Registry of the clipboard events that were already processed. The clipboard listeners are
+   * bound to the document, to the grid's own element, and - when the grid lives inside a Shadow
+   * DOM tree - to its shadow root, so the same event instance reaches the plugin more than once
+   * for every grid, not just a grid inside a shadow tree. Keyed on event identity, which holds
+   * because `EventManager` hands every listener the same event object.
+   *
+   * @type {WeakSet<object>}
+   */
+  #processedClipboardEvents: WeakSet<object> = new WeakSet();
+  /**
+   * Flag that is used to prevent copying when the native shortcut was not pressed.
+   *
+   * @type {boolean}
+   */
+  #isTriggeredByCopy = false;
+  /**
+   * Flag that is used to prevent cutting when the native shortcut was not pressed.
+   *
+   * @type {boolean}
+   */
+  #isTriggeredByCut = false;
+  /**
+   * Class that helps generate copyable ranges based on the current selection for different copy mode
+   * types.
+   *
+   * @type {CopyableRangesFactory}
+   */
+  #copyableRangesFactory = new CopyableRangesFactory({
+    countRows: () => this.hot.countRows(),
+    countColumns: () => this.hot.countCols(),
+    rowsLimit: () => this.rowsLimit,
+    columnsLimit: () => this.columnsLimit,
+    countColumnHeaders: () => this.hot.view.getColumnHeadersCount(),
+  });
+  /**
+   * Flag that indicates if the viewport scroll should be prevented after pasting the data.
+   *
+   * @type {boolean}
+   */
+  #preventViewportScrollOnPaste = false;
+  /**
+   * The unclamped `[startRow, startColumn, endRow, endColumn]` range a paste is about to
+   * populate, captured just before `populateFromArray()` runs. A validated column defers row
+   * creation until the validator queue drains (see `#onAfterChange`), so the synchronous
+   * selection made right after `populateFromArray()` returns can be clamped against a stale row
+   * count. This plan is what `#onAfterChange` uses to re-select against the fresh count once the
+   * write settles.
+   *
+   * @type {Array<number> | null}
+   */
+  #pastePlan: [number, number, number, number] | null = null;
+  /**
+   * The `[startRow, startColumn, endRow, endColumn]` range `onPaste()`'s synchronous selection
+   * actually produced, read back after the selection so it reflects any adjustment the selection
+   * made (it grows a range over the merged cells it touches). It is `null`
+   * until that selection runs, which lets `#onAfterChange` tell the synchronous case (the change
+   * settles inside `populateFromArray()`, before this is set) from the deferred one, and it is
+   * what the deferred correction compares the live selection against, so a selection the user or
+   * an `afterPaste` handler moved in the meantime is left alone.
+   *
+   * @type {Array<number> | null}
+   */
+  #appliedPasteRange: [number, number, number, number] | null = null;
+  /**
+   * Ranges of the cells coordinates, which should be used to copy/cut/paste actions.
+   *
+   * @private
+   * @type {Array<{startRow: number, startCol: number, endRow: number, endCol: number}>}
+   */
+  copyableRanges: Record<string, number>[] = [];
+
+  /**
+   * Checks if the [`CopyPaste`](#copypaste) plugin is enabled.
+   *
+   * This method gets called by Handsontable's [`beforeInit`](@/api/hooks.md#beforeinit) hook.
+   * If it returns `true`, the [`enablePlugin()`](#enableplugin) method gets called.
+   *
+   * @returns {boolean}
+   */
+  isEnabled(): boolean {
+    return !!this.hot.getSettings()[PLUGIN_KEY];
+  }
+
+  /**
+   * Enables the [`CopyPaste`](#copypaste) plugin for your Handsontable instance.
+   */
+  enablePlugin(): void {
+    if (this.enabled) {
+      return;
+    }
+
+    this.pasteMode = this.getSetting<string>('pasteMode') ?? this.pasteMode;
+    this.rowsLimit = isNaN(this.getSetting<number>('rowsLimit')!)
+      ? this.rowsLimit : this.getSetting<number>('rowsLimit')!;
+    this.columnsLimit = isNaN(this.getSetting<number>('columnsLimit')!)
+      ? this.columnsLimit : this.getSetting<number>('columnsLimit')!;
+    this.#enableCopyColumnHeaders = this.getSetting<boolean>('copyColumnHeaders')!;
+    this.#enableCopyColumnGroupHeaders = this.getSetting<boolean>('copyColumnGroupHeaders')!;
+    this.#enableCopyColumnHeadersOnly = this.getSetting<boolean>('copyColumnHeadersOnly')!;
+    this.uiContainer = this.getSetting<HTMLElement>('uiContainer') ?? this.uiContainer;
+
+    registerMenuEntries(this, () => this.#createMenuEntries(), { contextMenu: {} });
+    this.addHook('afterSelection', this.#onAfterSelection);
+    this.addHook('afterSelectionEnd', this.#onAfterSelectionEnd);
+    this.addHook('afterChange', this.#onAfterChange);
+    this.addHook('beforeKeyDown', this.#onBeforeKeyDown);
+
+    // The same three listeners go on up to three targets, because a clipboard event reaches
+    // the grid by a different route depending on where the grid is embedded. More than one
+    // of them can see the same event, so `#processedClipboardEvents` keeps the handler
+    // running once - the event manager hands every listener the same event object, which is
+    // what makes identity a usable key here.
+    const dedupe = (handler: (event: ClipboardEvent) => void) => (event: ClipboardEvent) => {
+      if (this.#processedClipboardEvents.has(event)) {
+        return;
+      }
+      this.#processedClipboardEvents.add(event);
+      handler(event);
+    };
+    const bindClipboardListeners = (target: Element | Document | ShadowRoot) => {
+      this.eventManager.addEventListener(target, 'copy', dedupe((e: ClipboardEvent) => this.onCopy(e)));
+      this.eventManager.addEventListener(target, 'cut', dedupe((e: ClipboardEvent) => this.onCut(e)));
+      this.eventManager.addEventListener(target, 'paste', dedupe((e: ClipboardEvent) => this.onPaste(e)));
+    };
+
+    // The document. It carries the events that target `document.body`, which sits outside the
+    // grid where no listener below it would ever see them, and it is what keeps copy/cut/paste
+    // working on Chrome 133 and lower (#dev-2277). Never drop it.
+    bindClipboardListeners(this.hot.rootDocument);
+
+    // The grid's own element. Sandboxed hosts (Salesforce Lightning Web Security) deliver
+    // clipboard events only to listeners bound at or below the element the grid owns - neither
+    // the document nor the shadow-root listeners below run there, which left copy, cut and
+    // paste doing nothing inside a Lightning Web Component (#dev-2795). Everywhere else this
+    // listener just sees an in-grid event before the others do, and they dedupe against it.
+    bindClipboardListeners(this.hot.rootElement);
+
+    const rootNode = this.hot.rootElement.getRootNode();
+
+    // The grid's shadow root, when it has one. Sandboxed hosts retarget events observed at the
+    // document level, which hides the grid internals from the document listeners; listeners
+    // bound inside the grid's own shadow tree still receive the untouched event path.
+    if (isShadowRoot(rootNode)) {
+      bindClipboardListeners(rootNode);
+    }
+
+    // Without this workaround Safari (tested on Safari@16.5.2) does allow copying/cutting from the browser menu.
+    if (isSafari()) {
+      this.eventManager.addEventListener(
+        this.hot.rootDocument.body, 'mouseenter', this.#onSafariMouseEnter
+      );
+      this.eventManager.addEventListener(
+        this.hot.rootDocument.body, 'mouseleave', this.#onSafariMouseLeave
+      );
+
+      this.addHook('afterSelection', this.#onSafariAfterSelection);
+    }
+
+    super.enablePlugin();
+  }
+
+  /**
+   * Updates the state of the [`CopyPaste`](#copypaste) plugin.
+   *
+   * Gets called when [`updateSettings()`](@/api/core.md#updatesettings)
+   * is invoked with any of the following configuration options:
+   *  - [`copyPaste`](@/api/options.md#copypaste)
+   *  - [`fragmentSelection`](@/api/options.md#fragmentselection)
+   */
+  updatePlugin(): void {
+    this.disablePlugin();
+    this.enablePlugin();
+
+    super.updatePlugin();
+  }
+
+  /**
+   * Disables the [`CopyPaste`](#copypaste) plugin for your Handsontable instance.
+   */
+  disablePlugin(): void {
+    super.disablePlugin();
+
+    this.#pastePlan = null;
+    this.#appliedPasteRange = null;
+  }
+
+  /**
+   * Copies the contents of the selected cells (and/or their related column headers) to the system clipboard.
+   *
+   * Takes an optional parameter (`copyMode`) that defines the scope of copying:
+   *
+   * | `copyMode` value              | Description                                                     |
+   * | ----------------------------- | --------------------------------------------------------------- |
+   * | `'cells-only'` (default)      | Copy the selected cells                                         |
+   * | `'with-column-headers'`       | - Copy the selected cells<br>- Copy the nearest column headers  |
+   * | `'with-column-group-headers'` | - Copy the selected cells<br>- Copy all related columns headers |
+   * | `'column-headers-only'`       | Copy the nearest column headers (without copying cells)         |
+   *
+   * @param {string} [copyMode='cells-only'] Copy mode.
+   */
+  copy(copyMode: string = 'cells-only'): void {
+    this.#copyMode = copyMode;
+    this.#isTriggeredByCopy = true;
+
+    this.#ensureClipboardEventsGetTriggered('copy');
+  }
+
+  /**
+   * Copies the contents of the selected cells.
+   */
+  copyCellsOnly(): void {
+    this.copy('cells-only');
+  }
+  /**
+   * Copies the contents of column headers that are nearest to the selected cells.
+   */
+  copyColumnHeadersOnly(): void {
+    this.copy('column-headers-only');
+  }
+  /**
+   * Copies the contents of the selected cells and all their related column headers.
+   */
+  copyWithAllColumnHeaders(): void {
+    this.copy('with-column-group-headers');
+  }
+  /**
+   * Copies the contents of the selected cells and their nearest column headers.
+   */
+  copyWithColumnHeaders(): void {
+    this.copy('with-column-headers');
+  }
+
+  /**
+   * Cuts the contents of the selected cells to the system clipboard.
+   */
+  cut(): void {
+    this.#isTriggeredByCut = true;
+
+    this.#ensureClipboardEventsGetTriggered('cut');
+  }
+
+  /**
+   * Converts the contents of multiple ranges (`ranges`) into a single string.
+   *
+   * @param {Array<{startRow: number, startCol: number, endRow: number, endCol: number}>} ranges Array of objects with properties `startRow`, `endRow`, `startCol` and `endCol`.
+   * @returns {string} A string that will be copied to the clipboard.
+   */
+  getRangedCopyableData(ranges: Record<string, number>[]): string {
+    return stringify(this.getRangedData(ranges));
+  }
+
+  /**
+   * Converts the contents of multiple ranges (`ranges`) into an array of arrays.
+   *
+   * @param {Array<{startRow: number, startCol: number, endRow: number, endCol: number}>} ranges Array of objects with properties `startRow`, `startCol`, `endRow` and `endCol`.
+   * @param {boolean} [useSourceData=false] Whether to use the source data instead of the data. This will stringify objects as JSON.
+   * @returns {Array[]} An array of arrays that will be copied to the clipboard.
+   */
+  getRangedData(ranges: Record<string, number>[], useSourceData: boolean = false): unknown[][] {
+    const data: unknown[][] = [];
+    const { rows, columns } = normalizeRanges(ranges);
+
+    // concatenate all rows and columns data defined in ranges into one copyable string
+    arrayEach(rows, (row: number) => {
+      const rowSet: unknown[] = [];
+
+      arrayEach(columns, (column: number) => {
+        if (row < 0) {
+          // `row` as the second argument acts here as the `headerLevel` argument
+          rowSet.push(this.hot.getColHeader(column, row));
+
+        } else {
+          // The raw value, not `getCopyableData()`'s string: the copy and cut hooks hand consumers
+          // the values as they are stored, and `SheetClip.stringify()` reads an object through
+          // `valueOf()`, which `getCopyableData()` does not.
+          let copyableCellData =
+            useSourceData ?
+              this.hot.getCopyableSourceData(row, column) :
+              (this.hot as HotInstanceInternal)._getCopyableData(row, column);
+
+          if (useSourceData &&
+            (isObject(copyableCellData) || Array.isArray(copyableCellData))
+          ) {
+            copyableCellData = JSON.stringify(copyableCellData);
+          }
+
+          rowSet.push(copyableCellData);
+        }
+      });
+
+      data.push(rowSet);
+    });
+
+    return data;
+  }
+
+  /**
+   * Simulates the paste action.
+   *
+   * For security reasons, modern browsers don't allow reading from the system clipboard.
+   *
+   * @param {string} pastableText The value to paste, as a raw string.
+   * @param {string} [pastableHtml=''] The value to paste, as HTML.
+   */
+  paste(pastableText: string = '', pastableHtml: string = pastableText): void {
+    if (!pastableText && !pastableHtml) {
+      return;
+    }
+
+    const pasteData = new PasteEvent();
+
+    if (pastableText) {
+      pasteData.clipboardData.setData('text/plain', pastableText);
+    }
+    if (pastableHtml) {
+      pasteData.clipboardData.setData('text/html', pastableHtml);
+    }
+
+    this.onPaste(pasteData);
+  }
+
+  /**
+   * Prepares copyable text from the cells selection in the invisible textarea.
+   */
+  setCopyableText(): void {
+    const selectionRange = this.hot.getSelectedRangeActive();
+
+    if (!selectionRange) {
+      return;
+    }
+
+    if (selectionRange.isSingleHeader()) {
+      this.copyableRanges = [];
+
+      return;
+    }
+
+    this.#copyableRangesFactory.setSelectedRange(selectionRange);
+
+    type RangeEntry = {
+      isRangeTrimmed: boolean; startRow: number; startCol: number; endRow: number; endCol: number
+    } | null;
+    const groupedRanges = new Map<string, RangeEntry>([
+      ['headers', null],
+      ['cells', null],
+    ]);
+
+    if (this.#copyMode === 'column-headers-only') {
+      groupedRanges.set('headers', this.#copyableRangesFactory.getMostBottomColumnHeadersRange());
+
+    } else {
+      if (this.#copyMode === 'with-column-headers') {
+        groupedRanges.set('headers', this.#copyableRangesFactory.getMostBottomColumnHeadersRange());
+
+      } else if (this.#copyMode === 'with-column-group-headers') {
+        groupedRanges.set('headers', this.#copyableRangesFactory.getAllColumnHeadersRange());
+      }
+
+      groupedRanges.set('cells', this.#copyableRangesFactory.getCellsRange());
+    }
+
+    this.copyableRanges = Array.from(groupedRanges.values())
+      .filter(range => range !== null)
+      .map(({ startRow, startCol, endRow, endCol }) => ({ startRow, startCol, endRow, endCol }));
+
+    this.copyableRanges = this.hot.runHooks('modifyCopyableRange', this.copyableRanges);
+
+    // A `modifyCopyableRange` listener can destroy the grid, which clears `this.hot`.
+    if (!this.hot) {
+      return;
+    }
+
+    const cellsRange = groupedRanges.get('cells');
+
+    if (cellsRange !== null && cellsRange !== undefined && cellsRange.isRangeTrimmed) {
+      const {
+        startRow, startCol, endRow, endCol
+      } = cellsRange;
+
+      this.hot.runHooks('afterCopyLimit',
+        endRow - startRow + 1, endCol - startCol + 1, this.rowsLimit, this.columnsLimit);
+    }
+  }
+
+  /**
+   * Verifies if editor exists and is open.
+   *
+   * @private
+   * @returns {boolean}
+   */
+  isEditorOpened() {
+    return this.hot.getActiveEditor()?.isOpened();
+  }
+
+  /**
+   * Ensure that the `copy`/`cut` events get triggered properly in Safari.
+   *
+   * @param {string} eventName Name of the event to get triggered.
+   */
+  #ensureClipboardEventsGetTriggered(eventName: string) {
+    // Without this workaround Safari (tested on Safari@16.5.2) does not trigger the 'copy' event.
+    if (isSafari()) {
+      const activeSelectedRange = this.hot.getSelectedRangeActive();
+
+      if (activeSelectedRange) {
+        const { row: highlightRow, col: highlightColumn } = activeSelectedRange.highlight;
+
+        if (highlightRow !== null && highlightColumn !== null) {
+          const currentlySelectedCell = this.hot.getCell(highlightRow, highlightColumn, true);
+
+          if (currentlySelectedCell) {
+            runWithSelectedContendEditableElement(currentlySelectedCell, () => {
+              this.hot.rootDocument.execCommand(eventName);
+            });
+          }
+        }
+      }
+
+    } else {
+      this.hot.rootDocument.execCommand(eventName);
+    }
+  }
+
+  /**
+   * Counts how many column headers will be copied based on the passed range.
+   *
+   * @private
+   * @param {Array<{startRow: number, startCol: number, endRow: number, endCol: number}>} ranges Array of objects with properties `startRow`, `startCol`, `endRow` and `endCol`.
+   * @returns {{ columnHeadersCount: number }} Returns an object with keys that holds
+   *                                           information with the number of copied headers.
+   */
+  #countCopiedHeaders(ranges: Record<string, number>[]) {
+    const { rows } = normalizeRanges(ranges);
+    let columnHeadersCount = 0;
+
+    for (let row = 0; row < rows.length; row++) {
+      if (rows[row] >= 0) {
+        break;
+      }
+
+      columnHeadersCount += 1;
+    }
+
+    return {
+      columnHeadersCount,
+    };
+  }
+
+  /**
+   * Prepares new values to populate them into datasource.
+   *
+   * @private
+   * @param {object} pasteData An object with the data to populate.
+   * @param {object} pasteData.plainData The plain data to populate.
+   * @param {object} pasteData.sourceData The source data to populate.
+   * @param {object} pasteData.originalPlainData The original plain data before user modifications in beforePaste.
+   * @returns {number[]} Range coordinates after populate data.
+   */
+  populateValues({ plainData, originalPlainData, sourceData }: {
+    plainData: unknown[][];
+    originalPlainData: unknown[][];
+    sourceData: unknown[][];
+  }) {
+    if (!plainData.length) {
+      return [null, null, null, null];
+    }
+
+    const selection = this.hot.getSelectedRangeActive();
+    const populatedRowsLength = plainData.length;
+    // A ragged clipboard (rows of unequal length) must not be narrowed to the first row's width -
+    // cells past that width would never be written. The widest row wins, as in spreadsheet apps.
+    const populatedColumnsLength = plainData
+      .reduce((maxLength: number, row: unknown[]) => Math.max(maxLength, row.length), 0);
+    const newRows = [];
+
+    if (!selection) {
+      return [null, null, null, null];
+    }
+
+    const { row: startRow, col: startColumn } = selection.getTopStartCorner();
+    const { row: endRowFromSelection, col: endColumnFromSelection } = selection.getBottomEndCorner();
+
+    if (startRow === null || startColumn === null || endRowFromSelection === null || endColumnFromSelection === null) {
+      return [null, null, null, null];
+    }
+
+    let visualRowForPopulatedData: number = startRow;
+    let visualColumnForPopulatedData: number = startColumn;
+    let lastVisualRow: number = startRow;
+    let lastVisualColumn: number = startColumn;
+
+    // We try to populate just all copied data or repeat copied data within a selection. Please keep in mind that we
+    // don't know whether populated data is bigger than selection on start as there are some cells for which values
+    // should be not inserted (it's known right after getting cell meta).
+    while (newRows.length < populatedRowsLength || visualRowForPopulatedData <= endRowFromSelection) {
+      const { skipRowOnPaste, visualRow } = this.hot.getCellMeta<{ skipRowOnPaste: boolean, visualRow: number }>(
+        visualRowForPopulatedData, startColumn);
+
+      visualRowForPopulatedData = visualRow + 1;
+
+      if (skipRowOnPaste === true) {
+        /* eslint-disable no-continue */
+        continue;
+      }
+
+      lastVisualRow = visualRow;
+      visualColumnForPopulatedData = startColumn;
+
+      const newRow = [];
+      const insertedRow = newRows.length % populatedRowsLength;
+
+      while (newRow.length < populatedColumnsLength || visualColumnForPopulatedData <= endColumnFromSelection) {
+        const {
+          skipColumnOnPaste,
+          visualCol,
+          parsePastedValue,
+        } = this.hot.getCellMeta<{ skipColumnOnPaste: boolean, visualCol: number, parsePastedValue: unknown }>(
+          visualRow, visualColumnForPopulatedData);
+        const sourceDataAtTarget = this.hot.getSourceDataAtCell(visualRow, visualColumnForPopulatedData);
+        const insertedColumn = newRow.length % populatedColumnsLength;
+
+        visualColumnForPopulatedData = visualCol + 1;
+
+        if (skipColumnOnPaste === true) {
+          /* eslint-disable no-continue */
+          continue;
+        }
+
+        lastVisualColumn = visualCol;
+
+        const sourceCellValue = sourceData?.[insertedRow]?.[insertedColumn];
+        const originalCellValue = originalPlainData?.[insertedRow]?.[insertedColumn];
+        let cellValue: unknown = plainData[insertedRow][insertedColumn];
+
+        if (parsePastedValue && sourceData && isJSON(sourceCellValue as string) && cellValue === originalCellValue) {
+          const parsedCellValue: unknown = JSON.parse(sourceCellValue as string);
+
+          cellValue = parsedCellValue;
+        }
+
+        // A row shorter than the widest one has no value here. Write the empty-cell value rather
+        // than `undefined`, which would delete the property outright in an object data source.
+        newRow.push(cellValue === undefined ? null : cellValue);
+      }
+
+      newRows.push(newRow);
+    }
+
+    this.#pastePlan = [startRow, startColumn, lastVisualRow, lastVisualColumn];
+    this.#appliedPasteRange = null;
+    this.#preventViewportScrollOnPaste = true;
+    this.hot.populateFromArray(startRow, startColumn, newRows, undefined, undefined, 'CopyPaste.paste', this.pasteMode);
+
+    return [startRow, startColumn, lastVisualRow, lastVisualColumn];
+  }
+
+  /**
+   * Selects the range a paste populated, clamping its end corner to the grid's current row and
+   * column counts.
+   *
+   * The deferred correction passes `false` for both flags so it can fix the selection without
+   * scrolling the viewport or taking keyboard focus back into the grid - the user may have clicked
+   * elsewhere while a slow validator settled, and `changeListener: false` keeps `selectCell` from
+   * re-listening (`selectCells` only calls `listen()` when `changeListener` is true).
+   *
+   * @param {number} startRow Visual row index of the selection's start corner.
+   * @param {number} startColumn Visual column index of the selection's start corner.
+   * @param {number} endRow Visual row index of the (unclamped) selection's end corner.
+   * @param {number} endColumn Visual column index of the (unclamped) selection's end corner.
+   * @param {boolean} [scrollToCell=true] Whether to scroll the viewport to the selection.
+   * @param {boolean} [changeListener=true] Whether to switch keyboard focus to the grid.
+   */
+  #selectPastedRange(
+    startRow: number,
+    startColumn: number,
+    endRow: number,
+    endColumn: number,
+    scrollToCell = true,
+    changeListener = true,
+  ): void {
+    this.hot.selectCell(
+      startRow,
+      startColumn,
+      Math.min(this.hot.countRows() - 1, endRow),
+      Math.min(this.hot.countCols() - 1, endColumn),
+      scrollToCell,
+      changeListener,
+    );
+  }
+
+  /**
+   * Checks whether the focus sits in a control the user enters a value into, such as the comment editor's
+   * text area or an open cell editor. Selecting the highlighted cell's content takes the focus from such a
+   * control. The input of a closed cell editor, which keeps the focus in a grid with `imeFastEdit`, is not
+   * one: its holder is hidden, and the Safari workaround still has to run there. Neither is a checkbox, a
+   * button, or another input that takes no text.
+   *
+   * @returns {boolean}
+   */
+  #isTypingIntoFormControl() {
+    const { HTMLTextAreaElement, HTMLInputElement, HTMLSelectElement } = this.hot.rootWindow;
+    const activeElement = getDeepActiveElement(this.hot.rootDocument);
+    const isEntryControl = activeElement instanceof HTMLTextAreaElement ||
+      activeElement instanceof HTMLSelectElement ||
+      (activeElement instanceof HTMLInputElement && !NON_TEXT_INPUT_TYPES.has(activeElement.type));
+
+    return isEntryControl && activeElement.closest('.ht_editor_hidden') === null;
+  }
+
+  /**
+   * Add the `contenteditable` attribute to the highlighted cell and select its content.
+   */
+  #addContentEditableToHighlightedCell() {
+    if (this.hot.isListening() && !this.#isTypingIntoFormControl()) {
+      const activeSelectedRange = this.hot.getSelectedRangeActive();
+
+      if (activeSelectedRange) {
+        const { row: highlightRow, col: highlightColumn } = activeSelectedRange.highlight;
+
+        if (highlightRow === null || highlightColumn === null) {
+          return;
+        }
+
+        const currentlySelectedCell = this.hot.getCell(highlightRow, highlightColumn, true);
+
+        if (currentlySelectedCell) {
+          makeElementContentEditableAndSelectItsContent(currentlySelectedCell);
+        }
+      }
+    }
+  }
+
+  /**
+   * Remove the `contenteditable` attribute from the highlighted cell and deselect its content.
+   */
+  #removeContentEditableFromHighlightedCell() {
+    // If the instance is not listening, the workaround is not needed.
+    if (this.hot.isListening()) {
+      const activeSelectedRange = this.hot.getSelectedRangeActive();
+
+      if (activeSelectedRange) {
+        const { row: highlightRow, col: highlightColumn } = activeSelectedRange.highlight;
+
+        if (highlightRow === null || highlightColumn === null) {
+          return;
+        }
+
+        const currentlySelectedCell = this.hot.getCell(highlightRow, highlightColumn, true);
+
+        if (currentlySelectedCell?.hasAttribute('contenteditable')) {
+          removeContentEditableFromElementAndDeselect(currentlySelectedCell);
+        }
+      }
+    }
+  }
+
+  /**
+   * Resolves the element the clipboard event originated from. A complete path (one that
+   * crosses shadow boundaries and therefore contains ShadowRoot entries) is trusted as-is -
+   * its initial element is the real source, e.g. a node inside a web component that a custom
+   * renderer put in a cell. A path without ShadowRoot entries either involves no shadow tree
+   * at all (then `target` equals the path's initial element) or was filtered by a sandboxed
+   * host (e.g. Salesforce Lightning Web Security) that collapses `composedPath()` to the
+   * shadow host chain while still retargeting `event.target` correctly for listeners bound
+   * within the grid's shadow tree - in both cases the retargeted `target` is the deepest
+   * reliable reference to the source element.
+   *
+   * @param {ClipboardEvent | PasteEvent | KeyboardEvent} event The clipboard or `keydown` event to resolve.
+   * @returns {unknown} The deepest known event source element.
+   */
+  #resolveClipboardEventTarget(event: ClipboardEvent | PasteEvent | KeyboardEvent): unknown {
+    const eventPath = event.composedPath();
+
+    if (eventPath.some(entry => isShadowRoot(entry))) {
+      return eventPath[0];
+    }
+
+    const target = 'target' in event ? event.target : null;
+
+    return target ?? eventPath[0];
+  }
+
+  /**
+   * Tells whether the grid answers a clipboard action that comes from the given element. The grid's own
+   * focus input only counts while it is the element the grid refocuses. Any other element has to be the
+   * document body or sit inside the grid, because a field of the application keeps its own clipboard.
+   *
+   * @param {unknown} eventTarget The element the event originated from.
+   * @returns {boolean}
+   */
+  #isGridClipboardTarget(eventTarget: unknown): boolean {
+    if (!isHTMLElement(eventTarget)) {
+      return true;
+    }
+
+    if ('hotInput' in eventTarget.dataset) {
+      return eventTarget === this.hot.getFocusManager().getRefocusElement();
+    }
+
+    return eventTarget === this.hot.rootDocument.body || isInternalElement(eventTarget, this.hot.rootElement);
+  }
+
+  /**
+   * `copy` event callback on textarea element.
+   *
+   * @param {Event} event ClipboardEvent.
+   * @private
+   */
+  onCopy(event: ClipboardEvent) {
+    const eventTarget = this.#resolveClipboardEventTarget(event);
+
+    if (
+      !this.hot.isListening() && !this.#isTriggeredByCopy ||
+      this.isEditorOpened() ||
+      !this.#isGridClipboardTarget(eventTarget)
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    this.setCopyableText();
+    this.#isTriggeredByCopy = false;
+
+    // A `modifyCopyableRange` or `afterCopyLimit` listener can destroy the grid, which clears `this.hot`.
+    if (!this.hot) {
+      return;
+    }
+
+    const rangedData = this.getRangedData(this.copyableRanges);
+    const rangedSourceData = this.getRangedData(this.copyableRanges, true);
+
+    const copiedHeadersCount = this.#countCopiedHeaders(this.copyableRanges);
+    // Captured before `beforeCopy`, which may reshape the array. Identity is what survives that.
+    const headerRows = new Set(rangedData.slice(0, copiedHeadersCount.columnHeadersCount));
+    const dataSnapshot = this.hot.hasHook('beforeCopy') ? this.#snapshotRangedData(rangedData) : null;
+    const allowCopying = !!this.hot.runHooks('beforeCopy', rangedData, this.copyableRanges, copiedHeadersCount);
+
+    // So can a `beforeCopy` listener.
+    if (!this.hot) {
+      return;
+    }
+
+    if (allowCopying) {
+      this.#setClipboardData(
+        event,
+        rangedData,
+        this.#reconcileSourceData(rangedData, dataSnapshot, rangedSourceData),
+        headerRows
+      );
+
+      this.hot.runHooks('afterCopy', rangedData, this.copyableRanges, copiedHeadersCount);
+    }
+
+    this.#copyMode = 'cells-only';
+  }
+
+  /**
+   * `cut` event callback on textarea element.
+   *
+   * @param {Event} event ClipboardEvent.
+   * @private
+   */
+  onCut(event: ClipboardEvent) {
+    const eventTarget = this.#resolveClipboardEventTarget(event);
+
+    if (
+      !this.hot.isListening() && !this.#isTriggeredByCut ||
+      this.isEditorOpened() ||
+      !this.#isGridClipboardTarget(eventTarget)
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    this.setCopyableText();
+    this.#isTriggeredByCut = false;
+
+    // A `modifyCopyableRange` or `afterCopyLimit` listener can destroy the grid, which clears `this.hot`.
+    if (!this.hot) {
+      return;
+    }
+
+    const rangedData = this.getRangedData(this.copyableRanges);
+    const rangedSourceData = this.getRangedData(this.copyableRanges, true);
+    const dataSnapshot = this.hot.hasHook('beforeCut') ? this.#snapshotRangedData(rangedData) : null;
+    const allowCuttingOut = !!this.hot.runHooks('beforeCut', rangedData, this.copyableRanges);
+
+    // A `beforeCut` listener can destroy the grid, which clears `this.hot`.
+    if (!this.hot) {
+      return;
+    }
+
+    if (allowCuttingOut) {
+      this.#setClipboardData(
+        event,
+        rangedData,
+        this.#reconcileSourceData(rangedData, dataSnapshot, rangedSourceData)
+      );
+
+      this.hot.emptySelectedCells('CopyPaste.cut');
+
+      // So can the listeners of the writes `emptySelectedCells()` makes.
+      if (!this.hot) {
+        return;
+      }
+
+      this.hot.runHooks('afterCut', rangedData, this.copyableRanges);
+    }
+  }
+
+  /**
+   * `paste` event callback on textarea element.
+   *
+   * @param {Event} event ClipboardEvent or pseudo ClipboardEvent, if paste was called manually.
+   * @private
+   */
+  onPaste(event: ClipboardEvent | PasteEvent) {
+    const eventTarget = this.#resolveClipboardEventTarget(event);
+
+    if (
+      !this.hot.isListening() ||
+      this.isEditorOpened() ||
+      !this.hot.getSelected() ||
+      !this.#isGridClipboardTarget(eventTarget)
+    ) {
+      return;
+    }
+
+    // Start every real paste from a clean slot. A paste that writes nothing - `beforePaste` returning
+    // false, or a `dropdown` under `allowInvalid: false` rejecting every value so `applyChanges` skips
+    // `afterChange` at `changes.length === 0` - never reaches `#onAfterChange` to clear the plan, so
+    // clearing here stops a stale plan from an earlier paste driving a later correction. This sits
+    // BELOW the early-return guard on purpose: a paste event that bails (grid not listening, an editor
+    // open, no selection, a foreign event target) must not wipe a still-pending async paste's plan.
+    // That keeps the single-slot limitation at "two real pastes interleave" (see AGENTS.md).
+    this.#pastePlan = null;
+    this.#appliedPasteRange = null;
+
+    event.preventDefault?.();
+
+    const clipboardSnapshot = this.#runBeforePasteParse(event);
+
+    // A `beforePasteParse` listener can destroy the grid, which clears `this.hot`.
+    if (clipboardSnapshot === false || !this.hot) {
+      return;
+    }
+
+    const clipboardResult = this.#readClipboardData(clipboardSnapshot);
+    const { pastedSourceData } = clipboardResult;
+    let { pastedData } = clipboardResult;
+
+    if (typeof pastedData === 'string') {
+      pastedData = parse(pastedData);
+    }
+
+    if (pastedData === undefined || Array.isArray(pastedData) && pastedData.length === 0) {
+      return;
+    }
+
+    padRowsToWidest(pastedData as unknown[][]);
+
+    // Store a copy of the original pasted data before user can modify it in beforePaste hook.
+    // This is needed to detect if user modified values and respect their modifications over source data.
+    const originalPastedData = deepClone(pastedData);
+
+    // The same goes for a `beforePaste` listener, and for the listeners of the writes below.
+    if (this.hot.runHooks('beforePaste', pastedData, this.copyableRanges) === false || !this.hot) {
+      return;
+    }
+
+    const [startRow, startColumn, endRow, endColumn] = this.populateValues({
+      plainData: pastedData as unknown[][],
+      sourceData: pastedSourceData as unknown[][],
+      originalPlainData: originalPastedData as unknown[][],
+    });
+
+    if (!this.hot) {
+      return;
+    }
+
+    if (startRow !== null && startColumn !== null && endRow !== null && endColumn !== null) {
+      this.#selectPastedRange(startRow, startColumn, endRow, endColumn);
+      this.#recordAppliedPasteRange();
+    }
+
+    this.hot.runHooks('afterPaste', pastedData, this.copyableRanges);
+  }
+
+  /**
+   * Stores the range the paste's synchronous selection produced.
+   *
+   * It reads the range back rather than storing what was passed to the selection: the selection can
+   * grow it (over the merged cells it touches), and `#onAfterChange` must compare the live selection
+   * against what actually landed, not against the request.
+   */
+  #recordAppliedPasteRange(): void {
+    const appliedRange = this.hot.getSelectedRangeActive();
+
+    if (!appliedRange) {
+      return;
+    }
+
+    const { row: appliedStartRow, col: appliedStartColumn } = appliedRange.getTopStartCorner();
+    const { row: appliedEndRow, col: appliedEndColumn } = appliedRange.getBottomEndCorner();
+
+    if (appliedStartRow !== null && appliedStartColumn !== null &&
+        appliedEndRow !== null && appliedEndColumn !== null) {
+      this.#appliedPasteRange = [appliedStartRow, appliedStartColumn, appliedEndRow, appliedEndColumn];
+    }
+  }
+
+  /**
+   * Copies the paste event's clipboard into a writable snapshot and runs the `beforePasteParse` hook
+   * on it.
+   *
+   * The result is the plugin's own snapshot, never the hook's return value: `Hooks#run` threads a
+   * callback's non-`undefined` return into the next callback's first argument, so only `false` is
+   * read from it.
+   *
+   * @param {ClipboardEvent | PasteEvent} event The paste event.
+   * @returns {PasteClipboardSnapshot | null | false} The snapshot, `null` when the event carries no
+   * clipboard (the legacy `window.clipboardData` branch), or `false` when a callback canceled the paste.
+   */
+  #runBeforePasteParse(event: ClipboardEvent | PasteEvent): PasteClipboardSnapshot | null | false {
+    if (!event || typeof event.clipboardData === 'undefined') {
+      return null;
+    }
+
+    const hasCallbacks = this.hot.hasHook('beforePasteParse');
+    const snapshot = new PasteClipboardSnapshot(event.clipboardData as PasteClipboardSource, hasCallbacks);
+
+    if (!hasCallbacks) {
+      return snapshot;
+    }
+
+    const nativeEvent = event instanceof PasteEvent ? null : event;
+    const flavorBefore = this.#getParsedFlavor(snapshot);
+
+    if (this.hot.runHooks('beforePasteParse', snapshot, nativeEvent) === false) {
+      return false;
+    }
+
+    // The private flavor restores the values a callback just cleaned, because `populateValues()`
+    // prefers it for a cell whose value is unchanged. So it goes unless the callback edited it, but
+    // only when the flavor the plugin parses changed: an edit of `text/plain` under a `<table>` in
+    // `text/html` is ignored, and dropping the private flavor for it would only cost the stored
+    // objects. The flavor is read before and after, because a callback can remove the table.
+    if (
+      !snapshot.isChanged(SOURCE_DATA_HTML_MIME_TYPE) &&
+      (snapshot.isChanged(flavorBefore) || snapshot.isChanged(this.#getParsedFlavor(snapshot)))
+    ) {
+      snapshot.clearData(SOURCE_DATA_HTML_MIME_TYPE);
+    }
+
+    return snapshot;
+  }
+
+  /**
+   * Returns the flavor that `#readClipboardData()` parses: `text/html` when it holds a `<table>`,
+   * `text/plain` otherwise.
+   *
+   * @param {PasteClipboardSnapshot} snapshot The snapshot of the event's clipboard.
+   * @returns {string} The MIME type of the flavor that wins.
+   */
+  #getParsedFlavor(snapshot: PasteClipboardSnapshot): string {
+    return /(<table)|(<TABLE)/.test(snapshot.getData('text/html')) ? 'text/html' : 'text/plain';
+  }
+
+  /**
+   * Reads pasted data and source data from a paste event's clipboard.
+   *
+   * @param {PasteClipboardSnapshot | null} clipboardData The snapshot of the event's clipboard, as the
+   * `beforePasteParse` callbacks left it. `null` when the event carries none, which sends the read to
+   * the legacy `window.clipboardData` branch.
+   * @returns {{ pastedData: unknown, pastedSourceData: unknown }} The pasted data and source data.
+   */
+  #readClipboardData(
+    clipboardData: PasteClipboardSnapshot | null
+  ): { pastedData: unknown; pastedSourceData: unknown } {
+    let pastedData: unknown;
+    let pastedSourceData: unknown;
+
+    if (clipboardData) {
+      // `SOURCE_DATA_HTML_MIME_TYPE` is written by Handsontable's own copy handler, but the
+      // clipboard is not a trusted channel: any page can set the same type from its own `copy`
+      // handler, so it is sanitized like the `text/html` branch below.
+      //
+      // It gets its own context. The sink it feeds is inert (`htmlToGridSettings()` parses through
+      // `DOMParser`), so a sanitizer may pass this payload through without reopening an injection
+      // hole, and passing it through is what keeps object-based source data surviving a strict
+      // sanitizer. Sharing one context would force that choice on everyone and would also run the
+      // sanitizer twice over the same cells on an internal paste, since both clipboard types carry
+      // a full table.
+      //
+      // Normalizing runs INSIDE the parse, on the sanitizer's output, and only when that output is
+      // a string - which is what `options.normalize` below selects. Two constraints meet here.
+      // `replaceTdCellsWithTextContent()` is a string rewrite, so a `TrustedHTML` cannot pass
+      // through it without collapsing back to a plain string the parser then rejects; and running
+      // it before the sanitizer instead would hand cell values to the grid exactly as the sanitizer
+      // left them, so a lenient sanitizer's markup would reach the `html` cell type. Normalizing
+      // after keeps that flattening for every sanitizer that returns a string, and skips it only
+      // for the `TrustedHTML` case where it is impossible.
+      //
+      // It cannot run on both sides: `replaceTdCellsWithTextContent()` is not idempotent (a cell
+      // built from `<p>a</p><p>&nbsp;</p>` keeps a trailing newline after one pass and loses it
+      // after two), so a second pass would silently rewrite cell values.
+      const sourceDataHTML = sanitizeHTML(
+        this.hot,
+        clipboardData.resolve(SOURCE_DATA_HTML_MIME_TYPE) ?? '',
+        'CopyPaste.paste.sourceData'
+      );
+
+      if (sourceDataHTML) {
+        // Every HTML parse entry point is a Trusted Types sink, so `parseFromString` throws under
+        // `require-trusted-types-for 'script'` unless the value came from a policy - which it did
+        // not when no `sanitizer` is configured, or when one is configured and returns a plain
+        // string. Losing the source-data flavor costs object-key fidelity on an internal paste;
+        // letting the throw escape would kill the paste outright.
+        try {
+          const parsedSourceConfig = htmlToGridSettings(
+            sourceDataHTML, this.hot.rootDocument, { normalize: typeof sourceDataHTML === 'string' }
+          );
+
+          pastedSourceData = parsedSourceConfig?.data;
+        } catch (error) {
+          this.#warnClipboardParseRefused(error);
+        }
+      }
+
+      const textHTML = sanitizeHTML(this.hot, clipboardData.resolve('text/html') ?? '', 'CopyPaste.paste');
+
+      // `String()` builds a throwaway copy for the test only. `textHTML` itself is passed on as it
+      // was returned, so a `TrustedHTML` keeps its trust.
+      if (textHTML && /(<table)|(<TABLE)/g.test(String(textHTML))) {
+        // Same sink as the source-data parse above. Falling back to `text/plain` is what the
+        // no-table branch below already does, so a page enforcing Trusted Types with no policy of
+        // its own still pastes - it pastes the plain-text flavor, losing only the cell types and
+        // styling the HTML flavor carried.
+        try {
+          const parsedConfig = htmlToGridSettings(textHTML, this.hot.rootDocument, {
+            normalize: typeof textHTML === 'string',
+          });
+
+          pastedData = parsedConfig?.data;
+        } catch (error) {
+          this.#warnClipboardParseRefused(error);
+
+          const plainText = readPlainText(clipboardData);
+
+          // Only when there is something to fall back TO. An empty `text/plain` flavor parses
+          // into `[['']]`, which the guard in `onPaste` does not stop, so assigning it would blank
+          // the target cell - a worse outcome than the no-op that `undefined` produces, and this
+          // payload was valid markup the parser simply would not accept.
+          if (plainText) {
+            pastedData = plainText;
+          }
+        }
+      } else {
+        pastedData = readPlainText(clipboardData);
+      }
+
+    } else if (typeof ClipboardEvent === 'undefined' &&
+      typeof (this.hot.rootWindow as unknown as IEWindow).clipboardData !== 'undefined') {
+      pastedData = (this.hot.rootWindow as unknown as IEWindow).clipboardData.getData('Text');
+    }
+
+    return { pastedData, pastedSourceData };
+  }
+
+  /**
+   * Warns once that a clipboard payload could not be parsed, and why that is usually Trusted Types.
+   *
+   * Deliberately says nothing about which flavor landed. Both parse sites share this message and
+   * one `warnOnce` key, and their consequences differ: a refused `text/html` payload falls back to
+   * `text/plain`, while a refused source-data payload costs only object-key fidelity and leaves the
+   * paste itself intact. Naming one outcome would print a false statement whenever the other site
+   * warned first, and splitting the key would print two messages for a single paste.
+   *
+   * @param {unknown} error The error the parser threw.
+   */
+  #warnClipboardParseRefused(error: unknown) {
+    warnOnce(
+      this.hot.rootElement,
+      CLIPBOARD_PARSE_WARN_KEY,
+      'Handsontable could not parse an HTML flavour of the clipboard, and pasted what it could ' +
+      'read instead, so some formatting or source-data fidelity was lost. Under a Content ' +
+      'Security Policy that enforces Trusted Types (`require-trusted-types-for \'script\'`), the ' +
+      'parser only accepts a `TrustedHTML`, so the `sanitizer` option has to return the output of ' +
+      'your own policy. See https://handsontable.com/docs/javascript-data-grid/security/',
+      error
+    );
+  }
+
+  /**
+   * Projects copied column headers into text, following the grid-level `textExtractor` option.
+   *
+   * Both the `text/plain` and the `text/html` flavours are affected. `_dataToHTML` escapes the
+   * values it writes, so an unprojected header reaches a rich-text target as the visible characters
+   * `<b>Total</b>` rather than as bold text - the same mismatch the option exists to remove.
+   *
+   * The source-data flavor is left alone. It carries the values behind the cells so that a copy
+   * between grids restores them exactly, and a projection would corrupt that round trip.
+   *
+   * The rows are mapped rather than mutated, so the array handed to `beforeCopy` and `afterCopy`
+   * still holds the values those hooks have always received.
+   *
+   * The header rows are identified by reference rather than by position, because `beforeCopy` runs
+   * before this and may reshape the array. A listener that drops the header row would leave a
+   * positional count pointing at what is now the first data row, and parsing a data value such as
+   * `a<b` as HTML would destroy it. Matching on identity keeps the projection on the rows that are
+   * still headers, whatever the listener did to the array around them.
+   *
+   * @param {Array[]} rangedData The copied data.
+   * @param {Set} headerRows The row arrays that were column headers when the copy was assembled.
+   * @returns {Array[]} The data with its header rows projected into text.
+   */
+  #extractHeaderText(rangedData: unknown[][], headerRows: Set<unknown[]>): unknown[][] {
+    if (headerRows.size === 0 || getTextExtractor(this.hot) === false) {
+      return rangedData;
+    }
+
+    return rangedData.map(row => (
+      headerRows.has(row)
+        ? row.map(value => extractText(this.hot, value, 'CopyPaste.columnHeader'))
+        : row
+    ));
+  }
+
+  /**
+   * Records the rows of the copied data and a fingerprint of their cells, before `beforeCopy` or `beforeCut`
+   * may edit them.
+   *
+   * @param {Array[]} rangedData The copied data.
+   * @returns {{rows: Array[], cells: Array[]}} The row arrays, and the fingerprint of each row's cells.
+   */
+  #snapshotRangedData(rangedData: unknown[][]): RangedDataSnapshot {
+    return {
+      rows: rangedData.slice(),
+      cells: rangedData.map(row => row.map(fingerprintCell)),
+    };
+  }
+
+  /**
+   * Makes the source-data flavor follow what `beforeCopy` or `beforeCut` left in the copied data.
+   *
+   * The hooks receive only the plain data, so an edit they make would otherwise never reach the source
+   * data: a masked value would leak through it and a removed row would misalign the two flavors.
+   * A row the hook kept as the same array is matched to its source row by identity, so removing or
+   * reordering rows keeps the flavors aligned. In such a row a cell the hook did not change keeps its source
+   * value, and a cell it changed, including an object or array it edited in place, or one it appended,
+   * takes the hook's value. Any other row (a new array, or a row the hook added) is not matched to a source
+   * row: matching by position would hand a row another row's source value after a reorder. It takes the
+   * hook's values for every cell.
+   *
+   * @param {Array[]} rangedData The copied data, as the hook left it.
+   * @param {object|null} snapshot The rows and cells recorded before the hook ran, or `null` when no hook listens.
+   * @param {Array[]} rangedSourceData The source data built before the hook ran.
+   * @returns {Array[]} The source data matching `rangedData`.
+   */
+  #reconcileSourceData(
+    rangedData: unknown[][],
+    snapshot: RangedDataSnapshot | null,
+    rangedSourceData: unknown[][]
+  ): unknown[][] {
+    if (snapshot === null) {
+      return rangedSourceData;
+    }
+
+    const originalIndexes = new Map(snapshot.rows.map((row, index) => [row, index]));
+
+    return rangedData.map((row) => {
+      const originalIndex = originalIndexes.get(row);
+
+      return row.map((value, column) => {
+        const fingerprint = fingerprintCell(value);
+
+        if (originalIndex !== undefined && Object.is(fingerprint, snapshot.cells[originalIndex][column])) {
+          return rangedSourceData[originalIndex][column];
+        }
+
+        return typeof fingerprint === 'symbol' ? String(value) : fingerprint;
+      });
+    });
+  }
+
+  /**
+   * Sets the clipboard data for the given event.
+   *
+   * @param {ClipboardEvent} event The Clipboard event.
+   * @param {Array} rangedData Ranged data to set to the clipboard.
+   * @param {Array} rangedSourceData Ranged source data to set to the clipboard.
+   * @param {Set} [headerRows] The row arrays of `rangedData` that are column headers.
+   */
+  #setClipboardData(
+    event: ClipboardEvent,
+    rangedData: unknown[][],
+    rangedSourceData: unknown[][],
+    headerRows: Set<unknown[]> = new Set()
+  ) {
+    const projectedData = this.#extractHeaderText(rangedData, headerRows);
+    const textPlain = stringify(projectedData);
+
+    if (event && event.clipboardData) {
+      const textHTML = _dataToHTML(projectedData);
+
+      event.clipboardData.setData('text/plain', textPlain);
+      event.clipboardData.setData('text/html', [META_HEAD, textHTML].join(''));
+      event.clipboardData.setData(
+        SOURCE_DATA_HTML_MIME_TYPE,
+        [META_HEAD, _dataToHTML(rangedSourceData)].join('')
+      );
+
+    } else if (typeof ClipboardEvent === 'undefined') {
+      (this.hot.rootWindow as unknown as IEWindow).clipboardData.setData('Text', textPlain);
+    }
+  }
+
+  /**
+   * Creates the copy and cut entries of the context menu.
+   *
+   * @returns {object[]}
+   */
+  #createMenuEntries() {
+    const entries = [copyItem(this)];
+
+    if (this.#enableCopyColumnHeaders) {
+      entries.push(copyWithColumnHeadersItem(this));
+    }
+    if (this.#enableCopyColumnGroupHeaders) {
+      entries.push(copyWithColumnGroupHeadersItem(this));
+    }
+    if (this.#enableCopyColumnHeadersOnly) {
+      entries.push(copyColumnHeadersOnlyItem(this));
+    }
+
+    entries.push(cutItem(this));
+
+    return entries;
+  }
+
+  /**
+   * Tells whether the shortcuts of the grid context run for the active context, which is the case when the
+   * active context is the grid context itself or falls back to it, the way the empty data state overlay does.
+   *
+   * @returns {boolean}
+   */
+  #isGridShortcutContextActive(): boolean {
+    const shortcutManager = this.hot.getShortcutManager();
+    const gridContext = shortcutManager.getContext(GRID_SCOPE);
+    const visitedContexts = new Set<unknown>();
+    let context = shortcutManager.getContext(shortcutManager.getActiveContextName());
+
+    while (context && !visitedContexts.has(context)) {
+      if (context === gridContext) {
+        return true;
+      }
+
+      visitedContexts.add(context);
+      context = context.getFallbackContext() ?? undefined;
+    }
+
+    return false;
+  }
+
+  /**
+   * Cancels the browser's copy, cut, or paste when the application removed the shortcut of that key from
+   * the grid context. Only a key press the grid itself would handle counts, so an open editor, a field of
+   * the application, and the contexts that do not fall back to the grid keep the native behavior, and so do
+   * `copy()`, `cut()`, `paste()`, and the context menu, which never press a key.
+   *
+   * @param {KeyboardEvent} event The `keydown` event.
+   */
+  #onBeforeKeyDown = (event: KeyboardEvent) => {
+    if (
+      !event.ctrlKey && !event.metaKey ||
+      this.isEditorOpened() ||
+      !this.#isGridClipboardTarget(this.#resolveClipboardEventTarget(event)) ||
+      !this.#isGridShortcutContextActive()
+    ) {
+      return;
+    }
+
+    const isClipboardKey = getEventKeyCombinations(event, isMacOS)
+      .some(keys => CLIPBOARD_KEYS.has(normalizeKeys(keys)));
+
+    if (isClipboardKey && !this.hot.getShortcutManager().hasEventShortcut(GRID_SCOPE, event)) {
+      event.preventDefault();
+    }
+  };
+
+  /**
+   * Disables the viewport scroll after pasting the data.
+   *
+   * @param {number} fromRow Selection start row visual index.
+   * @param {number} fromColumn Selection start column visual index.
+   * @param {number} toRow Selection end row visual index.
+   * @param {number} toColumn Selection end column visual index.
+   * @param {object} preventScrolling Object with `value` property. If `true`, the viewport scroll will be prevented.
+   */
+  #onAfterSelection = (
+    fromRow: number, fromColumn: number, toRow: number, toColumn: number,
+    preventScrolling: { value: boolean }
+  ) => {
+    if (this.#preventViewportScrollOnPaste) {
+      preventScrolling.value = true;
+    }
+
+    this.#preventViewportScrollOnPaste = false;
+  };
+
+  /**
+   * Re-selects a just-pasted range once its write has settled, correcting the selection `onPaste`
+   * made synchronously against a row count that a deferred validator had not yet grown.
+   *
+   * `applyChanges()` (`core.ts`) creates the rows a paste needs, but only after
+   * `validateChanges()` drains its validator queue - and every validated cell is deferred to a
+   * microtask, even a synchronous one. So a validated column in the pasted range pushes row
+   * creation past `onPaste()`'s own synchronous `selectCell()` call, which then clamps against a
+   * stale `countRows()`. `afterChange` is the reliable "write settled" signal: it fires from
+   * inside `applyChanges()`, once rows exist and only when `changes.length > 0`.
+   *
+   * The correction runs without scrolling or taking focus (`changeListener: false`), and only
+   * while the live selection still equals the exact range the inline selection produced. So it
+   * fixes the range whether or not the grid still has focus, yet never overrides a selection the
+   * user, or an `afterPaste` handler, has changed since the paste.
+   *
+   * The `source` parameter is typed `string`, not the narrower `ChangeSource` union: `afterChange`
+   * also carries a custom validator's `'...Validator'` source and any string an app passes to
+   * `setDataAtCell`, so the union would make a `switch` here look exhaustive when it is not.
+   *
+   * @param {Array} changes An array of changes. Each row is a `[row, prop, oldValue, newValue]`
+   *                         array.
+   * @param {string} source The source of the change.
+   */
+  #onAfterChange = (changes: CellChange[] | null, source: string) => {
+    if (source !== 'CopyPaste.paste' || this.#pastePlan === null) {
+      return;
+    }
+
+    const [startRow, startColumn, endRow, endColumn] = this.#pastePlan;
+    const appliedRange = this.#appliedPasteRange;
+
+    this.#pastePlan = null;
+    this.#appliedPasteRange = null;
+
+    // Synchronous paste: this fired inside `populateFromArray()`, before `onPaste()`'s inline
+    // selection, so no applied range was recorded yet. The inline selection runs next against an
+    // already-grown row count and is correct on its own.
+    if (appliedRange === null) {
+      return;
+    }
+
+    // Correct only while the live selection is still the exact (stale) range the inline selection
+    // produced. If the user, or a synchronous `afterPaste` handler, changed it since, leave it.
+    const activeRange = this.hot.getSelectedRangeActive();
+
+    if (!activeRange) {
+      return;
+    }
+
+    const topStart = activeRange.getTopStartCorner();
+    const bottomEnd = activeRange.getBottomEndCorner();
+
+    if (
+      topStart.row !== appliedRange[0] || topStart.col !== appliedRange[1] ||
+      bottomEnd.row !== appliedRange[2] || bottomEnd.col !== appliedRange[3]
+    ) {
+      return;
+    }
+
+    // Re-select against the settled count, but only if that actually changes the range. Skip the
+    // scroll and the focus grab so a paste whose validator settled after the user moved on is fixed
+    // in place, not yanked back.
+    const clampedEndRow = Math.min(this.hot.countRows() - 1, endRow);
+    const clampedEndColumn = Math.min(this.hot.countCols() - 1, endColumn);
+
+    if (
+      startRow !== appliedRange[0] || startColumn !== appliedRange[1] ||
+      clampedEndRow !== appliedRange[2] || clampedEndColumn !== appliedRange[3]
+    ) {
+      this.#selectPastedRange(startRow, startColumn, endRow, endColumn, false, false);
+    }
+  };
+
+  /**
+   * Force focus on focusableElement after end of the selection.
+   */
+  #onAfterSelectionEnd = () => {
+    if (this.isEditorOpened()) {
+      return;
+    }
+
+    if (this.hot.getSettings().fragmentSelection) {
+      return;
+    }
+
+    this.setCopyableText();
+  };
+
+  /**
+   * `document.body` `mouseenter` callback used to work around a Safari's problem with copying/cutting from the
+   * browser's menu.
+   */
+  #onSafariMouseEnter = () => {
+    this.#removeContentEditableFromHighlightedCell();
+  };
+
+  /**
+   * `document.body` `mouseleave` callback used to work around a Safari's problem with copying/cutting from the
+   * browser's menu.
+   */
+  #onSafariMouseLeave = () => {
+    this.#addContentEditableToHighlightedCell();
+  };
+
+  /**
+   * `afterSelection` hook callback triggered only on Safari.
+   */
+  #onSafariAfterSelection = () => {
+    this.#removeContentEditableFromHighlightedCell();
+  };
+
+  /**
+   * Destroys the `CopyPaste` plugin instance.
+   */
+  destroy(): void {
+    this.#pastePlan = null;
+    this.#appliedPasteRange = null;
+
+    super.destroy();
+  }
+}

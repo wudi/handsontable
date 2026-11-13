@@ -1,0 +1,688 @@
+import type { HotInstance } from '../../core/types';
+import type { CellProperties } from '../../settings';
+import { BaseEditor } from '../baseEditor';
+import EventManager from '../../eventManager';
+import { DropdownController, type DropdownEntry } from './controllers/dropdownController';
+import { SelectedItemsController } from './controllers/selectedItemsController';
+import {
+  addClass,
+  getDeepActiveElement,
+  getFixedContainingBlockRect,
+  isHTMLElement,
+  setAttribute,
+} from '../../helpers/dom/element';
+import { isPrintableChar } from '../../helpers/unicode';
+import { localeLowerCase } from '../../helpers/string';
+import { A11Y_LABEL, A11Y_GROUP } from '../../helpers/a11y';
+import { EDITOR_EDIT_GROUP } from '../../shortcuts/contexts/constants';
+import {
+  getValuesIntersection,
+  parseStringifiedValue,
+} from './utils/utils';
+import {
+  getDropdownInlineSpace,
+  getFlippedInlineStartOffset,
+  shouldFlipDropdownHorizontally,
+} from './controllers/positioning';
+import type { CellInlineBox } from './controllers/positioning';
+import { getWindowScrollInlineMetrics } from '../utils/windowScrollInlineMetrics';
+import { getVerticalRoom } from '../utils/visibleVerticalRange';
+
+export const EDITOR_TYPE = 'multiselect';
+
+const DROPDOWN_ELEMENT_CSS_CLASSNAME = 'ht-multi-select-editor';
+const DROPDOWN_ARIA_LABEL = 'Select options';
+const SHORTCUTS_GROUP = 'multiselectEditor';
+const EDITOR_VISIBLE_CLASS_NAME = 'ht_editor_visible';
+
+/**
+ * Cell editor that lets users pick one or more values from a checkbox dropdown list.
+ * Saves on every check/uncheck rather than on editor close.
+ *
+ * @private
+ * @class MultiSelectEditor
+ */
+export class MultiSelectEditor extends BaseEditor {
+  /**
+   * Overrides the base flag to keep the editor open after data changes — multiselect saves on each selection.
+   */
+  _closeAfterDataChange = false;
+
+  /**
+   * Controller managing the set of currently selected values in the editor.
+   */
+  #selectedItems = new SelectedItemsController();
+  /**
+   * The outer wrapper element that positions the dropdown relative to the edited cell.
+   */
+  #editorContainer: HTMLDivElement | null = null;
+  /**
+   * `true` when the editor wrapper opened the dropdown toward the inline start of the edited cell.
+   *
+   * Horizontal placement is applied on this wrapper in `refreshDimensions()`, so the flag
+   * lives here — the same place `HandsontableEditor` keeps `isFlippedHorizontally`.
+   *
+   * @type {boolean}
+   */
+  isFlippedHorizontally: boolean = false;
+
+  /**
+   * The container element passed to `DropdownController` that holds the dropdown UI.
+   */
+  dropdownContainerElement: HTMLDivElement | null = null;
+  /**
+   * The controller responsible for rendering and managing the dropdown list.
+   */
+  dropdownController: DropdownController | null = null;
+
+  /**
+   * The event manager used to register and clean up DOM event listeners.
+   */
+  declare eventManager: InstanceType<typeof EventManager>;
+
+  /**
+   * Whether the document scroll listener that keeps the list on its cell is bound.
+   */
+  #scrollFollowBound = false;
+
+  /**
+   * Returns the unique editor type identifier for the multiselect editor.
+   */
+  static get EDITOR_TYPE() {
+    return EDITOR_TYPE;
+  }
+
+  /**
+   * Initializes the editor, creates DOM elements, and binds dropdown and hook events.
+   */
+  constructor(hotInstance: HotInstance) {
+    super(hotInstance);
+
+    this.eventManager = new EventManager(this);
+
+    this.createElements();
+    this.bindEvents();
+  }
+
+  /**
+   * Creates the outer container, dropdown container, accessibility attributes, and the DropdownController instance.
+   */
+  createElements(): void {
+    const { rootDocument } = this.hot;
+
+    this.#editorContainer = rootDocument.createElement('div');
+    this.#editorContainer.style.display = 'none';
+    addClass(this.#editorContainer, 'handsontableEditor');
+
+    this.dropdownContainerElement = this.hot.rootDocument.createElement('div');
+
+    addClass(this.dropdownContainerElement, `${DROPDOWN_ELEMENT_CSS_CLASSNAME} handsontableEditor`);
+    setAttribute(this.dropdownContainerElement, [
+      A11Y_LABEL(DROPDOWN_ARIA_LABEL),
+      A11Y_GROUP(),
+    ]);
+
+    this.#editorContainer.appendChild(this.dropdownContainerElement);
+    this.hot.rootElement.appendChild(this.#editorContainer);
+
+    this.dropdownController = new DropdownController(this.dropdownContainerElement, this.hot.guid, this.hot);
+  }
+
+  /**
+   * Prepares the editor for the given cell, resets the dropdown, syncs the current selection, and applies cell settings.
+   */
+  prepare(
+    row: number,
+    col: number,
+    prop: string | number,
+    td: HTMLTableCellElement,
+    value: unknown,
+    cellProperties: CellProperties
+  ): void {
+    super.prepare(row, col, prop, td, value, cellProperties);
+
+    const parsedValue = parseStringifiedValue(value);
+    const valuesArray: unknown[] = Array.isArray(parsedValue) ? parsedValue : [parsedValue];
+    const valuesIntersection = getValuesIntersection(valuesArray, this.#getSource());
+
+    this.dropdownController!.reset();
+
+    if (valuesIntersection.length >= this.#getEditorSetting<number>('maxSelections')) {
+      this.#blockNewSelections();
+    }
+
+    this.#syncSelectedValues(valuesIntersection);
+
+    type SortFn = ((entries: DropdownEntry[]) => DropdownEntry[]) | null;
+    this.dropdownController!.setSourceSortFunction(this.#getEditorSetting<SortFn>('sourceSortFunction') ?? null);
+    this.dropdownController!.fillDropdown(this.#getSource(), valuesIntersection);
+    this.dropdownController!.setVisibleRowsNumberSetting(this.#getEditorSetting<number>('visibleRows'));
+    this.dropdownController!.setSearchInputVisibility(this.#getEditorSetting<boolean>('searchInput'));
+    // The dropdown is built once and reused, so the search icon picks up a runtime `icons` remap or
+    // theme switch here. A no-op unless the theme's icons revision moved.
+    this.dropdownController!.refreshIcons();
+
+    if (cellProperties.maxSelections !== undefined) {
+      this.#selectedItems.setMaxSelectionCount(this.#getEditorSetting<number>('maxSelections'));
+    }
+  }
+
+  /**
+   * Delegates to the base finishEditing to complete saving or restoring the cell value.
+   */
+  finishEditing(restoreOriginalValue: boolean, ctrlDown: boolean, callback?: Function): void {
+    super.finishEditing(restoreOriginalValue, ctrlDown, callback);
+  }
+
+  /**
+   * Wires dropdown check/uncheck hooks, scroll hooks, destroy cleanup, and the search filter trigger.
+   */
+  bindEvents(): void {
+    this.dropdownController!.addLocalHook('afterDropdownItemChecked',
+      (selectedKey: string, selectedValue: string) => {
+        this.#addSelectedValue(selectedKey, selectedValue);
+
+        if (this.#selectedItems.getSize() >= (this.#getEditorSetting<number>('maxSelections'))) {
+          this.#blockNewSelections();
+        }
+      }
+    );
+    this.dropdownController!.addLocalHook('afterDropdownItemUnchecked',
+      (deselectedKey: string, deselectedValue: string) => {
+        this.#removeSelectedValue(deselectedKey, deselectedValue);
+
+        if (this.#selectedItems.getSize() < (this.#getEditorSetting<number>('maxSelections'))) {
+          this.#unblockNewSelections();
+        }
+      }
+    );
+
+    this.addHook('afterDestroy', () => this.destroy());
+    this.addHook('afterChange',
+      (changes: unknown[][], source: string) => this.#onAfterChange(changes, source));
+    this.addHook('afterScrollHorizontally', () => this.#followCell());
+    this.addHook('afterScrollVertically', () => this.#followCell());
+
+    this.dropdownController!.getInputController()!.addLocalHook(
+      'triggerFilter', (value: string) => this.#filterEntries(value));
+  }
+
+  /**
+   * Shows the dropdown, positions it next to the edited cell, registers keyboard shortcuts, and focuses the appropriate element.
+   */
+  open(event?: Event | null): void {
+    const keyCode = event && 'keyCode' in event ? (event as { keyCode: number }).keyCode : 0;
+    const keyStr = event && 'key' in event ? (event as { key: string }).key : '';
+
+    if (keyCode && isPrintableChar(keyCode)) {
+      const character = keyStr.length === 1 ? keyStr : String.fromCharCode(keyCode);
+
+      if (this.dropdownController!.getInputController()!.enabled) {
+        this.dropdownController!.getInputController()!.setValue(character);
+        this.#filterEntries(character);
+      }
+
+      event?.preventDefault();
+
+      this.enableFullEditMode();
+    }
+
+    this.#showEditableElement();
+    this.dropdownController!.updateDimensions(this.#getAvailableSpace());
+    this.refreshDimensions();
+    this.hot.getShortcutManager().setActiveContextName('editor');
+    this.#registerShortcuts();
+    this.dropdownController!.getInputController()!.listen();
+    this.#bindScrollFollow();
+  }
+
+  /**
+   * Hides the dropdown element, unregisters keyboard shortcuts, and stops the search input listener.
+   */
+  close(): void {
+    this.#hideEditableElement();
+    this.#unregisterShortcuts();
+    this.dropdownController!.getInputController()!.unlisten();
+    this.isFlippedHorizontally = false;
+  }
+
+  /**
+   * Returns the currently selected values as an array to be written to the cell.
+   */
+  getValue(): unknown[] {
+    return this.#selectedItems.getItemsArray();
+  }
+
+  /**
+   * No-op override — MultiSelectEditor saves data immediately on each check/uncheck event.
+   */
+  setValue(): void {
+    // Currently not implemented - MultiSelectEditor saves data after every change.
+  }
+
+  /**
+   * Repositions the dropdown next to the edited cell; closes the editor if the cell is no longer rendered.
+   *
+   * When the list is wider than the remaining inline-end space, the wrapper shifts toward the
+   * inline start so the list stays fully usable (DEV-1198).
+   *
+   * Filter keystrokes pass `false` so the side chosen on open/scroll cannot jump as the
+   * filtered list narrows. Check/uncheck uses the same sticky path. The wrapper offset
+   * still updates, so a flipped list stays pinned to the cell's inline end at the new width.
+   *
+   * @param {boolean} [reevaluateHorizontalFlip=true] When `false`, keep the current horizontal flip.
+   */
+  refreshDimensions(reevaluateHorizontalFlip: boolean = true): void {
+    const cellRect = this.getEditedCellRect();
+
+    if (!cellRect) {
+      this.close();
+
+      return;
+    }
+
+    // Positioned `fixed`: the container stays a child of the grid root in the DOM, but the
+    // root's `overflow: clip` and any scrolling ancestor can no longer cut the list (#8688).
+    //
+    // The origin is the grid root's own rendered box plus the root-relative offset
+    // `getEditedCellRect()` returns, NOT the cell's `getBoundingClientRect()`. That offset
+    // carries a conditional 1px inline-start compensation - cancelled for a cell that draws its
+    // own inline-start border, which depends on row headers and on which columns are rendered -
+    // and a top border compensation. Reading the cell's rect directly drops both, which shifts
+    // this container relative to 18.1 on some columns and puts it a pixel out of line with the
+    // `handsontable` editor's list on the same grid.
+    const { top, start, height, width } = cellRect;
+    const rootRect = this.hot.rootElement.getBoundingClientRect();
+    const block = getFixedContainingBlockRect(this.#editorContainer!);
+    const editorStyle = this.#editorContainer!.style;
+    const { spaceInlineStart, spaceInlineEnd } = this.#getInlineSpace(cellRect);
+    const dropdownWidth = this.dropdownController!.getOuterWidth();
+    const flipHorizontally = reevaluateHorizontalFlip
+      ? shouldFlipDropdownHorizontally(dropdownWidth, spaceInlineStart, spaceInlineEnd)
+      : this.isFlippedHorizontally;
+
+    this.isFlippedHorizontally = flipHorizontally;
+
+    const inlineStart = flipHorizontally
+      ? getFlippedInlineStartOffset(start, dropdownWidth, width)
+      : start;
+
+    editorStyle.position = 'fixed';
+    editorStyle.top = `${(rootRect.top + top + height) - block.top}px`;
+
+    if (this.hot.isRtl()) {
+      // `inlineStart` is measured from the root's inline-start edge, which in RTL is its right edge.
+      // Resolved against the containing block's right edge, never `documentElement.clientWidth`:
+      // on an RTL page with classic scrollbars the gutter sits on the left, inside the rect
+      // origin, so mixing the two moves the container by the scrollbar's width.
+      editorStyle.left = '';
+      editorStyle.right = `${((block.left + block.width) - rootRect.right) + inlineStart}px`;
+    } else {
+      editorStyle.right = '';
+      editorStyle.left = `${(rootRect.left + inlineStart) - block.left}px`;
+    }
+
+    addClass(this.#editorContainer!, EDITOR_VISIBLE_CLASS_NAME);
+  }
+
+  /**
+   * Focuses the first dropdown item when search input is disabled, or the search input otherwise.
+   */
+  focus(): void {
+    if (this.#getEditorSetting('searchInput') === false) {
+      this.dropdownController!.focusFirstItem();
+    } else {
+      this.dropdownController!.focusSearchInput();
+    }
+  }
+
+  /**
+   * Returns the underlying search input element from the dropdown's input controller.
+   */
+  getInputElement(): HTMLInputElement {
+    return this.dropdownController!.getInputController()!.getInputElement();
+  }
+
+  /**
+   * Closes the editor and resets the dropdown controller state, releasing DOM resources.
+   */
+  destroy(): void {
+    this.close();
+    this.dropdownController!.reset();
+    // The editor's own DOM listeners - the document `scroll` follow this editor registers on
+    // `open()`. Nothing used this event manager before that listener existed, which is why
+    // destroying it was not needed here until now; without it the listener outlives the grid
+    // and `MemoryLeakTest` counts it.
+    this.eventManager.destroy();
+  }
+
+  /**
+   * Returns the `source` cell property as an array of dropdown entries, defaulting to an empty array.
+   */
+  #getSource(): DropdownEntry[] {
+    return (this.cellProperties.source as DropdownEntry[]) ?? [];
+  }
+
+  /**
+   * Registers ArrowUp/ArrowDown and Enter/Space shortcuts for keyboard navigation and checkbox toggling.
+   */
+  #registerShortcuts(): void {
+    const shortcutManager = this.hot.getShortcutManager();
+    const editorContext = shortcutManager.getContext('editor');
+
+    editorContext!.addShortcuts([{
+      keys: [['ArrowUp']],
+      callback: () => {
+        this.dropdownController!.focusPreviousItem();
+      },
+    }, {
+      keys: [['ArrowDown']],
+      callback: () => {
+        if (getDeepActiveElement(this.hot.rootDocument) === this.getInputElement()) {
+          this.dropdownController!.focusFirstItem();
+        } else {
+          this.dropdownController!.focusNextItem();
+        }
+      },
+    }], {
+      group: SHORTCUTS_GROUP,
+    });
+
+    editorContext!.addShortcuts([{
+      keys: [['enter'], ['shift', 'enter'], ['control/meta', 'enter'], ['control/meta', 'shift', 'enter']],
+      runOnlyIf: () => !this.#getEditorSetting('enterCommits'),
+      callback: (event: Event) => {
+        const activeElement = getDeepActiveElement(this.hot.rootDocument);
+
+        if (activeElement instanceof HTMLInputElement && activeElement.type === 'checkbox') {
+          activeElement.checked = !activeElement.checked;
+          activeElement.dispatchEvent(new Event('change'));
+        }
+
+        event.preventDefault();
+
+        return false;
+      },
+    }, {
+      keys: [['space']],
+      runOnlyIf: () => !this.#getEditorSetting('enterCommits'),
+      callback: (event: Event) => {
+        event.preventDefault();
+      },
+    }], {
+      group: SHORTCUTS_GROUP,
+      relativeToGroup: EDITOR_EDIT_GROUP,
+      position: 'before',
+    });
+  }
+
+  /**
+   * Removes all keyboard shortcuts registered under the multiselect editor's shortcut group.
+   */
+  #unregisterShortcuts(): void {
+    const shortcutManager = this.hot.getShortcutManager();
+    const editorContext = shortcutManager.getContext('editor');
+
+    editorContext!.removeShortcutsByGroup(SHORTCUTS_GROUP);
+  }
+
+  /**
+   * Makes the outer editor container visible by clearing its `display` style.
+   */
+  #showEditableElement(): void {
+    this.#editorContainer!.style.display = '';
+  }
+
+  /**
+   * Hides the outer editor container by setting its `display` style to `'none'`.
+   */
+  #hideEditableElement(): void {
+    this.#editorContainer!.style.display = 'none';
+  }
+
+  /**
+   * Disables all unchecked checkboxes in the dropdown when the maximum selection count is reached.
+   */
+  #blockNewSelections(): void {
+    this.dropdownController!.disableCheckboxes();
+  }
+
+  /**
+   * Re-enables all checkboxes in the dropdown when the selection count drops below the maximum.
+   */
+  #unblockNewSelections(): void {
+    this.dropdownController!.enableCheckboxes();
+  }
+
+  /**
+   * Filters the source entries by the given query string and re-renders the dropdown with matching items.
+   */
+  #filterEntries(
+    query: string,
+    filterSelectedItems: boolean = this.#getEditorSetting<boolean>('filterSelectedItems') ?? true
+  ): void {
+    const locale = this.cellProperties.locale as string | undefined;
+    const filteredItems = this.#getSource().filter((item: unknown) => {
+      const value = (typeof item === 'object' && item !== null && 'value' in item)
+        ? item.value
+        : item;
+
+      if (!filterSelectedItems && this.#selectedItems.has(item)) {
+        return true;
+      }
+
+      if (this.cellProperties.filteringCaseSensitive) {
+        return String(value).includes(query);
+      }
+
+      return localeLowerCase(String(value), locale).includes(localeLowerCase(query, locale));
+    });
+
+    this.dropdownController!.fillDropdown(filteredItems, this.#selectedItems.getItemsArray());
+    // Height-only: `updateDimensions(..., true)` keeps the vertical flip sticky.
+    // Pass `false` so the horizontal side chosen on open/scroll cannot jump as
+    // the filtered list narrows or widens (develop only called `updateDimensions`).
+    this.dropdownController!.updateDimensions(this.#getAvailableSpace(), true);
+    this.refreshDimensions(false);
+  }
+
+  /**
+   * Re-clamps the list to the room around its cell, then moves it there. Runs on every scroll that
+   * moves the cell - the grid's own, the page's, an ancestor's - and on a resize: the cell moves
+   * relative to the containing block, so a list that fitted where it opened can stop fitting, and
+   * a list moved without a re-clamp keeps its opening height and hangs past the box's edge where
+   * nothing can reach its lower entries.
+   */
+  #followCell(): void {
+    // A closed editor has nothing to clamp, and a row scrolled out of the rendered range leaves
+    // no cell to measure - `refreshDimensions()` hides the list for that one.
+    if (this.isOpened() && this.getEditedCell()) {
+      const list = this.dropdownContainerElement!;
+      // `updateDimensions()` scrolls the list back to its first entry, which suits a new list, not
+      // one being scrolled: a wheel past its last entry scrolls the grid or the page, and the list
+      // would jump back to the top under the pointer.
+      const { scrollTop } = list;
+
+      // Clamp first: the horizontal flip in `refreshDimensions()` reads the clamped width.
+      this.dropdownController!.updateDimensions(this.#getAvailableSpace());
+      list.scrollTop = scrollTop;
+    }
+
+    this.refreshDimensions();
+  }
+
+  /**
+   * Keeps the `fixed` container attached to its cell while something outside the grid scrolls:
+   * the page, or an ancestor of the grid. The grid's own scroll already reaches `#followCell()`
+   * through the `afterScroll*` hooks. Capture phase, because `scroll` does not bubble. Bound once
+   * for the editor's life and gated on the editor being open, because `refreshDimensions()` also
+   * shows the container. Gated on the grid being alive too: tearing the grid down shrinks the
+   * document, the window's scroll position clamps, and the resulting `scroll` event reaches this
+   * listener before the event manager releases it - and `getEditedCell()` throws on a destroyed
+   * instance.
+   */
+  #bindScrollFollow(): void {
+    if (this.#scrollFollowBound) {
+      return;
+    }
+
+    const follow = (event?: Event) => {
+      // The grid's own scroll already reaches `#followCell()` through the `afterScroll*`
+      // hooks, and a capture listener runs BEFORE the target-phase handler that re-places the
+      // grid, so acting on it would position from a stale rect and then do it again.
+      // `isHTMLElement()`, not `instanceof Node`: the check has to hold for a node from another
+      // realm - a grid built inside an iframe from the parent's constructor - and a bare
+      // `instanceof` is bound to the realm this file was compiled in, so it answers `false`
+      // there and the skip silently stops working.
+      // The liveness check comes FIRST, the order `handsontable/AGENTS.md` requires of any
+      // callback that can outlive a task boundary: `Core#destroy()` nulls `rootElement` on its way
+      // past, so reading it before asking whether the grid is gone would throw rather than return.
+      if (this.hot.isDestroyed || !this.hot.rootElement || !this.isOpened()) {
+        return;
+      }
+
+      const target = event?.target;
+
+      if (isHTMLElement(target) && this.hot.rootElement.contains(target)) {
+        return;
+      }
+
+      this.#followCell();
+    };
+
+    this.eventManager.addEventListener(this.hot.rootDocument, 'scroll', follow, {
+      capture: true,
+      passive: true,
+    });
+    // A resize or a device rotation moves the cell without scrolling anything, which strands a
+    // `fixed` container - an `absolute` one rode along with the grid for free.
+    this.eventManager.addEventListener(this.hot.rootWindow, 'resize', () => follow(), { passive: true });
+    this.#scrollFollowBound = true;
+  }
+
+  /**
+   * Calculates the available vertical space above and below the edited cell for positioning the dropdown.
+   *
+   * @returns {object} Space above and below the cell, plus the cell height.
+   */
+  #getAvailableSpace(): { spaceAbove: number; spaceBelow: number; cellHeight: number } {
+    // The container is positioned `fixed` (see `refreshDimensions()`), so the grid's workspace no
+    // longer bounds the list. What does is the box a fixed box is laid out in: the viewport, or
+    // an ancestor that establishes a containing block for it. Never `rootWindow.innerHeight` -
+    // that counts the classic scrollbar's gutter and, on mobile, the area under collapsible
+    // browser chrome and the software keyboard, which is up precisely because a text editor has
+    // focus.
+    const cellRect = this.getEditedCell()!.getBoundingClientRect();
+    // Only the part of that box the viewport shows counts: a transformed ancestor scrolls with the
+    // page, so its bottom can lie below the viewport's.
+    const { spaceAbove, spaceBelow } = getVerticalRoom(
+      cellRect,
+      getFixedContainingBlockRect(this.#editorContainer!),
+      this.hot.rootDocument.documentElement.clientHeight
+    );
+
+    return {
+      spaceAbove,
+      spaceBelow,
+      cellHeight: cellRect.height,
+    };
+  }
+
+  /**
+   * Calculates the remaining inline-start and inline-end space around the edited cell.
+   *
+   * Uses the same workspace / window-scroll split as
+   * `HandsontableEditor.flipDropdownHorizontallyIfNeeded()`, and reads the window-scroll viewport from
+   * the same helper, `getWindowScrollInlineMetrics()`.
+   *
+   * @param {object} cellRect Edited-cell box already returned by `getEditedCellRect()`.
+   * @param {number} cellRect.start Inline-start position of the cell.
+   * @param {number} cellRect.width Pixel width of the cell.
+   * @returns {object} Remaining inline-start and inline-end space in pixels.
+   */
+  #getInlineSpace(cellRect: CellInlineBox): { spaceInlineStart: number; spaceInlineEnd: number } {
+    const { view } = this.hot;
+    const windowScroll = view.isHorizontallyScrollableByWindow()
+      ? getWindowScrollInlineMetrics(this.hot)
+      : undefined;
+
+    return getDropdownInlineSpace(cellRect, view.getWorkspaceWidth(), windowScroll);
+  }
+
+  /**
+   * Reads the current selected items array and writes it to the cell via saveValue.
+   */
+  #saveCurrentSelection(): void {
+    const value = this.#selectedItems.getItemsArray();
+
+    this.saveValue([[value]]);
+  }
+
+  /**
+   * Adds the given key/value pair (or bare value) to the selected items and persists the new selection.
+   */
+  #addSelectedValue(selectedKey: string, selectedValue: string): void {
+    if (selectedKey) {
+      this.#selectedItems.add({ key: selectedKey, value: selectedValue });
+    } else {
+      this.#selectedItems.add(selectedValue);
+    }
+    this.#saveCurrentSelection();
+    this.refreshDimensions(false);
+  }
+
+  /**
+   * Removes the given key/value pair (or bare value) from the selected items and persists the new selection.
+   */
+  #removeSelectedValue(deselectedKey: string, deselectedValue: string): void {
+    if (deselectedKey) {
+      this.#selectedItems.remove({ key: deselectedKey, value: deselectedValue });
+    } else {
+      this.#selectedItems.remove(deselectedValue);
+    }
+    this.#saveCurrentSelection();
+    this.refreshDimensions(false);
+  }
+
+  /**
+   * Replaces the internal SelectedItemsController with a new one pre-populated from the given values array.
+   */
+  #syncSelectedValues(valuesArray: unknown[]): void {
+    if (valuesArray.length > 0) {
+      this.#selectedItems = new SelectedItemsController(valuesArray);
+    } else {
+      this.#selectedItems = new SelectedItemsController();
+    }
+  }
+
+  /**
+   * Reads a typed setting value from the cell properties by the given key.
+   */
+  #getEditorSetting<T>(settingKey: string): T {
+    return this.cellProperties[settingKey] as T;
+  }
+
+  /**
+   * Handles the `afterChange` hook to re-sync the dropdown when the renderer removes a chip from the edited cell.
+   */
+  #onAfterChange(changes: unknown[][] | null, source: string): void {
+    if (
+      this.isOpened() &&
+      source === `${EDITOR_TYPE}-renderer` &&
+      Array.isArray(changes) &&
+      changes.length > 0 &&
+      changes[0][0] === this.cellProperties.visualRow &&
+      this.hot.propToCol(changes[0][1] as string | number) === this.cellProperties.visualCol
+    ) {
+      this.#syncSelectedValues(changes[0][3] as unknown[]);
+      this.dropdownController!.fillDropdown(this.#getSource(), this.#selectedItems.getItemsArray());
+      this.dropdownController!.focusItem(0);
+
+      if (this.#selectedItems.getSize() >= (this.#getEditorSetting<number>('maxSelections'))) {
+        this.#blockNewSelections();
+      } else {
+        this.#unblockNewSelections();
+      }
+    }
+  }
+}

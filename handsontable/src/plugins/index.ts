@@ -1,0 +1,233 @@
+import { AsyncValues } from './asyncValues';
+import { AutoLink } from './autoLink';
+import { AutoColumnSize } from './autoColumnSize';
+import { Autofill } from './autofill';
+import { AutoRowSize } from './autoRowSize';
+import { AutoRowHeaderSize } from './autoRowHeaderSize';
+export { BasePlugin } from './base';
+import { BindRowsWithHeaders } from './bindRowsWithHeaders';
+import { CollapsibleColumns } from './collapsibleColumns';
+import { ColumnSorting } from './columnSorting';
+import { ColumnSummary } from './columnSummary';
+import { Comments } from './comments';
+import { ContextMenu } from './contextMenu';
+import { CopyPaste } from './copyPaste';
+import { CustomBorders } from './customBorders';
+import { DataProvider } from './dataProvider';
+import { DragToScroll } from './dragToScroll';
+import { DropdownMenu } from './dropdownMenu';
+import { ExportFile } from './exportFile';
+import { ImportFile } from './importFile';
+import { Filters } from './filters';
+import { FormulaBuilder } from './formulaBuilder';
+import { Formulas } from './formulas';
+import { FreezeBar } from './freezeBar';
+import { HiddenColumns } from './hiddenColumns';
+import { HiddenRows } from './hiddenRows';
+import { ManualColumnFreeze } from './manualColumnFreeze';
+import { ManualColumnMove } from './manualColumnMove';
+import { ManualColumnResize } from './manualColumnResize';
+import { ManualRowMove } from './manualRowMove';
+import { ManualRowResize } from './manualRowResize';
+import { MergeCells } from './mergeCells';
+import { MoveCells } from './moveCells';
+import { MultiColumnSorting } from './multiColumnSorting';
+import { MultipleSelectionHandles } from './multipleSelectionHandles';
+import { NestedHeaders } from './nestedHeaders';
+import { NestedRows } from './nestedRows';
+import { Pagination } from './pagination';
+import { CheckboxHeader } from './checkboxHeader';
+import { RowSelection } from './rowSelection';
+import { Search } from './search';
+import { SelectionHandles } from './selectionHandles';
+import { SheetsBar } from './sheetsBar';
+import { StretchColumns } from './stretchColumns';
+import { TouchScroll } from './touchScroll';
+import { TrimRows } from './trimRows';
+import { UndoRedo } from './undoRedo';
+import { ViewState } from './viewState';
+import { Dialog } from './dialog';
+import { Loading } from './loading';
+import { Notification } from './notification';
+import { EmptyDataState } from './emptyDataState';
+import {
+  registerPlugin,
+} from './registry';
+
+/**
+ * Maps plugin name string literals to their constructor types for type-safe `getPlugin()` calls.
+ * When adding a new plugin: import its class above, register it in `registerAllPlugins()`, add it
+ * to the `export {}` block, and add one entry here — all in this file.
+ */
+declare module './registry' {
+  interface PluginClassMap {
+    asyncValues: typeof AsyncValues;
+    autoLink: typeof AutoLink;
+    autoColumnSize: typeof AutoColumnSize;
+    autofill: typeof Autofill;
+    autoRowSize: typeof AutoRowSize;
+    autoRowHeaderSize: typeof AutoRowHeaderSize;
+    bindRowsWithHeaders: typeof BindRowsWithHeaders;
+    collapsibleColumns: typeof CollapsibleColumns;
+    columnSorting: typeof ColumnSorting;
+    columnSummary: typeof ColumnSummary;
+    comments: typeof Comments;
+    contextMenu: typeof ContextMenu;
+    copyPaste: typeof CopyPaste;
+    customBorders: typeof CustomBorders;
+    dataProvider: typeof DataProvider;
+    dragToScroll: typeof DragToScroll;
+    dropdownMenu: typeof DropdownMenu;
+    exportFile: typeof ExportFile;
+    importFile: typeof ImportFile;
+    filters: typeof Filters;
+    formulaBuilder: typeof FormulaBuilder;
+    formulas: typeof Formulas;
+    freezeBar: typeof FreezeBar;
+    hiddenColumns: typeof HiddenColumns;
+    hiddenRows: typeof HiddenRows;
+    manualColumnFreeze: typeof ManualColumnFreeze;
+    manualColumnMove: typeof ManualColumnMove;
+    manualColumnResize: typeof ManualColumnResize;
+    manualRowMove: typeof ManualRowMove;
+    manualRowResize: typeof ManualRowResize;
+    mergeCells: typeof MergeCells;
+    moveCells: typeof MoveCells;
+    multiColumnSorting: typeof MultiColumnSorting;
+    multipleSelectionHandles: typeof MultipleSelectionHandles;
+    nestedHeaders: typeof NestedHeaders;
+    nestedRows: typeof NestedRows;
+    pagination: typeof Pagination;
+    rowSelection: typeof RowSelection;
+    checkboxHeader: typeof CheckboxHeader;
+    search: typeof Search;
+    selectionHandles: typeof SelectionHandles;
+    sheetsBar: typeof SheetsBar;
+    stretchColumns: typeof StretchColumns;
+    touchScroll: typeof TouchScroll;
+    trimRows: typeof TrimRows;
+    undoRedo: typeof UndoRedo;
+    viewState: typeof ViewState;
+    dialog: typeof Dialog;
+    loading: typeof Loading;
+    notification: typeof Notification;
+    emptyDataState: typeof EmptyDataState;
+  }
+}
+
+/**
+ * Registers all available plugins.
+ */
+export function registerAllPlugins() {
+  registerPlugin(AsyncValues);
+  registerPlugin(AutoLink);
+  registerPlugin(AutoColumnSize);
+  registerPlugin(Autofill);
+  registerPlugin(AutoRowSize);
+  registerPlugin(AutoRowHeaderSize);
+  registerPlugin(BindRowsWithHeaders);
+  registerPlugin(CollapsibleColumns);
+  registerPlugin(ColumnSorting);
+  registerPlugin(ColumnSummary);
+  registerPlugin(Comments);
+  registerPlugin(ContextMenu);
+  registerPlugin(CopyPaste);
+  registerPlugin(CustomBorders);
+  registerPlugin(DataProvider);
+  registerPlugin(DragToScroll);
+  registerPlugin(DropdownMenu);
+  registerPlugin(ExportFile);
+  registerPlugin(ImportFile);
+  registerPlugin(Filters);
+  registerPlugin(Formulas);
+  registerPlugin(FormulaBuilder);
+  registerPlugin(FreezeBar);
+  registerPlugin(HiddenColumns);
+  registerPlugin(HiddenRows);
+  registerPlugin(ManualColumnFreeze);
+  registerPlugin(ManualColumnMove);
+  registerPlugin(ManualColumnResize);
+  registerPlugin(ManualRowMove);
+  registerPlugin(ManualRowResize);
+  registerPlugin(MergeCells);
+  registerPlugin(MoveCells);
+  registerPlugin(MultiColumnSorting);
+  registerPlugin(MultipleSelectionHandles);
+  registerPlugin(NestedHeaders);
+  registerPlugin(NestedRows);
+  registerPlugin(Pagination);
+  registerPlugin(RowSelection);
+  registerPlugin(CheckboxHeader);
+  registerPlugin(Search);
+  registerPlugin(SelectionHandles);
+  registerPlugin(SheetsBar);
+  registerPlugin(StretchColumns);
+  registerPlugin(TouchScroll);
+  registerPlugin(TrimRows);
+  registerPlugin(UndoRedo);
+  registerPlugin(ViewState);
+  registerPlugin(Dialog);
+  registerPlugin(Loading);
+  registerPlugin(Notification);
+  registerPlugin(EmptyDataState);
+}
+
+export {
+  AsyncValues,
+  AutoLink,
+  AutoColumnSize,
+  Autofill,
+  AutoRowSize,
+  AutoRowHeaderSize,
+  BindRowsWithHeaders,
+  CollapsibleColumns,
+  ColumnSorting,
+  ColumnSummary,
+  Comments,
+  ContextMenu,
+  CopyPaste,
+  CustomBorders,
+  DataProvider,
+  DragToScroll,
+  DropdownMenu,
+  ExportFile,
+  ImportFile,
+  Filters,
+  FormulaBuilder,
+  Formulas,
+  FreezeBar,
+  HiddenColumns,
+  HiddenRows,
+  ManualColumnFreeze,
+  ManualColumnMove,
+  ManualColumnResize,
+  ManualRowMove,
+  ManualRowResize,
+  MergeCells,
+  MoveCells,
+  MultiColumnSorting,
+  MultipleSelectionHandles,
+  NestedHeaders,
+  NestedRows,
+  Pagination,
+  RowSelection,
+  CheckboxHeader,
+  Search,
+  SelectionHandles,
+  SheetsBar,
+  StretchColumns,
+  TouchScroll,
+  TrimRows,
+  UndoRedo,
+  ViewState,
+  Dialog,
+  Loading,
+  Notification,
+  EmptyDataState,
+};
+
+export {
+  getPlugin,
+  getPluginsNames,
+  registerPlugin,
+} from './registry';

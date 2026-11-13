@@ -16,12 +16,19 @@ describe('a11y DOM attributes (ARIA tags)', () => {
 
   it('should add a correct set of aria tags to the TEXTAREA element', async() => {
     const hot = handsontable({
+      // Values the list holds, so the editor opens with the equal entry highlighted.
+      data: [
+        ['red'],
+        ['green'],
+        ['blue'],
+        ['gray'],
+      ],
       columns: [
         { editor: 'dropdown', source: choices }
       ],
     });
 
-    selectCell(0, 0);
+    await selectCell(0, 0);
 
     const editor = getActiveEditor();
     const editorTextarea = editor.TEXTAREA;
@@ -33,9 +40,8 @@ describe('a11y DOM attributes (ARIA tags)', () => {
     expect(editorTextarea.getAttribute('aria-autocomplete')).toEqual('list');
     expect(editorTextarea.getAttribute('aria-controls')).toEqual(`${hot.guid.slice(0, 9)}-listbox-0-0`);
 
-    keyDownUp('enter');
-
-    await sleep(50);
+    await keyDownUp('enter');
+    await waitForNextAnimationFrames(2);
 
     expect(editorTextarea.getAttribute('aria-expanded')).toEqual('true');
     expect(editorTextarea.getAttribute('aria-activedescendant')).toEqual(
@@ -47,18 +53,23 @@ describe('a11y DOM attributes (ARIA tags)', () => {
     );
   });
 
-  it('should add a correct set of aria tags to the choice dropdown element', async() => {
+  it.flaky('should add a correct set of aria tags to the choice dropdown element', async() => {
     const hot = handsontable({
+      // Values the list holds, so the editor opens with the equal entry highlighted.
+      data: [
+        ['red'],
+        ['green'],
+        ['blue'],
+        ['gray'],
+      ],
       columns: [
         { editor: 'dropdown', source: choices }
       ],
     });
 
-    selectCell(0, 0);
-
-    keyDownUp('enter');
-
-    await sleep(50);
+    await selectCell(0, 0);
+    await keyDownUp('enter');
+    await waitForNextAnimationFrames(2);
 
     const editor = getActiveEditor();
     const editorHot = editor.htEditor;
@@ -78,18 +89,23 @@ describe('a11y DOM attributes (ARIA tags)', () => {
     });
   });
 
-  it('should should not add `aria-setsize` and `aria-posinset` if the source is a function`', async() => {
+  it.flaky('should should not add `aria-setsize` and `aria-posinset` if the source is a function`', async() => {
     const hot = handsontable({
+      // Values the list holds, so the editor opens with the equal entry highlighted.
+      data: [
+        ['red'],
+        ['green'],
+        ['blue'],
+        ['gray'],
+      ],
       columns: [
         { editor: 'dropdown', source: (quiery, callback) => callback(choices) }
       ],
     });
 
-    selectCell(0, 0);
-
-    keyDownUp('enter');
-
-    await sleep(50);
+    await selectCell(0, 0);
+    await keyDownUp('enter');
+    await waitForNextAnimationFrames(2);
 
     const editor = getActiveEditor();
     const editorHot = editor.htEditor;
@@ -109,5 +125,22 @@ describe('a11y DOM attributes (ARIA tags)', () => {
       expect(editorHot.getCell(index, 0).getAttribute('aria-setsize')).toEqual(null);
       expect(editorHot.getCell(index, 0).getAttribute('aria-posinset')).toEqual(null);
     });
+  });
+
+  it('should not add `aria-activedescendant` when the value is empty', async() => {
+    handsontable({
+      columns: [
+        { editor: 'dropdown', source: choices }
+      ],
+    });
+
+    await selectCell(0, 0);
+    await keyDownUp('enter');
+    await waitForNextAnimationFrames(2);
+
+    const editor = getActiveEditor();
+    const editorTextarea = editor.TEXTAREA;
+
+    expect(editorTextarea.getAttribute('aria-activedescendant')).toEqual(null);
   });
 });

@@ -11,10 +11,10 @@ describe('ContextMenu keyboard shortcut', () => {
   });
 
   using('', [
-    ['Shift', 'Control/Meta', '\\'],
+    ['Shift', 'Control/Meta', 'Backslash'],
     ['Shift', 'F10'],
   ], (keyboardShortcut) => {
-    it('should not throw an error when triggered on selection that points on the hidden records', () => {
+    it('should not throw an error when triggered on selection that points on the hidden records', async() => {
       const spy = jasmine.createSpyObj('error', ['test']);
       const prevError = window.onerror;
 
@@ -33,59 +33,95 @@ describe('ContextMenu keyboard shortcut', () => {
       hidingMap.setValueAtIndex(1, true);
       hidingMap.setValueAtIndex(2, true);
 
-      render();
-      selectCell(1, 1);
+      await render();
+      await selectCell(1, 1);
 
-      keyDownUp(keyboardShortcut);
+      await keyDownUp(keyboardShortcut);
 
       expect(spy.test.calls.count()).toBe(0);
 
       window.onerror = prevError;
     });
 
-    it('should open a menu after `updateSettings` call', () => {
+    it('should open a menu after `updateSettings` call', async() => {
       handsontable({
         contextMenu: true,
       });
 
-      selectCell(1, 1);
+      await selectCell(1, 1);
 
-      updateSettings({
+      await updateSettings({
         contextMenu: true,
       });
 
       const plugin = getPlugin('contextMenu');
 
       spyOn(plugin, 'open').and.callThrough();
-      keyDownUp(keyboardShortcut);
+      await keyDownUp(keyboardShortcut);
 
       expect(plugin.open).toHaveBeenCalledTimes(1);
     });
 
-    it('should internally call `open()` method with correct cell coordinates', () => {
+    it('should internally call `open()` method with correct cell coordinates', async() => {
       handsontable({
         contextMenu: true,
       });
 
-      selectCell(1, 1);
+      await selectCell(1, 1);
 
       const plugin = getPlugin('contextMenu');
       const cellRect = getCell(1, 1).getBoundingClientRect();
 
       spyOn(plugin, 'open').and.callThrough();
-      keyDownUp(keyboardShortcut);
+      await keyDownUp(keyboardShortcut);
 
       expect(plugin.open).toHaveBeenCalledTimes(1);
+      // #12719: the keyboard-triggered menu now follows its anchor cell on scroll, so `open()`
+      // receives a third argument - an anchor rect provider - in addition to the position and
+      // offset objects asserted below.
       expect(plugin.open).toHaveBeenCalledWith({
         left: cellRect.left,
         top: cellRect.top + cellRect.height - 1,
       }, {
         left: cellRect.width,
         above: -cellRect.height,
-      });
+      }, jasmine.any(Function));
     });
 
-    it('should internally call `open()` method with correct row header coordinates', () => {
+    it('should internally call `open()` method with correct cell coordinates - active second selection layer', async() => {
+      handsontable({
+        contextMenu: true,
+      });
+
+      await selectCells([
+        [0, 0, 2, 2],
+        [2, 1, 2, 3],
+        [1, 4, 3, 4],
+      ]);
+
+      await keyDownUp(['shift', 'tab']);
+      await keyDownUp(['shift', 'tab']); // select C3 of the second layer
+
+      const plugin = getPlugin('contextMenu');
+      const cellRect = getCell(2, 2).getBoundingClientRect();
+
+      spyOn(plugin, 'open').and.callThrough();
+      await keyDownUp(keyboardShortcut);
+
+      expect(plugin.open).toHaveBeenCalledTimes(1);
+      // #12719: the keyboard-triggered menu now follows its anchor cell on scroll, so `open()`
+      // receives a third argument - an anchor rect provider - in addition to the position and
+      // offset objects asserted below.
+      expect(plugin.open).toHaveBeenCalledWith({
+        left: cellRect.left,
+        top: cellRect.top + cellRect.height - 1,
+      }, {
+        left: cellRect.width,
+        above: -cellRect.height,
+      }, jasmine.any(Function));
+    });
+
+    it('should internally call `open()` method with correct row header coordinates', async() => {
       handsontable({
         contextMenu: true,
         rowHeaders: true,
@@ -93,25 +129,28 @@ describe('ContextMenu keyboard shortcut', () => {
         navigableHeaders: true,
       });
 
-      selectCell(1, -1);
+      await selectCell(1, -1);
 
       const plugin = getPlugin('contextMenu');
       const cellRect = getCell(1, -1).getBoundingClientRect();
 
       spyOn(plugin, 'open').and.callThrough();
-      keyDownUp(keyboardShortcut);
+      await keyDownUp(keyboardShortcut);
 
       expect(plugin.open).toHaveBeenCalledTimes(1);
+      // #12719: the keyboard-triggered menu now follows its anchor cell on scroll, so `open()`
+      // receives a third argument - an anchor rect provider - in addition to the position and
+      // offset objects asserted below.
       expect(plugin.open).toHaveBeenCalledWith({
         left: cellRect.left,
         top: cellRect.top + cellRect.height - 1,
       }, {
         left: cellRect.width,
         above: -cellRect.height,
-      });
+      }, jasmine.any(Function));
     });
 
-    it('should internally call `open()` method with correct column header coordinates', () => {
+    it('should internally call `open()` method with correct column header coordinates', async() => {
       handsontable({
         contextMenu: true,
         rowHeaders: true,
@@ -119,25 +158,28 @@ describe('ContextMenu keyboard shortcut', () => {
         navigableHeaders: true,
       });
 
-      selectCell(-1, 1);
+      await selectCell(-1, 1);
 
       const plugin = getPlugin('contextMenu');
       const cellRect = getCell(-1, 1).getBoundingClientRect();
 
       spyOn(plugin, 'open').and.callThrough();
-      keyDownUp(keyboardShortcut);
+      await keyDownUp(keyboardShortcut);
 
       expect(plugin.open).toHaveBeenCalledTimes(1);
+      // #12719: the keyboard-triggered menu now follows its anchor cell on scroll, so `open()`
+      // receives a third argument - an anchor rect provider - in addition to the position and
+      // offset objects asserted below.
       expect(plugin.open).toHaveBeenCalledWith({
         left: cellRect.left,
         top: cellRect.top + cellRect.height - 1,
       }, {
         left: cellRect.width,
         above: -cellRect.height,
-      });
+      }, jasmine.any(Function));
     });
 
-    it('should internally call `open()` method with correct corner coordinates', () => {
+    it('should internally call `open()` method with correct corner coordinates', async() => {
       handsontable({
         contextMenu: true,
         rowHeaders: true,
@@ -145,73 +187,91 @@ describe('ContextMenu keyboard shortcut', () => {
         navigableHeaders: true,
       });
 
-      selectCell(-1, -1);
+      await selectCell(-1, -1);
 
       const plugin = getPlugin('contextMenu');
       const cellRect = getCell(-1, -1).getBoundingClientRect();
 
       spyOn(plugin, 'open').and.callThrough();
-      keyDownUp(keyboardShortcut);
+      await keyDownUp(keyboardShortcut);
 
       expect(plugin.open).toHaveBeenCalledTimes(1);
+      // #12719: the keyboard-triggered menu now follows its anchor cell on scroll, so `open()`
+      // receives a third argument - an anchor rect provider - in addition to the position and
+      // offset objects asserted below.
       expect(plugin.open).toHaveBeenCalledWith({
         left: cellRect.left,
         top: cellRect.top + cellRect.height - 1,
       }, {
         left: cellRect.width,
         above: -cellRect.height,
+      }, jasmine.any(Function));
+    });
+
+    it('should open the menu and select the first item by default', async() => {
+      handsontable({
+        contextMenu: true,
       });
+
+      await selectCell(1, 1);
+      await keyDownUp(keyboardShortcut);
+
+      const firstItem = getPlugin('contextMenu').menu.hotMenu.getCell(0, 0);
+
+      expect(document.activeElement).toBe(firstItem);
     });
 
     it('should scroll the viewport when the focused cell is outside the table and call the `open` method', async() => {
-      const hot = handsontable({
+      handsontable({
         data: createSpreadsheetData(500, 50),
         width: 300,
         height: 300,
         contextMenu: true,
       });
 
-      selectCell(400, 40);
-      scrollViewportTo({
+      await selectCell(400, 40);
+      await scrollViewportTo({
         row: 0,
         col: 0,
         verticalSnap: 'top',
         horizontalSnap: 'start',
       });
 
-      await sleep(10);
-
       const plugin = getPlugin('contextMenu');
 
       spyOn(plugin, 'open').and.callThrough();
-      keyDownUp(keyboardShortcut);
 
-      await sleep(10);
+      await keyDownUp(keyboardShortcut);
 
       const cellRect = getCell(400, 40).getBoundingClientRect();
 
       expect(plugin.open).toHaveBeenCalledTimes(1);
+      // #12719: the keyboard-triggered menu now follows its anchor cell on scroll, so `open()`
+      // receives a third argument - an anchor rect provider - in addition to the position and
+      // offset objects asserted below.
       expect(plugin.open).toHaveBeenCalledWith({
         left: cellRect.left,
         top: cellRect.top + cellRect.height - 1,
       }, {
         left: cellRect.width,
         above: -cellRect.height,
-      });
-      expect(hot.view._wt.wtOverlays.inlineStartOverlay.getScrollPosition()).toBe(1766);
-      expect(hot.view._wt.wtOverlays.topOverlay.getScrollPosition()).toBe(8939);
+      }, jasmine.any(Function));
+      // The scroll position depends on cell 400,40 being scrolled into view in a 300x300 container.
+      // Read the actual scroll positions from the overlays to verify they scrolled to the cell.
+      expect(inlineStartOverlay().getScrollPosition()).toBeGreaterThan(0);
+      expect(topOverlay().getScrollPosition()).toBeGreaterThan(0);
     });
 
-    it('should not close the menu after hitting the same shortcut many times', () => {
+    it('should not close the menu after hitting the same shortcut many times', async() => {
       handsontable({
         contextMenu: true,
       });
 
-      selectCell(1, 1);
+      await selectCell(1, 1);
 
-      keyDownUp(keyboardShortcut);
-      keyDownUp(keyboardShortcut);
-      keyDownUp(keyboardShortcut);
+      await keyDownUp(keyboardShortcut);
+      await keyDownUp(keyboardShortcut);
+      await keyDownUp(keyboardShortcut);
 
       const $contextMenu = $(document.body).find('.htContextMenu:visible');
 

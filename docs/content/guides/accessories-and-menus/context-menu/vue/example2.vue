@@ -1,0 +1,31 @@
+<script setup lang="ts">
+import { ref } from 'vue';
+import { HotTable } from '@handsontable/vue3';
+import { registerAllModules } from 'handsontable/registry';
+import type { GridSettings } from 'handsontable/settings';
+
+registerAllModules();
+
+const hotSettings = ref<GridSettings>({
+  data: [
+    ['Hydrogen', 'H', 1, 1.008, 7],
+    ['Helium', 'He', 2, 4.003, 9],
+    ['Lithium', 'Li', 3, 6.94, 9],
+    ['Beryllium', 'Be', 4, 9.012, 11],
+    ['Boron', 'B', 5, 10.81, 15],
+  ],
+  rowHeaders: true,
+  colHeaders: ['Name', 'Symbol', 'Atomic Number', 'Atomic Mass (u)', 'Known Isotopes'],
+  contextMenu: ['row_above', 'row_below', 'remove_row', 'clear_column'],
+  height: 'auto',
+  autoWrapRow: true,
+  autoWrapCol: true,
+  // licenseKey: 'your-license-key', // get a key at https://handsontable.com/pricing/
+});
+</script>
+
+<template>
+  <div id="example2">
+    <HotTable :settings="hotSettings" />
+  </div>
+</template>

@@ -20,13 +20,13 @@ describe('ContextMenu (RTL mode)', () => {
     });
 
     describe('`open()` method', () => {
-      it('should open context menu by default on the left-bottom position', () => {
+      it('should open context menu by default on the left-bottom position', async() => {
         handsontable({
           layoutDirection,
           contextMenu: true,
         });
 
-        selectCell(0, 0);
+        await selectCell(0, 0);
 
         const cell = getCell(0, 0);
         const cellOffset = $(cell).offset();
@@ -42,15 +42,18 @@ describe('ContextMenu (RTL mode)', () => {
         expect(menuOffset.left).toBeCloseTo(cellOffset.left - menuWidth, 0);
       });
 
-      it('should open context menu on the left-top position if on the right and bottom there is no space left', () => {
+      it('should open context menu on the left-top position if on the right and ' +
+        'bottom there is no space left', async() => {
+        const rowDivisor = getDefaultRowHeight();
+
         handsontable({
           layoutDirection,
-          data: createSpreadsheetData(Math.floor(window.innerHeight / 23), 4),
+          data: createSpreadsheetData(Math.floor(window.innerHeight / rowDivisor), 4),
           contextMenu: true,
         });
 
         // we have to be sure we will have no enough space on the bottom, select the last cell
-        selectCell(countRows() - 1, 0);
+        await selectCell(countRows() - 1, 0);
 
         const cell = getCell(countRows() - 1, 0);
         const cellOffset = $(cell).offset();
@@ -67,7 +70,7 @@ describe('ContextMenu (RTL mode)', () => {
         expect(menuOffset.left).toBeCloseTo(cellOffset.left - menuWidth, 0);
       });
 
-      it('should open context menu on the right-bottom position if on the left there is no space left', () => {
+      it('should open context menu on the right-bottom position if on the left there is no space left', async() => {
         handsontable({
           layoutDirection,
           data: createSpreadsheetData(4, Math.floor(window.innerWidth / 50)),
@@ -75,7 +78,7 @@ describe('ContextMenu (RTL mode)', () => {
         });
 
         // we have to be sure we will have no enough space on the left, select the last cell
-        selectCell(0, countCols() - 1);
+        await selectCell(0, countCols() - 1);
 
         const cell = getCell(0, countCols() - 1);
         const cellOffset = $(cell).offset();
@@ -90,15 +93,22 @@ describe('ContextMenu (RTL mode)', () => {
         expect(menuOffset.left).toBeCloseTo(cellOffset.left, 0);
       });
 
-      it('should open context menu on the right-top position if on the left and bottom there is no space left', () => {
+      it('should open context menu on the right-top position if on the left and ' +
+        'bottom there is no space left', async() => {
+        const rowDivisor = getDefaultRowHeight();
+        const colDivisor = getDefaultColumnWidth();
+
         handsontable({
           layoutDirection,
-          data: createSpreadsheetData(Math.floor(window.innerHeight / 23), Math.floor(window.innerWidth / 50)),
+          data: createSpreadsheetData(
+            Math.floor(window.innerHeight / rowDivisor),
+            Math.floor(window.innerWidth / colDivisor),
+          ),
           contextMenu: true,
         });
 
         // we have to be sure we will have no enough space on the bottom and the right, select the last cell
-        selectCell(countRows() - 1, countCols() - 1);
+        await selectCell(countRows() - 1, countCols() - 1);
 
         const cell = getCell(countRows() - 1, countCols() - 1);
         const cellOffset = $(cell).offset();
@@ -110,8 +120,12 @@ describe('ContextMenu (RTL mode)', () => {
         const menuHeight = $contextMenu.outerHeight();
 
         expect($contextMenu.length).toBe(1);
-        expect(menuOffset.top).toBeCloseTo(cellOffset.top - menuHeight, 0);
-        expect(menuOffset.left).toBeCloseTo(cellOffset.left, 0);
+        // Derive expected from DOM state so horizontal/vertical scroll introduced
+        // by denser themes is accounted for. See the LTR variant for the full note.
+        expect(menuOffset.top).toBeAroundValue(cellOffset.top - menuHeight + window.scrollY, 4);
+        // The last cell of an RTL grid sits at the left edge, which a denser theme pushes past the viewport's
+        // left edge, and the menu is pulled back to that edge instead of following the cell out of it.
+        expect(menuOffset.left).toBeCloseTo(Math.max(cellOffset.left + window.scrollX, window.scrollX), 0);
       });
     });
   });

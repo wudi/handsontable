@@ -1,0 +1,58 @@
+import { HotTable } from '@handsontable/react-wrapper';
+import { registerAllModules } from 'handsontable/registry';
+
+// register Handsontable's modules
+registerAllModules();
+
+const data = [
+  ['empty string', '', '', '', '', ''],
+  ['null', null, null, null, null, null],
+  ['undefined', undefined, undefined, undefined, undefined, undefined],
+  ['non-empty value', 'non-empty text', 13000, true, 'orange', 'password'],
+];
+
+const ExampleComponent = () => {
+  return (
+    <HotTable
+      // licenseKey="your-license-key" // get a key at https://handsontable.com/pricing/
+      autoWrapRow={true}
+      autoWrapCol={true}
+      data={data}
+      columnSorting={{
+        sortEmptyCells: true,
+      }}
+      columns={[
+        {
+          columnSorting: {
+            indicator: false,
+            headerAction: false,
+            compareFunctionFactory: function compareFunctionFactory() {
+              return function comparator() {
+                return 0; // Don't sort the first visual column.
+              };
+            },
+          },
+          readOnly: true,
+        },
+        {},
+        {
+          type: 'numeric',
+          locale: 'en-US',
+          numericFormat: {
+            style: 'currency',
+            currency: 'USD',
+            minimumFractionDigits: 2,
+          },
+        },
+        { type: 'checkbox' },
+        { type: 'dropdown', source: ['yellow', 'red', 'orange'] },
+        { type: 'password' },
+      ]}
+      preventOverflow="horizontal"
+      colHeaders={['value underneath', 'type:text', 'type:numeric', 'type:checkbox', 'type:dropdown', 'type:password']}
+      height="auto"
+    />
+  );
+};
+
+export default ExampleComponent;

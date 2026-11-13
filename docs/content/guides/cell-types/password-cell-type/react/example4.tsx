@@ -1,0 +1,32 @@
+import { HotTable } from '@handsontable/react-wrapper';
+import { registerAllModules } from 'handsontable/registry';
+
+// register Handsontable's modules
+registerAllModules();
+
+const data = [
+  { id: 1, name: { first: 'Chris', last: 'Right' }, password: 'plainTextPassword' },
+  { id: 2, name: { first: 'John', last: 'Honest' }, password: 'txt' },
+  { id: 3, name: { first: 'Greg', last: 'Well' }, password: 'longer' },
+];
+
+const ExampleComponent = () => {
+  return (
+    <HotTable
+      // licenseKey="your-license-key" // get a key at https://handsontable.com/pricing/
+      data={data}
+      colHeaders={['ID', 'First name', 'Last name', 'Password']}
+      height="auto"
+      autoWrapRow={true}
+      autoWrapCol={true}
+      columns={[
+        { data: 'id' },
+        { data: 'name.first' },
+        { data: 'name.last' },
+        { data: 'password', type: 'password', hashRevealDelay: 1000 },
+      ]}
+    />
+  );
+};
+
+export default ExampleComponent;

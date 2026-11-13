@@ -1,0 +1,1854 @@
+import {
+  addClass,
+  eventTargetEl,
+  hasClass,
+  isBottomMostColumnHeader,
+  removeClass,
+  setAttribute,
+} from '../../helpers/dom/element';
+import { isUndefined, isDefined } from '../../helpers/mixed';
+import { hasOwnProperty, isObject, isPlainObject } from '../../helpers/object';
+import { isFunction } from '../../helpers/function';
+import { isUnsignedNumber } from '../../helpers/number';
+import { arrayMap } from '../../helpers/array';
+import { BasePlugin } from '../base';
+import type { IndexesSequence, PhysicalIndexToValueMap as IndexToValueMap } from '../../translations';
+import { Hooks } from '../../core/hooks';
+import {
+  ColumnStatesManager,
+  HEADER_ACTION_DEFAULT,
+  SHOW_SORT_INDICATOR_DEFAULT,
+  SORT_EMPTY_CELLS_DEFAULT,
+} from './columnStatesManager';
+import { EDITOR_EDIT_GROUP as SHORTCUTS_GROUP_EDITOR } from '../../shortcuts/contexts';
+import { createTrackedIconSync } from '../../themes/engine/icons';
+import {
+  HEADER_SPAN_CLASS,
+  ASC_SORT_STATE,
+  DESC_SORT_STATE,
+  getNextSortOrder,
+  areValidSortStates,
+  getHeaderSpanElement,
+  isFirstLevelColumnHeader,
+  wasHeaderClickedProperly,
+  warnAboutPluginsConflict,
+  warnAboutPerColumnSortFixedRows,
+} from './utils';
+import {
+  HEADER_ACTION_CLASS,
+  HEADER_CLASS_ASC_SORT,
+  HEADER_CLASS_DESC_SORT,
+  getClassesToRemove,
+  getClassesToAdd
+} from './domHelpers';
+import { positionComparator, rootComparator } from './rootComparator';
+import {
+  getBuiltInPositionComparator,
+  markBuiltInRootComparator,
+  registerRootComparator,
+  sort,
+} from './sortService';
+import type { PositionComparatorFactory } from './sortService';
+import type { HotInstance } from '../../core/types';
+import type { CellChange } from '../../settings';
+import { getWaitingEditorSaveChangeSets } from '../../editors/baseEditor/editorSaveChangeSets';
+import { A11Y_SORT } from '../../helpers/a11y';
+import { LICENSE } from './feature.generated';
+
+/**
+ * `HotInstance` augmented with the internal `_getDataAtColumnForRows` method. The method exists on the
+ * Core runtime object but is intentionally NOT part of the public `HotInstance` type, so it is not
+ * exposed to third-party code (it is the bulk form of `getDataAtCell()` the sort gather loop reads
+ * through, and an implementation detail of how that loop resolves the column coordinates once). The
+ * sorting plugins are internal consumers and reach it through this local type.
+ */
+type HotInstanceInternal = HotInstance & {
+  _getDataAtColumnForRows(column: number, physicalRows: (number | null)[]): unknown[];
+};
+
+export interface ColumnSortingConfig {
+  column: number;
+  sortOrder: 'asc' | 'desc' | 'none';
+}
+
+interface ColumnSortingPluginColumnSettings {
+  indicator: boolean;
+  headerAction: boolean;
+  sortEmptyCells: boolean;
+  compareFunctionFactory?: unknown;
+  [key: string]: unknown;
+}
+
+export const PLUGIN_KEY = 'columnSorting';
+export const PLUGIN_PRIORITY = 50;
+export const APPEND_COLUMN_CONFIG_STRATEGY = 'append';
+export const REPLACE_COLUMN_CONFIG_STRATEGY = 'replace';
+const SHORTCUTS_GROUP = PLUGIN_KEY;
+// The group CollapsibleColumns registers its `Enter` header shortcut under. A string, not an import:
+// plugins do not import each other.
+const SHORTCUTS_GROUP_COLLAPSIBLE = 'collapsibleColumns';
+/**
+ * Default for the `sortFixedRows` option: rows pinned by `fixedRowsTop` or `fixedRowsBottom` stay
+ * where they are and take no part in the sort.
+ *
+ * Flipping this to `true` is a breaking change - it un-pins those rows for every grid that does
+ * not set the option, and it re-corrupts absolute-address formulas in footer rows (#12627).
+ */
+const SORT_FIXED_ROWS_DEFAULT = false;
+/**
+ * Marks the header container of a column that is showing a sort indicator. The indicator is
+ * positioned against that container, so the room it needs is reserved there rather than as padding
+ * on the label - padding on the label would enlarge the area that sorts on click, which is exactly
+ * what it must not do. A class rather than a `:has()` selector, which is banned in this package.
+ */
+const CONTAINER_WITH_INDICATOR_CLASS = 'has-sort-indicator';
+/**
+ * The `syncIcon()` slot class for the sort-direction arrow. Keeps exactly one icon element inside
+ * the header container across renders - created when the column becomes sorted, kept
+ * across re-renders while the direction is unchanged, replaced when the direction flips, and
+ * removed when the column is not showing an indicator.
+ */
+const SORT_INDICATOR_SLOT_CLASS = 'ht-sort-indicator';
+
+registerRootComparator(PLUGIN_KEY, rootComparator);
+markBuiltInRootComparator(rootComparator, positionComparator);
+
+/**
+ * A press on a sortable column header, waiting to be resolved on mouse up.
+ */
+export interface HeaderSortPress {
+  column: number;
+  isCtrlPressed: boolean;
+  /**
+   * Settles once the editor that was open at press time has stopped waiting for its validator and core has
+   * written or dropped every change set that waited for its validators at press time, read after each
+   * `postAfterValidate`, or `null` when nothing was waiting.
+   */
+  validation: Promise<void> | null;
+  /**
+   * Set when ManualColumnMove ran its move before this press was resolved.
+   */
+  consumedByMove: boolean;
+}
+
+/**
+ * The editor a header press waits for: its wait for its validator, and the `@private` listener of its finish,
+ * which a `BaseEditor` provides.
+ */
+interface EditorToWaitFor {
+  isWaiting(): boolean;
+  isOpened(): boolean;
+  _addFinishListener?(listener: () => void): void;
+  _removeFinishListener?(listener: () => void): void;
+}
+
+export interface SortConfig {
+  column: number;
+  sortOrder: string;
+}
+
+Hooks.getSingleton().register('beforeColumnSort');
+Hooks.getSingleton().register('afterColumnSort');
+
+/**
+ * Tracks the conflicts between `columnSorting` and `multiColumnSorting` options.
+ * Only one plugin can be enabled for Handsontable instance. Once one of them is enabled,
+ * the other should remain disabled even if it's set to `true`.
+ */
+const pluginConflictsState = new WeakMap<object, string>();
+
+// DIFF - MultiColumnSorting & ColumnSorting: changed configuration documentation.
+/**
+ * @plugin ColumnSorting
+ * @class ColumnSorting
+ *
+ * @description
+ * This plugin sorts the view by columns (but does not sort the data source!). To enable the plugin, set the
+ * {@link Options#columnSorting} property to the correct value (see the examples below).
+ *
+ * @example
+ * ```js
+ * // as boolean
+ * columnSorting: true
+ *
+ * // as an object with initial sort config (sort ascending for column at index 1)
+ * columnSorting: {
+ *   initialConfig: {
+ *     column: 1,
+ *     sortOrder: 'asc'
+ *   }
+ * }
+ *
+ * // as an object which define specific sorting options for all columns
+ * columnSorting: {
+ *   sortEmptyCells: true, // true = the table sorts empty cells, false = the table moves all empty cells to the end of the table (by default)
+ *   indicator: true, // true = shows indicator for all columns (by default), false = don't show indicator for columns
+ *   headerAction: true, // true = allow to click on the headers to sort (by default), false = turn off possibility to click on the headers to sort
+ *   sortFixedRows: false, // false = rows pinned by `fixedRowsTop` and `fixedRowsBottom` keep their place (by default), true = the whole dataset is sorted, pinned rows included
+ *   compareFunctionFactory: function(sortOrder, columnMeta) {
+ *     return function(value, nextValue) {
+ *       // Some value comparisons which will return -1, 0 or 1...
+ *     }
+ *   }
+ * }
+ *
+ * // as an object passed to the `column` property, allows specifying a custom options for the desired column.
+ * // see the `columns` option documentation: @/api/options.md#columns
+ * columns: [{
+ *   columnSorting: {
+ *     indicator: false, // disable indicator for the first column,
+ *     sortEmptyCells: true,
+ *     headerAction: false, // clicks on the first column won't sort
+ *     compareFunctionFactory: function(sortOrder, columnMeta) {
+ *       return function(value, nextValue) {
+ *         return 0; // Custom compare function for the first column (don't sort)
+ *       }
+ *     }
+ *   }
+ * }]
+ * ```
+ */
+export class ColumnSorting extends BasePlugin {
+  /**
+   * Returns the plugin key used to identify this plugin in Handsontable settings.
+   */
+  static get PLUGIN_KEY() {
+    return PLUGIN_KEY;
+  }
+
+  /**
+   * Returns the priority order used to determine the order in which plugins are initialized.
+   */
+  static get PLUGIN_PRIORITY() {
+    return PLUGIN_PRIORITY;
+  }
+
+  /**
+   * Returns the license token of the plugin, its display name, where it is checked, and the tokens it
+   * requires.
+   */
+  static get LICENSE() {
+    return LICENSE;
+  }
+
+  /**
+   * Instance of column state manager.
+   *
+   * @private
+   * @type {null|ColumnStatesManager}
+   */
+  columnStatesManager: ColumnStatesManager | null = null;
+  /**
+   * Cached column properties from plugin like i.e. `indicator`, `headerAction`.
+   *
+   * @private
+   * @type {null|PhysicalIndexToValueMap}
+   */
+  columnMetaCache: IndexToValueMap | null = null;
+  /**
+   * Sort queued by a header press, applied on mouse up unless the press became a column drag.
+   */
+  #pendingHeaderSort: HeaderSortPress | null = null;
+  /**
+   * Sorts of released header presses that wait for a mid-edit cell to finish validating, in press order. A wait
+   * runs its press only while the set still holds it, so turning the plugin off, a data load, and a column order
+   * reset drop them all, and a second press made during the wait keeps the first.
+   */
+  #awaitingHeaderSorts = new Set<HeaderSortPress>();
+  /**
+   * The `postAfterValidate` listener of each press that waits for the editor, removed when the wait
+   * settles or the press is dropped.
+   */
+  #editorWaitListeners: Map<HeaderSortPress, {
+    check: () => void, onFinish: () => void, editor: EditorToWaitFor | null,
+  }> = new Map();
+  /**
+   * `true` from an `enablePlugin()` until the settings sort of that enable runs in the ready step.
+   * `onDataReady()` sorts itself, so it clears it too.
+   */
+  #settingsSortOwed = false;
+  /**
+   * `syncIcon()` for the sort arrow, remembering which headers ever got one. The header hook clears
+   * the slot on every unsorted column, so a header that never held an arrow skips the subtree
+   * query.
+   *
+   * @type {Function}
+   */
+  #syncIcon = createTrackedIconSync();
+  /**
+   * Whether the plugin has been on at least once, so a header can still hold its sort markup. Until
+   * then the header hook that clears the markup while the plugin is off has nothing to do.
+   *
+   * @type {boolean}
+   */
+  #mayHaveMarkedHeaders = false;
+  /**
+   * Whether the header hook clears the sort markup even while another sorting plugin is on. It is set
+   * when the plugin turns off and reset after the next view render: the plugin that turns on in the same
+   * update removes only the markup it drew itself, so this plugin clears its own once.
+   *
+   * @type {boolean}
+   */
+  #clearsUnderConflict = false;
+  /**
+   * Main settings key designed for the plugin.
+   *
+   * @private
+   * @type {string}
+   */
+  pluginKey = PLUGIN_KEY;
+  /**
+   * Plugin indexes cache.
+   *
+   * @private
+   * @type {null|IndexesSequence}
+   */
+  indexesSequenceCache: IndexesSequence | null = null;
+  /**
+   * The row order the last applied sort or clear left the rows in, registered next to
+   * `indexesSequenceCache` so that row inserts and removals update it the way they update the live
+   * order, and UndoRedo restores it with the rest of the row maps. Sort states can be emptied while the
+   * rows stay sorted (`setSortConfig([])`, removing the sorted column), so empty states do not tell
+   * whether the rows show a sort result. Comparing this order with the live one does.
+   *
+   * @type {null|IndexesSequence}
+   */
+  #sortedRowOrder: IndexesSequence | null = null;
+
+  /**
+   * Registers the header hook that clears the sort markup while the plugin is off. It outlives every
+   * disable, because a header the plugin marked can be drawn again at any later render, also on another
+   * header level. `destroy()` removes it.
+   *
+   * @param {HotInstance} hotInstance The Handsontable instance.
+   */
+  constructor(hotInstance: HotInstance) {
+    super(hotInstance);
+
+    this.hot.addHook('afterGetColHeader', this.#onAfterGetColHeaderWhileDisabled);
+  }
+
+  /**
+   * Returns the value each column property an object setting sets takes when the object leaves it out: an
+   * object sent again merges into the column properties the previous one set (see `BasePlugin`). Internal;
+   * not public API.
+   *
+   * @private
+   * @returns {object}
+   */
+  _getObjectSettingDefaults(): Record<string, unknown> {
+    return {
+      indicator: SHOW_SORT_INDICATOR_DEFAULT,
+      headerAction: HEADER_ACTION_DEFAULT,
+      sortEmptyCells: SORT_EMPTY_CELLS_DEFAULT,
+      compareFunctionFactory: undefined,
+    };
+  }
+
+  /**
+   * Checks if the plugin is enabled in the Handsontable settings. This method is executed in {@link Hooks#beforeInit}
+   * hook and if it returns `true` then the {@link ColumnSorting#enablePlugin} method is called.
+   *
+   * @returns {boolean}
+   */
+  isEnabled(): boolean {
+    return !!(this.hot.getSettings()[this.pluginKey]);
+  }
+
+  /**
+   * Enables the plugin functionality for this Handsontable instance.
+   */
+  enablePlugin(): void {
+    const conflictingPluginKey = pluginConflictsState.get(this.hot);
+
+    if (conflictingPluginKey !== undefined && conflictingPluginKey !== this.pluginKey) {
+      if (this.hot.getSettings()[conflictingPluginKey]) {
+        this.hot.updateSettings({
+          [this.pluginKey]: false
+        });
+        warnAboutPluginsConflict(conflictingPluginKey, this.pluginKey);
+
+        return;
+      }
+
+      this.hot.getPlugin(conflictingPluginKey)?.disablePlugin();
+    }
+
+    if (this.enabled) {
+      return;
+    }
+
+    pluginConflictsState.set(this.hot, this.pluginKey);
+
+    this.#mayHaveMarkedHeaders = true;
+
+    this.columnStatesManager = new ColumnStatesManager(this.hot, `${this.pluginKey}.sortingStates`);
+    this.columnMetaCache = this.hot.columnIndexMapper.createAndRegisterIndexMap(
+      `${this.pluginKey}.columnMeta`,
+      'physicalIndexToValue',
+      (physicalIndex: number) => {
+        let visualIndex: number = this.hot.toVisualColumn(physicalIndex);
+
+        if (visualIndex === null) {
+          visualIndex = physicalIndex;
+        }
+
+        return this.getMergedPluginSettings(visualIndex);
+      },
+    );
+
+    this.addHook('afterGetColHeader', this.#onAfterGetColHeader);
+    this.addHook('beforeOnCellMouseDown', this.#onBeforeOnCellMouseDown);
+    this.addHook('afterOnCellMouseDown',
+      (event: Event, target: { row: number, col: number }) => this.onAfterOnCellMouseDown(event, target));
+    // Primary release signal. On touch devices Walkontable calls its `onMouseUp` directly from
+    // `touchend` instead of dispatching a DOM `mouseup`, so a document listener alone would never
+    // fire and tapping a header would stop sorting.
+    this.addHook('afterOnCellMouseUp', this.#resolvePendingSort);
+    // Fallback for a release that lands outside any cell - that is the drag case, and the queued
+    // sort still has to be cleared rather than left pending for the next release.
+    this.eventManager.addEventListener(this.hot.rootDocument.documentElement, 'mouseup',
+      () => this.#resolvePendingSort());
+    this.addHook('afterColumnMove', this.#onAfterColumnMove);
+    this.addHook('afterColumnSequenceChange', this.#onAfterColumnSequenceChange);
+
+    this.addHook('afterLoadData', this.#onAfterLoadData);
+    this.addHook('afterDataProviderFetch', this.#onAfterDataProviderFetch, -1);
+
+    this.#settingsSortOwed = true;
+
+    this.registerShortcuts();
+    super.enablePlugin();
+  }
+
+  /**
+   * Disables the plugin functionality for this Handsontable instance.
+   */
+  disablePlugin(): void {
+    if (pluginConflictsState.get(this.hot) === this.pluginKey) {
+      pluginConflictsState.delete(this.hot);
+    }
+
+    if (this.#mayHaveMarkedHeaders) {
+      this.#clearsUnderConflict = true;
+      this.hot.addHookOnce('afterViewRender', this.#onAfterViewRenderAfterDisable);
+    }
+
+    this.hot.batchExecution(() => {
+      if (this.indexesSequenceCache !== null) {
+        this.hot.rowIndexMapper.setIndexesSequence(this.indexesSequenceCache!.getValues());
+        this.hot.rowIndexMapper.unregisterMap(this.pluginKey);
+        this.hot.rowIndexMapper.unregisterMap(`${this.pluginKey}.sortedRowOrder`);
+
+        this.indexesSequenceCache = null;
+        this.#sortedRowOrder = null;
+      }
+    }, true);
+
+    this.hot.columnIndexMapper.unregisterMap(`${this.pluginKey}.columnMeta`);
+    this.columnStatesManager?.destroy();
+    this.columnMetaCache = null;
+    this.columnStatesManager = null;
+    this.#dropHeaderSorts();
+
+    this.unregisterShortcuts();
+    super.disablePlugin();
+  }
+
+  /**
+   * Register shortcuts responsible for toggling column sorting functionality.
+   *
+   * @private
+   */
+  registerShortcuts() {
+    const context = this.hot.getShortcutManager().getContext('grid');
+    // Enter on a collapsible header collapses it and never sorts, whichever plugin registered first: when a
+    // CollapsibleColumns shortcut is already on `Enter`, go behind it, otherwise in front of the editor.
+    const hasCollapsibleShortcut = context?.getShortcuts(['Enter'])
+      .some(({ group }) => group === SHORTCUTS_GROUP_COLLAPSIBLE);
+
+    context
+      ?.addShortcut({
+        keys: [['Enter']],
+        callback: () => {
+          const activeRange = this.hot.getSelectedRangeActive();
+
+          if (!activeRange) {
+            return false;
+          }
+
+          const { highlight } = activeRange;
+
+          this.sort(this.getColumnNextConfig(highlight.col ?? 0));
+
+          // prevent default Enter behavior (move to the next row within a selection range)
+          return false;
+        },
+        runOnlyIf: (): boolean => {
+          const highlight = this.hot.getSelectedRangeActive()?.highlight;
+          const highlightedHeaderElement = (highlight && highlight.row !== null && highlight.col !== null)
+            ? this.hot.getCell(highlight.row, highlight.col, true)
+            : null;
+
+          return !!(highlight && this.hot.getSelectedRangeActive()?.isSingle() &&
+            this.hot.selection.isCellVisible(highlight) && highlight.row !== null &&
+            highlight.row < 0 && highlight.col !== null && highlight.col >= 0 &&
+            highlightedHeaderElement && isBottomMostColumnHeader(highlightedHeaderElement));
+        },
+        relativeToGroup: hasCollapsibleShortcut ? SHORTCUTS_GROUP_COLLAPSIBLE : SHORTCUTS_GROUP_EDITOR,
+        position: hasCollapsibleShortcut ? 'after' : 'before',
+        group: SHORTCUTS_GROUP,
+      });
+  }
+
+  /**
+   * Unregister shortcuts responsible for toggling column sorting functionality.
+   *
+   * @private
+   */
+  unregisterShortcuts() {
+    this.hot.getShortcutManager()
+      .getContext('grid')
+      ?.removeShortcutsByGroup(SHORTCUTS_GROUP);
+  }
+
+  // DIFF - MultiColumnSorting & ColumnSorting: changed function documentation.
+  /**
+   * Sorts the table by chosen columns and orders.
+   *
+   * @param {undefined|object} sortConfig Single column sort configuration. The configuration object contains `column` and `sortOrder` properties.
+   * First of them contains visual column index, the second one contains sort order (`asc` for ascending, `desc` for descending).
+   *
+   * **Note**: Please keep in mind that every call of `sort` function set an entirely new sort order. Previous sort configs aren't preserved.
+   *
+   * @example
+   * ```js
+   * // sort ascending first visual column
+   * hot.getPlugin('columnSorting').sort({ column: 0, sortOrder: 'asc' });
+   * ```
+   *
+   * @fires Hooks#beforeColumnSort
+   * @fires Hooks#afterColumnSort
+   */
+  sort(sortConfig?: SortConfig | SortConfig[]): void {
+    this.runOperation('col_sort', () => this.#sort(sortConfig));
+  }
+
+  /**
+   * The body of `sort()`, run inside its operation.
+   *
+   * @param {undefined|object|Array} sortConfig Single column sort configuration or full sort configuration.
+   */
+  #sort(sortConfig?: SortConfig | SortConfig[]): void {
+    const currentSortConfig = this.columnStatesManager!.getSortStates();
+
+    // We always pass configs defined as an array to `beforeColumnSort` and `afterColumnSort` hooks.
+    const destinationSortConfigs = this.getNormalizedSortConfigs(sortConfig);
+
+    this.hot._getOperationScope().describe({
+      previousSortState: currentSortConfig,
+      nextSortState: destinationSortConfigs,
+    });
+
+    const sortPossible = this.areValidSortConfigs(destinationSortConfigs);
+    const allowSort = this.hot.runHooks('beforeColumnSort', currentSortConfig, destinationSortConfigs, sortPossible);
+
+    if (allowSort === false) {
+      return;
+    }
+
+    if (this.indexesSequenceCache === null || (currentSortConfig.length === 0 && !this.#rowsShowSortResult())) {
+      this.#capturePresortOrder();
+    }
+
+    if (sortPossible) {
+      this.columnStatesManager?.setSortStates(destinationSortConfigs);
+      this.sortByPresetSortStates(destinationSortConfigs);
+      this.#sortedRowOrder?.setValues(this.hot.rowIndexMapper.getIndexesSequence());
+    }
+
+    this.hot.runHooks('afterColumnSort',
+      currentSortConfig, sortPossible ? destinationSortConfigs : currentSortConfig, sortPossible);
+
+    if (sortPossible) {
+      this.hot.render();
+    }
+  }
+
+  /**
+   * Tells whether the rows still show the order the last applied sort or clear left them in. The sort
+   * states alone do not: `setSortConfig([])` and removing the sorted column empty them and leave the rows
+   * sorted, and the pre-sort order stored for that sort is still the one a clear goes back to. The live
+   * order is compared, not a flag, because UndoRedo, `loadData()` and row moves rewrite the row order
+   * without passing through the sort. After a clear both orders equal the stored pre-sort order, so a
+   * `true` there only skips a capture that would write the same values.
+   *
+   * @returns {boolean}
+   */
+  #rowsShowSortResult(): boolean {
+    if (this.#sortedRowOrder === null) {
+      return false;
+    }
+
+    const sortedRowOrder = this.#sortedRowOrder.getValues();
+    const rowOrder = this.hot.rowIndexMapper.getIndexesSequence();
+
+    return rowOrder.length === sortedRowOrder.length &&
+      rowOrder.every((physicalRow, index) => physicalRow === sortedRowOrder[index]);
+  }
+
+  /**
+   * Stores the current row order as the order the sort starts from and a cleared sort goes back to. It runs
+   * whenever the cache is missing, and whenever a sort starts from emptied states on rows that show no sort
+   * result, never only the first time: while nothing is sorted the rows can move, and a data load
+   * re-initializes the stored order to the identity one, so an order kept from an earlier sort would bring
+   * back rows in a place they no longer hold. Rows left sorted under emptied states keep the stored order,
+   * see `#rowsShowSortResult()`. Both maps are registered together and stay registered after a clear,
+   * because UndoRedo restores them with the rest of the row maps and drops its history when the set of map
+   * names changes.
+   */
+  #capturePresortOrder(): void {
+    const rowIndexMapper = this.hot.rowIndexMapper;
+
+    if (this.indexesSequenceCache === null) {
+      this.indexesSequenceCache = rowIndexMapper.createAndRegisterIndexMap(this.pluginKey, 'indexesSequence');
+      this.#sortedRowOrder =
+        rowIndexMapper.createAndRegisterIndexMap(`${this.pluginKey}.sortedRowOrder`, 'indexesSequence');
+    }
+
+    const rowOrder = rowIndexMapper.getIndexesSequence();
+
+    this.indexesSequenceCache.setValues(rowOrder);
+    this.#sortedRowOrder?.setValues(rowOrder);
+  }
+
+  /**
+   * Clear the sort performed on the table.
+   */
+  clearSort(): void {
+    this.sort([]);
+  }
+
+  /**
+   * Checks if the table is sorted (any column have to be sorted).
+   *
+   * @returns {boolean}
+   */
+  isSorted(): boolean {
+    return this.enabled && !this.columnStatesManager?.isListOfSortedColumnsEmpty();
+  }
+
+  /**
+   * Get sort configuration for particular column or for all sorted columns. Objects contain `column` and `sortOrder` properties.
+   *
+   * **Note**: Please keep in mind that returned objects expose **visual** column index under the `column` key. They are handled by the `sort` function.
+   *
+   * @param {number} [column] Visual column index.
+   * @returns {undefined|object|Array}
+   */
+  getSortConfig(column?: number): SortConfig | SortConfig[] | undefined {
+    if (column !== undefined) {
+      return this.columnStatesManager?.getColumnSortState(column);
+    }
+
+    return this.columnStatesManager?.getSortStates() as SortConfig[];
+  }
+
+  /**
+   * @description
+   * Warn: Useful mainly for providing server side sort implementation (see in the example below). It doesn't sort the data set. It just sets sort configuration for all sorted columns.
+   * Note: Please keep in mind that this method doesn't re-render the table.
+   *
+   * @example
+   * ```js
+   * beforeColumnSort: function(currentSortConfig, destinationSortConfigs) {
+   *   const columnSortPlugin = this.getPlugin('columnSorting');
+   *
+   *   columnSortPlugin.setSortConfig(destinationSortConfigs);
+   *
+   *   // const newData = ... // Calculated data set, ie. from an AJAX call.
+   *
+   *   this.updateData(newData); // Update data set and re-render the table.
+   *
+   *   return false; // The blockade for the default sort action.
+   * }
+   * ```
+   *
+   * @param {undefined|object|Array} sortConfig Single column sort configuration or full sort configuration (for all sorted columns).
+   * The configuration object contains `column` and `sortOrder` properties. First of them contains visual column index, the second one contains
+   * sort order (`asc` for ascending, `desc` for descending).
+   */
+  setSortConfig(sortConfig?: SortConfig | SortConfig[]): void {
+    // We always set configs defined as an array.
+    const destinationSortConfigs = this.getNormalizedSortConfigs(sortConfig);
+
+    if (this.areValidSortConfigs(destinationSortConfigs)) {
+      const isUnsorted = this.columnStatesManager?.isListOfSortedColumnsEmpty();
+
+      if (isUnsorted && destinationSortConfigs.length > 0 && this.indexesSequenceCache !== null &&
+          !this.#rowsShowSortResult()) {
+        this.#capturePresortOrder();
+      }
+
+      this.columnStatesManager?.setSortStates(destinationSortConfigs);
+    }
+  }
+
+  /**
+   * Get normalized sort configs.
+   *
+   * @private
+   * @param {object|Array} [sortConfig=[]] Single column sort configuration or full sort configuration (for all sorted columns).
+   * The configuration object contains `column` and `sortOrder` properties. First of them contains visual column index, the second one contains
+   * sort order (`asc` for ascending, `desc` for descending).
+   * @returns {Array}
+   */
+  getNormalizedSortConfigs(sortConfig: SortConfig | SortConfig[] = []): SortConfig[] {
+    if (Array.isArray(sortConfig)) {
+      return sortConfig.slice(0, 1);
+    }
+
+    return [sortConfig];
+  }
+
+  /**
+   * Get if sort configs are valid.
+   *
+   * @private
+   * @param {Array} sortConfigs Sort configuration for all sorted columns. Objects contain `column` and `sortOrder` properties.
+   * @returns {boolean}
+   */
+  areValidSortConfigs(sortConfigs: SortConfig[]) {
+    const numberOfColumns = this.hot.countCols();
+
+    // We don't translate visual indexes to physical indexes.
+    return areValidSortStates(sortConfigs) && sortConfigs.every(({ column }: { column: number }) =>
+      column <= numberOfColumns && column >= 0);
+  }
+
+  /**
+   * Get next sort configuration for particular column. Object contain `column` and `sortOrder` properties.
+   *
+   * **Note**: Please keep in mind that returned object expose **visual** column index under the `column` key.
+   *
+   * @private
+   * @param {number} column Visual column index.
+   * @returns {undefined|object}
+   */
+  getColumnNextConfig(column: number): SortConfig | undefined {
+    const sortOrder = this.columnStatesManager?.getSortOrderOfColumn(column);
+
+    if (isDefined(sortOrder)) {
+      const nextSortOrder = getNextSortOrder(sortOrder);
+
+      if (nextSortOrder !== undefined) {
+        return {
+          column,
+          sortOrder: nextSortOrder,
+        };
+      }
+
+      return;
+    }
+
+    const nrOfColumns = this.hot.countCols();
+
+    if (Number.isInteger(column) && column >= 0 && column < nrOfColumns) {
+      return {
+        column,
+        sortOrder: getNextSortOrder() ?? 'asc'
+      };
+    }
+  }
+
+  /**
+   * Get sort configuration with "next order" for particular column.
+   *
+   * @private
+   * @param {number} columnToChange Visual column index of column which order will be changed.
+   * @param {string} strategyId ID of strategy. Possible values: 'append' and 'replace'. The first one
+   * change order of particular column and change it's position in the sort queue to the last one. The second one
+   * just change order of particular column.
+   *
+   * **Note**: Please keep in mind that returned objects expose **visual** column index under the `column` key.
+   *
+   * @returns {Array}
+   */
+  getNextSortConfig(columnToChange: number, strategyId = APPEND_COLUMN_CONFIG_STRATEGY) {
+    const indexOfColumnToChange = this.columnStatesManager!.getIndexOfColumnInSortQueue(columnToChange);
+    const isColumnSorted = indexOfColumnToChange !== -1;
+    const currentSortConfig = this.columnStatesManager!.getSortStates();
+    const nextColumnConfig = this.getColumnNextConfig(columnToChange);
+
+    if (isColumnSorted) {
+      if (isUndefined(nextColumnConfig)) {
+        return [
+          ...currentSortConfig.slice(0, indexOfColumnToChange),
+          ...currentSortConfig.slice(indexOfColumnToChange + 1)
+        ];
+      }
+
+      if (strategyId === APPEND_COLUMN_CONFIG_STRATEGY) {
+        return [
+          ...currentSortConfig.slice(0, indexOfColumnToChange),
+          ...currentSortConfig.slice(indexOfColumnToChange + 1),
+          nextColumnConfig
+        ];
+
+      } else if (strategyId === REPLACE_COLUMN_CONFIG_STRATEGY) {
+        return [
+          ...currentSortConfig.slice(0, indexOfColumnToChange),
+          nextColumnConfig,
+          ...currentSortConfig.slice(indexOfColumnToChange + 1)
+        ];
+      }
+    }
+
+    if (nextColumnConfig !== undefined) {
+      return currentSortConfig.concat(nextColumnConfig);
+    }
+
+    return currentSortConfig;
+  }
+
+  /**
+   * Get plugin's column config for the specified column index.
+   *
+   * @private
+   * @param {object} columnConfig Configuration inside `columns` property for the specified column index.
+   * @returns {object}
+   */
+  getPluginColumnConfig(columnConfig: Record<string, unknown>) {
+    if (isObject(columnConfig)) {
+      const pluginColumnConfig = columnConfig[this.pluginKey];
+
+      if (isObject(pluginColumnConfig)) {
+        // Every per-column config passes through here, for both the array and the function form of
+        // `columns`, so this is the one place that can see `sortFixedRows` written where it is ignored.
+        if (hasOwnProperty(pluginColumnConfig as object, 'sortFixedRows')) {
+          warnAboutPerColumnSortFixedRows(this.hot.rootElement, this.pluginKey);
+        }
+
+        return pluginColumnConfig;
+      }
+    }
+
+    return {};
+  }
+
+  /**
+   * Get plugin settings related properties, properly merged from cascade settings.
+   *
+   * @private
+   * @param {number} column Visual column index.
+   * @returns {object}
+   */
+  getMergedPluginSettings(column: number): Record<string, unknown> {
+    const pluginMainSettings = this.hot.getSettings()[this.pluginKey] as Record<string, unknown>;
+    const storedColumnProperties = this.columnStatesManager?.getAllColumnsProperties() ?? {};
+    const cellMeta = this.hot.getCellMetaTransient(0, column);
+    const columnMeta = Object.getPrototypeOf(cellMeta) as Record<string, unknown>;
+
+    if (Array.isArray(columnMeta.columns)) {
+      return Object
+        .assign(storedColumnProperties, pluginMainSettings, this.getPluginColumnConfig(columnMeta.columns[column]));
+
+    } else if (isFunction(columnMeta.columns)) {
+      const columnConfig = (columnMeta.columns as (col: number) => Record<string, unknown>)(column);
+
+      return Object.assign(storedColumnProperties, pluginMainSettings, this.getPluginColumnConfig(columnConfig));
+    }
+
+    return Object.assign(storedColumnProperties, pluginMainSettings);
+  }
+
+  /**
+   * Get copy of settings for first cell in the column.
+   *
+   * @private
+   * @param {number} column Visual column index.
+   * @returns {object}
+   */
+  // TODO: Workaround. Inheriting of non-primitive cell meta values doesn't work. Instead of getting properties from column meta we call this function.
+  // TODO: Remove test named: "should not break the dataset when inserted new row" (#5431).
+  getFirstCellSettings(column: number): Record<string, unknown> {
+    const cellMeta = this.hot.getCellMetaTransient(0, column);
+
+    const cellMetaCopy = Object.create(cellMeta) as Record<string, unknown>;
+
+    cellMetaCopy[this.pluginKey] = this.columnMetaCache?.getValueAtIndex(this.hot.toPhysicalColumn(column));
+
+    return cellMetaCopy;
+  }
+
+  /**
+   * Whether the rows pinned in the top and bottom overlays take part in the sort.
+   *
+   * Read straight from the grid-level plugin settings on every sort, the same way `fixedRowsTop`
+   * and `fixedRowsBottom` themselves are, so `updateSettings` needs no extra wiring. It is
+   * deliberately NOT one of the `inheritedColumnProperties` in `columnStatesManager.ts`: the two
+   * `fixedRows*` options pin rows for the whole table, so a per-column answer would be
+   * meaningless - two columns could not disagree about which rows are in range.
+   *
+   * @returns {boolean} `true` when the pinned rows are inside the sortable range.
+   */
+  #sortsFixedRows() {
+    const pluginSettings = (this.hot.getSettings() as Record<string, unknown>)[this.pluginKey];
+
+    // The option can be set to `true` rather than to an object, which enables the plugin with its
+    // defaults and carries no sub-options at all.
+    if (!isPlainObject(pluginSettings)) {
+      return SORT_FIXED_ROWS_DEFAULT;
+    }
+
+    // `Boolean` keeps the return type honest to the JSDoc: the settings object is user input, so the
+    // property can hold anything, and the callers use the result to zero a row count.
+    return Boolean(
+      (pluginSettings as { sortFixedRows?: boolean }).sortFixedRows ?? SORT_FIXED_ROWS_DEFAULT
+    );
+  }
+
+  /**
+   * The first visual row that takes part in the sort.
+   *
+   * `fixedRowsTop` holds the top overlay's rows above it, unless `sortFixedRows` opts them back in.
+   *
+   * @returns {number}
+   */
+  #getSortableRowStart() {
+    return this.#sortsFixedRows() ? 0 : (this.hot.getSettings().fixedRowsTop || 0);
+  }
+
+  /**
+   * Get number of rows which should be sorted.
+   *
+   * This is the sortable band's exclusive upper bound, not a count - the lower bound comes from
+   * `#getSortableRowStart()`. `sortByPresetSortStates()` reads it through `this`, so a subclass that
+   * overrides this method decides where the sort stops. Two things keep rows below it: the
+   * `fixedRowsBottom` rows, which keeps a footer row's SUM over absolute addresses from being
+   * permuted into the data (unless `sortFixedRows` opts them back in), and the trailing spare rows.
+   * Those two bands overlap, so the exclusion is `Math.max(spareRows, fixedRowsBottom)`, not the
+   * sum of the two (DEV-2881).
+   *
+   * @private
+   * @param {number} numberOfRows Total number of displayed rows.
+   * @returns {number}
+   */
+  getNumberOfRowsToSort(numberOfRows: number) {
+    const settings = this.hot.getSettings();
+    // `sortFixedRows: true` opts back into sorting the whole dataset, pinned rows included, so the
+    // bottom overlay reserves nothing from the sortable range.
+    const fixedRowsBottom = this.#sortsFixedRows() ? 0 : (settings.fixedRowsBottom || 0);
+    const minSpareRows = settings.minSpareRows ?? 0;
+    // The spare rows are COUNTED, never assumed from the option. `minSpareRows` says how many
+    // trailing empty rows the Core tops the grid up to, not how many are on screen right now:
+    // a filter trims an empty spare row away like any other non-matching row, and nothing
+    // re-creates it while the filter is on. Subtracting the option there pinned the last N real
+    // data rows below the sortable range and left them unsorted (#5983). Counting also caps the
+    // other direction - trailing empty rows beyond `minSpareRows` are ordinary data and stay in
+    // the sort.
+    //
+    // The count stops at `minSpareRows` rather than going through `countEmptyRows(true)`, whose
+    // walk is uncapped: verifying that a row is empty reads every column of it, and this runs on
+    // every sort, so a grid with a large block of trailing empty rows (`minRows`, or a dataset
+    // that simply ends blank) would pay for rows the cap then discards. `adjustRowsAndCols()`
+    // caps its `minSpareCols` count the same way, for the same reason.
+    //
+    // Count trailing empties whenever `minSpareRows` is positive, including when
+    // `maxRows` already equals `countRows()`. Spare rows that filled the cap still
+    // occupy the trailing visual rows and must stay out of the sort. The walk is
+    // capped at `minSpareRows`, so the extra cost is at most `minSpareRows` ×
+    // countCols() cell reads per sort.
+    let spareRows = 0;
+
+    if (minSpareRows > 0) {
+      for (let row = numberOfRows - 1; row >= 0 && spareRows < minSpareRows; row--) {
+        if (!this.hot.isEmptyRow(row)) {
+          break;
+        }
+
+        spareRows += 1;
+      }
+    }
+
+    // Spare rows are appended at the end of the data, so they sit inside the band
+    // `fixedRowsBottom` already reserves. Subtracting both independently dropped one real
+    // data row per overlapping row (DEV-2881).
+    return Math.max(0, numberOfRows - Math.max(spareRows, fixedRowsBottom));
+  }
+
+  /**
+   * Performs the sorting using a stable sort function basing on internal state of sorting.
+   *
+   * @param {Array} sortConfigs Sort configuration for all sorted columns. Objects contain `column` and `sortOrder` properties.
+   * @private
+   */
+  sortByPresetSortStates(sortConfigs: SortConfig[]) {
+    this.hot.rowIndexMapper.setIndexesSequence(this.indexesSequenceCache!.getValues());
+
+    if (sortConfigs.length === 0) {
+      return;
+    }
+
+    const from = this.#getSortableRowStart();
+    // Through `this`, never inlined: a subclass that overrides `getNumberOfRowsToSort()` owns the
+    // upper bound.
+    const to = this.getNumberOfRowsToSort(this.hot.countRows());
+    // Re-resolved on every sort run, and by function identity: `staticRegister.register()` replaces
+    // silently, so a custom root comparator registered under this plugin's own key must send the
+    // sort down the tuple path. A key whitelist would take the fast path and never call it.
+    const positionComparatorFactory = getBuiltInPositionComparator(this.pluginKey);
+
+    const { indexesBefore, indexesAfter, highestPhysicalIndex } = positionComparatorFactory === undefined ?
+      this.#sortRowTuples(sortConfigs, from, to) :
+      this.#sortRowPositions(sortConfigs, from, to, positionComparatorFactory);
+
+    const currentIndexesSequence = this.hot.rowIndexMapper.getIndexesSequence();
+    // Physical indexes are dense integers, so the before-to-after remap is an array lookup rather
+    // than a hash lookup. The table is indexed BY physical index, and every index it is written at
+    // comes from the band, so covering the highest physical index the band holds covers all of
+    // them. `countRows()` would not: it is `getNotTrimmedIndexesLength()` clamped by `maxRows`, so
+    // under `filters`, `trimRows` or a plain `maxRows` the band's physical indexes reach past it, a
+    // typed-array write past the end is discarded with no error, and those rows silently keep their
+    // pre-sort place. The sequence length is no better - `setIndexesSequence()` is public and
+    // accepts an index above the sequence length.
+    const indexMapping = new Int32Array(highestPhysicalIndex + 1).fill(-1);
+
+    // Only the sorted band is mapped. The rows outside it keep their place because they never
+    // enter `indexMapping`, so nothing has to be appended here.
+    for (let i = 0; i < indexesBefore.length; i += 1) {
+      const indexBefore = indexesBefore[i];
+      const indexAfter = indexesAfter[i];
+
+      // A widening `getNumberOfRowsToSort()` override puts a visual index past the mapper's reach in
+      // the band and the gather's `?? null` read answers `null` for it. A typed array coerces that `null` to
+      // `0`, which would remap the row onto physical row 0 and duplicate it; the `Map` this replaced
+      // fell through to the row's own index instead. Skipping the pair reproduces that.
+      if (isUnsignedNumber(indexBefore) && isUnsignedNumber(indexAfter)) {
+        indexMapping[indexBefore] = indexAfter;
+      }
+    }
+
+    // Grown by ascending assignment from an empty literal, the way `arrayMap()` builds its result:
+    // a preallocated `new Array(n)` stays holey in V8 even once every slot is written, and
+    // `IndexesSequence.setValues()` slices the array it is handed, so the mapper's caches would read
+    // a holey array on every sort.
+    const newIndexesSequence: number[] = [];
+
+    for (let i = 0; i < currentIndexesSequence.length; i += 1) {
+      const physicalIndex = currentIndexesSequence[i];
+      const mappedIndex = indexMapping[physicalIndex];
+
+      // `-1` marks an index the sort never touched, and a read past the table's end gives
+      // `undefined`; both fail `>= 0`, so the row keeps its own index. A sentinel rather than an
+      // offset encoding, because a physical index is never negative and cannot collide with it.
+      newIndexesSequence[i] = mappedIndex >= 0 ? mappedIndex : physicalIndex;
+    }
+
+    // A plain `number[]`, never the typed array - `IndexesSequence.setValues()` stores whatever
+    // array type it is handed.
+    this.hot.rowIndexMapper.setIndexesSequence(newIndexesSequence);
+  }
+
+  /**
+   * Reads the sortable band: its physical rows in visual order, one value array per sorted column,
+   * and the highest physical index it holds. Both sort paths start from this.
+   *
+   * @param {Array} sortConfigs Sort configuration for all sorted columns.
+   * @param {number} from The first visual row of the sortable band.
+   * @param {number} to The sortable band's exclusive upper bound.
+   * @returns {{ physicalRows: number[], columnValues: unknown[][], highestPhysicalIndex: number }}
+   */
+  #gatherBand(sortConfigs: SortConfig[], from: number, to: number) {
+    // A plain array, never an `Int32Array`: `getNumberOfRowsToSort()` is an overridable seam, and a
+    // widening override makes the gather's `?? null` read answer `null`, which a typed array would store as
+    // the real physical row 0.
+    const physicalRows: number[] = [];
+    // The highest physical index is tracked in the gather pass: it sizes the remap table in the
+    // caller and costs nothing extra here.
+    let highestPhysicalIndex = -1;
+    // Rebuilt from the sequence, once. `sortByPresetSortStates()` has just reset the sequence, and the
+    // mapper does not rebuild `notTrimmedIndexesCache` while it is batched, so `toPhysicalRow()` would
+    // answer with the previous sort's order and the remap would land on the reset one. Not a per-row
+    // `toPhysicalRow()` again: that read is the defect.
+    const notTrimmedIndexes = this.hot.rowIndexMapper.getNotTrimmedIndexes(false);
+
+    for (let visualRowIndex = from; visualRowIndex < to; visualRowIndex += 1) {
+      // `undefined` past the mapper's reach becomes `null`, as `toPhysicalRow()` answers it.
+      const physicalIndex = notTrimmedIndexes[visualRowIndex] ?? null;
+
+      physicalRows.push(physicalIndex);
+
+      // Guarded where the value is first read: the `?? null` read above answers `null` for a visual index
+      // the mapper does not reach, and `null > -1` is `true`, so an unguarded comparison would make
+      // `highestPhysicalIndex` itself `null` and size the remap table at 1.
+      if (isUnsignedNumber(physicalIndex) && physicalIndex > highestPhysicalIndex) {
+        highestPhysicalIndex = physicalIndex;
+      }
+    }
+
+    // One resolved read per sorted column instead of a full `getDataAtCell()` round trip per cell.
+    // The column property, the physical column and the hook answers are constant across the band, so
+    // the accessor resolves them once; it falls back to the per-cell path, value for value, whenever
+    // anything on the read path could transform a value. The physical rows the loop above computed
+    // are handed over rather than translated a second time inside every read.
+    const columnValues: unknown[][] = arrayMap(
+      sortConfigs,
+      (sortConfig: SortConfig) =>
+        (this.hot as HotInstanceInternal)._getDataAtColumnForRows(sortConfig.column, physicalRows)
+    );
+
+    return { physicalRows, columnValues, highestPhysicalIndex };
+  }
+
+  /**
+   * Sorts the band by sorting a plain array of positions against one value array per sorted column.
+   *
+   * No per-row object is built: `#gatherBand()` fills one physical-row array and `k` value arrays,
+   * and the sort moves small integers instead of array pointers. `Array.prototype.sort` is stable
+   * and the comparator is a pure function of the gathered values, so tied rows keep the order the
+   * gather gave them - the same order the tuple path produces.
+   *
+   * @param {Array} sortConfigs Sort configuration for all sorted columns.
+   * @param {number} from The first visual row of the sortable band.
+   * @param {number} to The sortable band's exclusive upper bound.
+   * @param {Function} positionComparatorFactory Builds the comparator over the parallel value arrays.
+   * @returns {{ indexesBefore: number[], indexesAfter: number[], highestPhysicalIndex: number }} The
+   *   band's pre-sort and post-sort physical indexes, and the highest one it holds - which is what
+   *   sizes the caller's remap table.
+   */
+  #sortRowPositions(
+    sortConfigs: SortConfig[], from: number, to: number, positionComparatorFactory: PositionComparatorFactory
+  ) {
+    // The gather is already columnar - the shape the position comparator wants - so no per-row
+    // transposition is needed.
+    const { physicalRows, columnValues, highestPhysicalIndex } = this.#gatherBand(sortConfigs, from, to);
+    const positions: number[] = [];
+
+    for (let position = 0; position < physicalRows.length; position += 1) {
+      positions.push(position);
+    }
+
+    positions.sort(positionComparatorFactory(
+      arrayMap(sortConfigs, (sortConfig: SortConfig) => sortConfig.sortOrder),
+      arrayMap(sortConfigs, (sortConfig: SortConfig) => this.getFirstCellSettings(sortConfig.column)),
+      columnValues
+    ));
+
+    return {
+      // `physicalRows` is never permuted - only `positions` is - so it still holds the pre-sort order.
+      indexesBefore: physicalRows,
+      indexesAfter: arrayMap(positions, (position: number) => physicalRows[position]),
+      highestPhysicalIndex,
+    };
+  }
+
+  /**
+   * Sorts the band as an array of `[physicalRow, ...values]` tuples, through the registered root
+   * comparator.
+   *
+   * This is the path a custom root comparator gets, and the shape it is documented to receive.
+   *
+   * @param {Array} sortConfigs Sort configuration for all sorted columns.
+   * @param {number} from The first visual row of the sortable band.
+   * @param {number} to The sortable band's exclusive upper bound.
+   * @returns {{ indexesBefore: number[], indexesAfter: number[], highestPhysicalIndex: number }} The
+   *   band's pre-sort and post-sort physical indexes, and the highest one it holds - which is what
+   *   sizes the caller's remap table.
+   */
+  #sortRowTuples(sortConfigs: SortConfig[], from: number, to: number) {
+    const { physicalRows, columnValues, highestPhysicalIndex } = this.#gatherBand(sortConfigs, from, to);
+    const indexesWithData: [number, ...unknown[]][] = [];
+
+    for (let rowIndex = 0; rowIndex < physicalRows.length; rowIndex += 1) {
+      const rowWithData: [number, ...unknown[]] = [physicalRows[rowIndex]];
+
+      for (let columnIndex = 0; columnIndex < columnValues.length; columnIndex += 1) {
+        rowWithData.push(columnValues[columnIndex][rowIndex]);
+      }
+
+      indexesWithData.push(rowWithData);
+    }
+
+    sort(
+      indexesWithData,
+      this.pluginKey,
+      arrayMap(sortConfigs, (sortConfig: SortConfig) => sortConfig.sortOrder),
+      arrayMap(sortConfigs, (sortConfig: SortConfig) => this.getFirstCellSettings(sortConfig.column))
+    );
+
+    const indexesAfter = arrayMap(indexesWithData, (indexWithData: [number, ...unknown[]]) => indexWithData[0]);
+
+    return {
+      // The engine sorts `indexesWithData` in place, never `physicalRows`, so it still holds the
+      // pre-sort order.
+      indexesBefore: physicalRows,
+      indexesAfter,
+      highestPhysicalIndex,
+    };
+  }
+
+  /**
+   * Sort by predefined plugin configuration.
+   */
+  #loadOrSortBySettings = () => {
+    const allSortSettings = (this.hot.getSettings() as Record<string, unknown>)[this.pluginKey];
+
+    this.sortBySettings(allSortSettings);
+  };
+
+  /**
+   * Sort the table by provided configuration.
+   *
+   * @private
+   * @param {object} allSortSettings All sort config settings. Object may contain `initialConfig`, `indicator`,
+   * `sortEmptyCells`, `headerAction` and `compareFunctionFactory` properties. `sortFixedRows` is read
+   * separately, at sort time, because it is grid-level rather than per-column.
+   */
+  sortBySettings(allSortSettings: unknown) {
+    if (isPlainObject(allSortSettings)) {
+      this.columnStatesManager!.updateAllColumnsProperties(allSortSettings);
+
+      const { initialConfig } = allSortSettings;
+
+      if (Array.isArray(initialConfig) || isPlainObject(initialConfig)) {
+        this.sort(initialConfig as SortConfig | SortConfig[]);
+      }
+
+    } else {
+      // Extra render for headers. Their width may change.
+      this.hot.render();
+    }
+  }
+
+  /**
+   * Callback for the `onAfterGetColHeader` hook. Adds column sorting CSS classes.
+   *
+   * @param {number} column Visual column index.
+   * @param {Element} TH TH HTML element.
+   */
+  #onAfterGetColHeader = (column: number, TH: HTMLTableCellElement) => {
+    const headerSpanElement = getHeaderSpanElement(TH);
+
+    if (column < 0 || headerSpanElement === null) {
+      return;
+    }
+
+    if (isFirstLevelColumnHeader(column, TH) === false) {
+      this.#clearSortMarkup(headerSpanElement);
+
+      return;
+    }
+
+    const columnSettings = this.getFirstCellSettings(column);
+    const pluginSettingsForColumn = columnSettings[this.pluginKey] as ColumnSortingPluginColumnSettings;
+    const showSortIndicator = pluginSettingsForColumn.indicator;
+    const headerActionEnabled = pluginSettingsForColumn.headerAction;
+
+    this.updateHeaderClasses(
+      headerSpanElement,
+      this.columnStatesManager ?? undefined,
+      column,
+      showSortIndicator,
+      headerActionEnabled
+    );
+    this.#syncIndicatorReserve(headerSpanElement);
+
+    const container = headerSpanElement.parentElement;
+
+    if (container) {
+      const order = this.columnStatesManager?.getSortOrderOfColumn(column);
+      let iconName: 'arrowNarrowUp' | 'arrowNarrowDown' | null = null;
+
+      // With `headerAction: false` the label never gets `sortAction`, and 18.1 painted the arrow
+      // only on `.sortAction`, so such a column shows no indicator (its `aria-sort` stays set).
+      const indicatorVisible = showSortIndicator && headerActionEnabled;
+
+      if (indicatorVisible && order === ASC_SORT_STATE) {
+        iconName = 'arrowNarrowUp';
+      } else if (indicatorVisible && order === DESC_SORT_STATE) {
+        iconName = 'arrowNarrowDown';
+      }
+
+      this.#syncIcon(this.hot, container, SORT_INDICATOR_SLOT_CLASS, iconName);
+    }
+
+    if (this.hot.getSettings().ariaTags) {
+      const currentSortState = this.columnStatesManager?.getSortOrderOfColumn(column);
+
+      setAttribute(TH, ...A11Y_SORT(currentSortState ? `${currentSortState}ending` : 'none'));
+    }
+  };
+
+  /**
+   * Callback for the `afterGetColHeader` hook while the plugin is off. Clears the sort markup a
+   * header keeps from the time the plugin was on. A header is reused between renders, and a
+   * `nestedHeaders` change moves the previous bottom level up, so every header level is cleared.
+   * Another sorting plugin that is on owns the same classes, so nothing is cleared then, except on the
+   * first render after this plugin turned off (`#clearsUnderConflict`).
+   *
+   * @param {number} column Visual column index.
+   * @param {HTMLTableCellElement} TH The header element.
+   */
+  #onAfterGetColHeaderWhileDisabled = (column: number, TH: HTMLTableCellElement) => {
+    if (!this.#mayHaveMarkedHeaders || this.enabled || column < 0) {
+      return;
+    }
+
+    if (pluginConflictsState.has(this.hot) && !this.#clearsUnderConflict) {
+      return;
+    }
+
+    const headerSpanElement = getHeaderSpanElement(TH);
+
+    if (headerSpanElement !== null) {
+      this.#clearSortMarkup(headerSpanElement);
+    }
+  };
+
+  /**
+   * Callback for the first `afterViewRender` hook after the plugin turns off. Ends the render in which
+   * the header hook clears the sort markup under another sorting plugin.
+   */
+  #onAfterViewRenderAfterDisable = () => {
+    this.#clearsUnderConflict = false;
+  };
+
+  /**
+   * Removes the sort classes, the indicator reserve, and the sort indicator from a header. The
+   * indicator is removed only from a header this instance drew it in (`#syncIcon` tracks them), so
+   * the clear must not be skipped when another sorting plugin's instance already removed the
+   * classes: the indicator that instance cannot see is this one's.
+   *
+   * @param {HTMLElement} headerSpanElement The header label element.
+   */
+  #clearSortMarkup(headerSpanElement: HTMLElement) {
+    this.updateHeaderClasses(headerSpanElement);
+    this.#syncIndicatorReserve(headerSpanElement);
+
+    const container = headerSpanElement.parentElement;
+
+    if (container) {
+      this.#syncIcon(this.hot, container, SORT_INDICATOR_SLOT_CLASS, null);
+    }
+  }
+
+  /**
+   * Update header classes.
+   *
+   * @private
+   * @param {HTMLElement} headerSpanElement Header span element.
+   * @param {...*} args Extra arguments for helpers.
+   */
+  updateHeaderClasses(
+    headerSpanElement: HTMLElement,
+    columnStatesManager?: ColumnStatesManager,
+    column?: number,
+    showSortIndicator?: boolean,
+    headerActionEnabled?: boolean
+  ) {
+    removeClass(headerSpanElement, getClassesToRemove(headerSpanElement));
+
+    if (this.enabled !== false && columnStatesManager !== undefined && column !== undefined) {
+      addClass(headerSpanElement, getClassesToAdd(
+        columnStatesManager,
+        column,
+        showSortIndicator ?? false,
+        headerActionEnabled ?? false
+      ));
+    }
+  }
+
+  /**
+   * Reserves room for the sort indicator on the header container, matching the state the label
+   * was just given.
+   *
+   * Called from the header render paths, not from `updateHeaderClasses`, so it runs after any
+   * subclass override has finished adding its classes. `TableView` rebuilds the container's class
+   * list on every render, so this has to run per render.
+   *
+   * @param {HTMLElement} headerSpanElement The header label element.
+   */
+  #syncIndicatorReserve(headerSpanElement: HTMLElement) {
+    const container = headerSpanElement.parentElement;
+
+    if (container === null) {
+      return;
+    }
+
+    // `sortAction` is required: the CSS that pulls the indicator out of the flex row is keyed on
+    // it, and with `headerAction: false` no indicator is rendered, so there is nothing to reserve.
+    const showsIndicator = hasClass(headerSpanElement, HEADER_ACTION_CLASS) && (
+      hasClass(headerSpanElement, HEADER_CLASS_ASC_SORT) ||
+      hasClass(headerSpanElement, HEADER_CLASS_DESC_SORT)
+    );
+
+    if (showsIndicator) {
+      addClass(container, CONTAINER_WITH_INDICATOR_CLASS);
+    } else {
+      removeClass(container, CONTAINER_WITH_INDICATOR_CLASS);
+    }
+  }
+
+  /**
+   * Overwriting base plugin's `onUpdateSettings` method. Please keep in mind that `onAfterUpdateSettings` isn't called
+   * for `updateSettings` in specific situations.
+   *
+   * A value that is not an object (`true`) replacing a configuration object puts the column properties
+   * that object set (`indicator`, `headerAction`, `sortEmptyCells`, `compareFunctionFactory`) back to their
+   * defaults, the way a grid built with that value starts. The same value sent again changes nothing, and
+   * an object replacing an object still merges into the previous one.
+   *
+   * @private
+   * @param {object} newSettings New settings object.
+   */
+  onUpdateSettings(newSettings: Record<string, unknown>) {
+    // Captured before `super` may flip the plugin from disabled to enabled: a fresh `enablePlugin()`
+    // leaves the settings sort to its ready step, so running it below on that same pass would run the
+    // comparator twice for no reason (DEV-187).
+    const wasEnabled = this.enabled;
+    const previousPluginSettings = this.getSetting();
+
+    super.onUpdateSettings(newSettings);
+
+    const pluginSettings = newSettings[this.pluginKey];
+
+    if (
+      wasEnabled && this.enabled && isDefined(pluginSettings) &&
+      isPlainObject(previousPluginSettings) && !isPlainObject(pluginSettings)
+    ) {
+      this.columnStatesManager?.resetAllColumnsProperties();
+    }
+
+    if (this.columnMetaCache !== null) {
+      // Column meta cache base on settings, thus we should re-init the map.
+      this.columnMetaCache.init(this.hot.columnIndexMapper.getNumberOfIndexes());
+    }
+
+    if (wasEnabled && this.enabled && isDefined(pluginSettings)) {
+      if (this.isDataWorkDeferred()) {
+        this.deferDataWork();
+      } else {
+        this.sortBySettings(pluginSettings);
+      }
+    }
+  }
+
+  /**
+   * Sorts by the settings once the data they describe is loaded. Core's `_applySettingsAndData()`
+   * applies settings ahead of their data, and the sort is held back then: run against the rows the
+   * grid still held, it sorted them, and the load that followed reset the order, so the arriving
+   * data was never sorted by its `initialConfig`.
+   *
+   * @private
+   */
+  onDataReady() {
+    if (this.takeDeferredDataWork()) {
+      this.#settingsSortOwed = false;
+      this.#loadOrSortBySettings();
+    }
+  }
+
+  /**
+   * Sorts by the settings after an enable. Core runs it once after each enable or update, when the data the
+   * settings describe is loaded: at init before the `init` hook, with the render held for the first one, so
+   * the first render draws sorted rows; on a settings switch after the load. An update of a plugin that was
+   * already enabled sorts in `onUpdateSettings()`, so the step does nothing then.
+   *
+   * @private
+   */
+  onGridReady() {
+    if (!this.#settingsSortOwed) {
+      return;
+    }
+
+    this.#settingsSortOwed = false;
+    this.#loadOrSortBySettings();
+  }
+
+  /**
+   * Callback for the `afterLoadData` hook. Drops the header sorts waiting for a validator, because the presses
+   * were made on the rows the load replaced. Sorts the rows an `init` listener loads: that load replaces the rows
+   * the ready step sorted, and it skips the load's own ready step pass. Only that load has a truthy
+   * `initialLoad` while the view exists; the load made before the view and every load after init pass by.
+   *
+   * @param {Array} sourceData The loaded data.
+   * @param {boolean|Array} initialLoad Whether the load is made during init.
+   */
+  #onAfterLoadData = (sourceData: unknown[], initialLoad: unknown) => {
+    this.#dropAwaitingHeaderSorts();
+
+    if (initialLoad && this.hot.view) {
+      this.#loadOrSortBySettings();
+    }
+  };
+
+  /**
+   * Callback for the `afterDataProviderFetch` hook.
+   * Keeps header sort state in sync with query `sort` after server-backed `loadData` (same timing as Pagination).
+   *
+   * @param {object} result {@link Hooks#afterDataProviderFetch} payload; reads `columnSortConfig` only.
+   */
+  readonly #onAfterDataProviderFetch = (result: { columnSortConfig?: Record<string, unknown>[] }) => {
+    this.setSortConfig((result?.columnSortConfig ?? []) as unknown as SortConfig[]);
+  };
+
+  /**
+   * Indicates if clickable header was clicked.
+   *
+   * @private
+   * @param {MouseEvent} event The `mousedown` event.
+   * @param {number} column Visual column index.
+   * @returns {boolean}
+   */
+  wasClickableHeaderClicked(event: Event, column: number): boolean {
+    const columnSettings = this.getFirstCellSettings(column);
+    const pluginSettingsForColumn = columnSettings[this.pluginKey] as ColumnSortingPluginColumnSettings;
+    const headerActionEnabled = pluginSettingsForColumn.headerAction;
+
+    const target = eventTargetEl(event)!;
+
+    // The indicator used to be a `::before` of the label, so a press on the arrow targeted the
+    // label itself. It is a sibling `<i>` now with its own hit surface, so accept it
+    // as a sort click too - otherwise the arrow becomes the one part of a sortable header that
+    // does not sort. Matched by ancestor, not by the target's own class: a theme `icons`
+    // renderer callback may put its own markup inside the `<i>` (an inline SVG, a ligature
+    // span), and a press then targets that child.
+    const pressedIndicator = target.closest(`.${SORT_INDICATOR_SLOT_CLASS}`) !== null;
+
+    return (
+      headerActionEnabled && (hasClass(target, HEADER_SPAN_CLASS) || pressedIndicator)
+    );
+  }
+
+  /**
+   * Changes the behavior of selection / dragging.
+   *
+   * @param {MouseEvent} event The `mousedown` event.
+   * @param {CellCoords} coords Visual coordinates.
+   * @param {HTMLElement} TD The cell element.
+   * @param {object} controller An object with properties `row`, `column` and `cell`. Each property contains
+   *                            a boolean value that allows or disallows changing the selection for that particular area.
+   */
+  #onBeforeOnCellMouseDown = (
+    event: Event, coords: { row: number, col: number }, TD: HTMLTableCellElement,
+    controller: { column: boolean }
+  ) => {
+    // Drop any press whose release never arrived - e.g. the window lost focus while the button
+    // was held. Without this a stale press would resolve on the next unrelated release and sort
+    // a column out of nowhere.
+    this.#dropPendingHeaderSort();
+
+    if (wasHeaderClickedProperly(coords.row, coords.col, event) === false) {
+      return;
+    }
+
+    if (this.wasClickableHeaderClicked(event, coords.col) && this.hot.getShortcutManager().isCtrlPressed()) {
+      controller.column = true;
+    }
+  };
+
+  /**
+   * Callback for the `onAfterOnCellMouseDown` hook.
+   *
+   * Queues the sort rather than running it. The header is also the surface ManualColumnMove
+   * drags a column by, so which action the user meant is only known once the button is
+   * released: a press that stays put is a click to sort, a press that travels is a drag.
+   * Selection changes stay here so the header still reacts the moment it is pressed.
+   *
+   * @private
+   * @param {Event} event Event which are provided by hook.
+   * @param {CellCoords} coords Visual coords of the selected cell.
+   */
+  onAfterOnCellMouseDown(event: Event, coords: { row: number, col: number }) {
+    if (wasHeaderClickedProperly(coords.row, coords.col, event) === false) {
+      return;
+    }
+
+    if (this.wasClickableHeaderClicked(event, coords.col) === false) {
+      return;
+    }
+
+    const isCtrlPressed = this.hot.getShortcutManager().isCtrlPressed();
+
+    if (isCtrlPressed) {
+      this.hot.deselectCell();
+      this.hot.selectColumns(coords.col);
+    }
+
+    const activeEditor = this.hot.getActiveEditor();
+    const press: HeaderSortPress = {
+      column: coords.col,
+      isCtrlPressed,
+      validation: null,
+      consumedByMove: false,
+    };
+
+    // Subscribed on press, not on release: selecting the column closes the editor and its
+    // validation runs in a microtask, so it is already over before mouse up. Reading
+    // the editor's state on release is wrong too - by then the new selection has opened an
+    // editor on the highlighted cell.
+    //
+    // The validator is read from the editor's cell meta, the cell its save validates: a
+    // `modifyGetCellCoords` listener can redirect the save away from the cell the editor was opened on.
+    //
+    // The editor saves core still holds unwritten are read from the grid, not from an editor: the press has
+    // already prepared the clicked column's editor, which can be another instance than the one that saved,
+    // and core applies a Ctrl+Enter fill only once every cell of it answered, after the edited cell's own
+    // answer closed the editor. A set that waits is written by visual row, so the sort waits for it. Only sets
+    // an editor save made count (marked at the save): an API write waits for nobody, as before, so its
+    // never-answering validator cannot block every later sort.
+    const editorToWaitFor = activeEditor?.isOpened() && this.hot.getCellValidator(activeEditor.cellProperties) ?
+      activeEditor : null;
+    const waitingSets = getWaitingEditorSaveChangeSets(this.hot);
+
+    if (editorToWaitFor !== null || waitingSets.length > 0) {
+      press.validation = this.#waitForEditor(press, editorToWaitFor, waitingSets);
+    }
+
+    this.#dropPendingHeaderSort();
+    this.#pendingHeaderSort = press;
+  }
+
+  /**
+   * Applies the sort queued by a header press.
+   *
+   * Kept separate from the press handler so `MultiColumnSorting` can choose a different sort
+   * configuration for the same gesture without repeating the click-versus-drag handling.
+   *
+   * @private
+   * @param {object} press The press that queued this sort.
+   */
+  applyHeaderClickSort(press: HeaderSortPress) {
+    this.sort(this.getColumnNextConfig(press.column));
+  }
+
+  /**
+   * Resolves a header press on release: sorts, unless ManualColumnMove turned the press into a
+   * drag.
+   *
+   * Safe to call more than once for the same gesture - the queued press is taken first, so
+   * whichever release signal arrives first wins and the rest are no-ops.
+   */
+  #resolvePendingSort = () => {
+    const pending = this.#pendingHeaderSort;
+
+    if (pending === null) {
+      return;
+    }
+
+    this.#pendingHeaderSort = null;
+
+    // Two signals, because both plugins handle the same `mouseup` and the listener order is not
+    // fixed - re-enabling `columnSorting` after `manualColumnMove` appends this plugin's listener
+    // last. Running first, the drag is still in progress; running second, the move has already
+    // fired. Either one cancels the sort.
+    if (pending.consumedByMove || this.#isColumnBeingDragged()) {
+      this.#stopWaitingForEditor(pending);
+
+      return;
+    }
+
+    // A cell that was mid-edit must finish validating before the rows move under it. Waited on
+    // here, not in `applyHeaderClickSort`, so subclasses that override that seam still get it.
+    if (pending.validation === null) {
+      this.applyHeaderClickSort(pending);
+
+      return;
+    }
+
+    this.#awaitingHeaderSorts.add(pending);
+
+    void pending.validation.then(() => {
+      if (!this.#awaitingHeaderSorts.delete(pending)) {
+        return;
+      }
+
+      this.applyHeaderClickSort(pending);
+    });
+
+    this.#checkEditorWait(pending);
+  };
+
+  /**
+   * Waits until the editor open at press time stops waiting for its validator, and core has written or
+   * dropped every change set an editor save made that waited for its validators at press time
+   * (`getWaitingEditorSaveChangeSets()`).
+   *
+   * The editor decides which answer is its own: the edited cell's, the first one among the cells a
+   * single-cell save validated when that never was the edited cell, or the first one of any cell when its
+   * save validated no cell yet. So the sort waits for that same answer, and an unrelated validation that
+   * answers first leaves the editor waiting and the rows where they are.
+   *
+   * The sets are read from the grid at press time, not from the editor: a Ctrl+Enter fill is written only
+   * once every cell of it answered, after the edited cell's answer ended the editor's wait, the press has
+   * already prepared the clicked column's editor (another instance when the editor class differs), and a
+   * later save must not make the sort forget a set. The sets are marked at the save, so the editor that is
+   * active at press time does not matter. An API write's set does not hold the sort, as before: a validator
+   * of one that never answers would block every later sort. A set leaves core's list before its last
+   * answer's `postAfterValidate`, so this listener sees it gone in that run. Sets made after the press do
+   * not hold the sort.
+   *
+   * The listener's `orderIndex` is the highest as a defensive measure, so an editor listener added after
+   * this one would still decide first. In the flows measured the editor is already done before
+   * `postAfterValidate` runs (core cancels or finishes it from the validation callback), or its listener
+   * was added first, so no test can tell the order apart. Matching the cell here instead would restate the
+   * editor's rules and drift from them.
+   *
+   * @param {HeaderSortPress} press The press that waits.
+   * @param {BaseEditor|null} editor The editor that was open at press time and validates, or `null`.
+   * @param {Array[]} waitingSets The editor saves' change sets core held unwritten at press time.
+   * @returns {Promise}
+   */
+  #waitForEditor(
+    press: HeaderSortPress, editor: EditorToWaitFor | null, waitingSets: CellChange[][]
+  ): Promise<void> {
+    let setsToWaitFor = waitingSets;
+    // An editor the press did not close (a `beforeOnCellMouseDown` that keeps the selection) is open and has
+    // not saved yet, so it does not wait and no set of its save exists: an unrelated validation that answers
+    // then must not end the wait. Its next finish (its save's answer, a rejection that reopens it, Escape, a
+    // veto) does. An editor without the finish listener cannot report that, so it is not held this way.
+    let isEditorUnsaved = !!editor && !editor.isWaiting() && typeof editor._addFinishListener === 'function';
+
+    return new Promise<void>((resolve) => {
+      const check = () => {
+        // An earlier `postAfterValidate` listener destroyed the grid; the plugin's destroy drops this wait.
+        if (!this.hot || this.hot.isDestroyed || editor?.isWaiting() || (isEditorUnsaved && editor?.isOpened())) {
+          return;
+        }
+
+        if (setsToWaitFor.length > 0) {
+          const stillWaiting = new Set(this.hot._getWaitingChangeSets().map(({ changes }) => changes));
+
+          setsToWaitFor = setsToWaitFor.filter(changes => stillWaiting.has(changes));
+
+          if (setsToWaitFor.length > 0) {
+            return;
+          }
+        }
+
+        this.#stopWaitingForEditor(press);
+        resolve();
+      };
+
+      const onFinish = () => {
+        isEditorUnsaved = false;
+        check();
+      };
+
+      this.#editorWaitListeners.set(press, { check, onFinish, editor });
+      this.hot.addHook('postAfterValidate', check, Number.MAX_SAFE_INTEGER);
+      // An edit can end with no validation at all (a `beforeChange` veto, Escape, a wait canceled without an
+      // answer), so the editor's finish checks the wait as well.
+      editor?._addFinishListener?.(onFinish);
+    });
+  }
+
+  /**
+   * Checks at once whether the wait of a press is over (the editor no longer waits and no change set of an
+   * editor save is pending), and resolves it then. The release calls it, so an edit that ended with no
+   * validation between the press and the release does not leave the sort queued. An editor the press found
+   * that is still open has not saved yet (the press did not close it), so the release leaves that wait to the
+   * editor's save or finish.
+   *
+   * @param {HeaderSortPress} press The press.
+   */
+  #checkEditorWait(press: HeaderSortPress): void {
+    const wait = this.#editorWaitListeners.get(press);
+
+    if (wait === undefined || wait.editor?.isOpened()) {
+      return;
+    }
+
+    wait.check();
+  }
+
+  /**
+   * Removes the `postAfterValidate` listener of a press that waits for the editor, if it has one.
+   *
+   * @param {HeaderSortPress} press The press.
+   */
+  #stopWaitingForEditor(press: HeaderSortPress): void {
+    const wait = this.#editorWaitListeners.get(press);
+
+    if (wait) {
+      this.#editorWaitListeners.delete(press);
+      this.hot.removeHook('postAfterValidate', wait.check);
+      wait.editor?._removeFinishListener?.(wait.onFinish);
+    }
+  }
+
+  /**
+   * Drops the queued press, and its wait for the editor.
+   */
+  #dropPendingHeaderSort(): void {
+    if (this.#pendingHeaderSort !== null) {
+      this.#stopWaitingForEditor(this.#pendingHeaderSort);
+      this.#pendingHeaderSort = null;
+    }
+  }
+
+  /**
+   * Drops every sort that waits for a validator, and their waits for the editor.
+   */
+  #dropAwaitingHeaderSorts(): void {
+    this.#awaitingHeaderSorts.forEach(press => this.#stopWaitingForEditor(press));
+    this.#awaitingHeaderSorts.clear();
+  }
+
+  /**
+   * Drops the queued press and every sort that waits for a validator.
+   */
+  #dropHeaderSorts(): void {
+    this.#dropPendingHeaderSort();
+    this.#dropAwaitingHeaderSorts();
+  }
+
+  /**
+   * Marks a queued press as spent once ManualColumnMove has moved the column.
+   */
+  #onAfterColumnMove = () => {
+    if (this.#pendingHeaderSort !== null) {
+      this.#pendingHeaderSort.consumedByMove = true;
+    }
+  };
+
+  /**
+   * Drops a queued press and a sort waiting for a validator when the column order starts over (`loadData()`,
+   * `updateSettings()` with `columns`, or new data with another column layout). The press names a column of the
+   * order it was made on, so the release would sort another column.
+   *
+   * @param {string} source The source of the sequence change.
+   */
+  #onAfterColumnSequenceChange = (source: string) => {
+    if (source === 'init') {
+      this.#dropHeaderSorts();
+    }
+  };
+
+  /**
+   * Whether ManualColumnMove is mid-drag. False when that plugin is absent or disabled.
+   */
+  #isColumnBeingDragged(): boolean {
+    const manualColumnMove = this.hot.getPlugin('manualColumnMove');
+
+    return manualColumnMove?.isDragging() === true;
+  }
+
+  /**
+   * Destroys the plugin instance.
+   */
+  destroy(): void {
+    // `BasePlugin.destroy` nulls enumerable own properties, which cannot reach a `#private`
+    // field, so drop the queued press here.
+    this.#dropHeaderSorts();
+
+    this.hot.removeHook('afterGetColHeader', this.#onAfterGetColHeaderWhileDisabled);
+
+    // TODO: Probably not supported yet by ESLint: https://github.com/eslint/eslint/issues/11045
+    // eslint-disable-next-line no-unused-expressions
+    this.columnStatesManager?.destroy();
+
+    super.destroy();
+  }
+}

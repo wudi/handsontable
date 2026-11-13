@@ -1,0 +1,1490 @@
+// Self-contained interactive HTML performance report.
+// Produces a single HTML file with inline CSS + JS -- zero external requests.
+// GitHub-native (Primer-inspired) design, vanilla JS for interactivity.
+
+import {
+  REGRESSION_CALLOUT_THRESHOLD_TIMING,
+  CV_WARNING_THRESHOLD,
+  INCOMPARABLE_LABELS,
+  TRACE_MISMATCH_REASONS,
+  activeTotalsPerIteration,
+  calcCv,
+  classifyChange,
+  heapThresholdFor,
+  isOverTimingLine,
+  pctChange,
+  relativeToShift,
+  runShift,
+  sumActive,
+  comparability,
+  traceMismatches,
+  NO_BASELINE_VERDICT,
+  formatTitle,
+} from './thresholds.mjs';
+import { formatEnvironment } from './environment.mjs';
+import { escapeHtml } from './html-utils.mjs';
+
+/**
+ * @param {Record<string, object>} scenarioResults -- keyed by scenario name
+ * @param {object | null} goldenSnapshots -- golden baseline
+ * @param {object} [meta] -- { prNumber, branch, baseBranch, pagesUrl, commit, runId,
+ *   crossWindowScenarios }
+ * @returns {string} self-contained HTML document
+ */
+export function buildHtmlReport(scenarioResults, goldenSnapshots, meta = {}) {
+  const goldenScenarios = goldenSnapshots?.scenarios || {};
+  const hasGolden = Object.keys(goldenScenarios).length > 0;
+
+  // Build data payload for client-side rendering
+  const payload = buildPayload(scenarioResults, goldenScenarios, hasGolden, meta, goldenSnapshots);
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Performance Report${escapeHtml(meta.prNumber ? ` - PR #${meta.prNumber}` : '')}</title>
+${buildStyles()}
+</head>
+<body>
+<div id="app"></div>
+<script>
+window.__PERF_DATA__ = ${serializePayload(payload)};
+</script>
+${buildScript()}
+</body>
+</html>`;
+}
+
+/**
+ * Serializes the payload for embedding inside a `<script>` block.
+ *
+ * `JSON.stringify` does not escape `<`, so a string containing `</script>` would close the block
+ * early and everything after it would be parsed as markup. The branch name reaches this payload
+ * from `GITHUB_HEAD_REF`, which a fork pull request controls. Escaping `<` keeps the JSON valid
+ * (`<` is the same character to a JSON parser) while making that impossible.
+ *
+ * @param {object} payload
+ * @returns {string}
+ */
+function serializePayload(payload) {
+  return JSON.stringify(payload).replace(/</g, '\\u003c');
+}
+
+// --- data payload ---
+
+/**
+ * One category's before/after pair, with its delta withheld when that category is not comparable.
+ *
+ * @param {string} key
+ * @param {object} gCats -- baseline categories
+ * @param {object} cCats -- current categories
+ * @param {{ incompleteCategories: string[] }} verdict
+ * @returns {{ current: number, baseline: number, change: number | null, incomplete: boolean }}
+ */
+function categoryMetric(key, gCats, cCats, verdict) {
+  const incomplete = verdict.incompleteCategories.includes(key);
+
+  return {
+    current: cCats[key] || 0,
+    baseline: gCats[key] || 0,
+    change: incomplete ? null : pctChange(gCats[key], cCats[key]),
+    incomplete,
+  };
+}
+
+function buildPayload(scenarioResults, goldenScenarios, hasGolden, meta, goldenSnapshots) {
+  const scenarios = [];
+  const mismatches = traceMismatches(meta);
+
+  for (const [name, current] of Object.entries(scenarioResults)) {
+    const golden = goldenScenarios[name] || null;
+    const cCats = current.categories || {};
+    const gCats = golden?.categories || {};
+    const currentTotal = sumActive(cCats);
+    const goldenTotal = golden ? sumActive(gCats) : null;
+    // A baseline that missed a category the current run recorded cannot be divided into, and a
+    // baseline measured through a different trace window, or under a different definition of the
+    // scenario, is not the same quantity at all. Either way the total delta is withheld.
+    const mismatch = mismatches[name] ?? false;
+    const isCrossWindow = !!mismatch;
+    // Only ask the question when there is something to compare against. Running the check against
+    // an absent baseline reports every category as uncaptured, which the markdown path avoids by
+    // returning early -- so the two reports disagreed on a scenario that is simply new.
+    const verdict = golden ? comparability(gCats, cCats, mismatch) : NO_BASELINE_VERDICT;
+    const baselineIncomplete = !!golden && !verdict.comparable;
+    const totalChange = baselineIncomplete ? null : pctChange(goldenTotal, currentTotal);
+    // Heap is derived from the same trace window, so a window mismatch invalidates it too. It is
+    // unaffected by a missed timing category, which is measured independently.
+    const heap = buildHeapChartData(current, golden, isCrossWindow);
+    // Per scenario: the horizontal-scroll scenarios carry a wider heap band (thresholds.mjs).
+    const heapThreshold = heapThresholdFor(name);
+    // The gate's fail line, floor included (lib/gate.mjs), so the report counts what the gate fails.
+    const timingRegressed = totalChange != null && isOverTimingLine(goldenTotal, currentTotal);
+    const heapRegressed = heap?.change != null && heap.change > heapThreshold;
+    const isRegression = timingRegressed || heapRegressed;
+    let { status } = classifyChange(totalChange);
+
+    // Over the line in percent but under the ms floor is timer rounding, which the gate does not
+    // fail, so it is not painted as a regression either.
+    if (status === 'regression' && !timingRegressed) {
+      status = 'neutral-up';
+    }
+
+    // A JS-heap regression counts even when trace timing is flat, matching the markdown comment.
+    if (heapRegressed) {
+      status = 'regression';
+    }
+
+    // The header badge shows whichever metric drives the status. For a heap-only regression the
+    // timing percentage would contradict the regression styling, so show the heap change instead.
+    const badgeIsHeap = heapRegressed && !timingRegressed;
+    const badgeChange = badgeIsHeap ? heap.change : totalChange;
+
+    scenarios.push({
+      name,
+      title: formatTitle(name),
+      status,
+      hasBaseline: !!golden,
+      baselineIncomplete,
+      // How far apart the develop runs behind the median baseline sit. Distinct from the per-row
+      // `cv`, which is the spread across this run's own iterations.
+      baselineSpread: golden?.spread ?? null,
+      totalChange,
+      // Filled in below, once every row's delta is known: the shift is a median over all of them.
+      totalChangeVsShift: null,
+      heapThreshold,
+      badgeChange,
+      badgeIsHeap,
+      isRegression,
+      // Serialized once and read by both the dashboard counter and the filter. Deriving it
+      // separately on each side is how the counter came to disagree with the list it labels.
+      notAssessed: baselineIncomplete && !isRegression,
+      incompleteLabel: verdict.shortLabel,
+      incompleteReason: verdict.label,
+      // Withheld per category, on the verdict rather than on the window alone. Gating only the
+      // window left the incomplete-capture branch publishing a green "-100%" for exactly the
+      // category the verdict had just declared uncaptured.
+      metrics: {
+        scripting: categoryMetric('scripting', gCats, cCats, verdict),
+        rendering: categoryMetric('rendering', gCats, cCats, verdict),
+        painting: categoryMetric('painting', gCats, cCats, verdict),
+        total: { current: currentTotal, baseline: goldenTotal || 0, change: totalChange },
+      },
+      detailedMetrics: buildDetailedMetrics(current, golden, verdict),
+      memory: buildMemoryMetrics(current, golden, isCrossWindow),
+      hookTiming: buildHookTiming(current, golden),
+      heap,
+      cv: {
+        scripting: calcCv(current._iterationValues?.categories?.scripting),
+        rendering: calcCv(current._iterationValues?.categories?.rendering),
+        painting: calcCv(current._iterationValues?.categories?.painting),
+      },
+      runs: current.runs || 3,
+    });
+  }
+
+  // The common factor this run differs from the baseline by -- the CI runner's speed, which every
+  // scenario shares. Reported, never gated on: see runShift(). Not on a self-comparison, where every
+  // delta is 0 and a 0.0% shift would read as a measurement of the runner. `meta.runShift` is the
+  // first pass's after a confirm re-run, whose rows mix two runs (confirmVerdict).
+  const shift = hasGolden && !goldenSnapshots?.isSelfCompare
+    ? (meta.runShift ?? runShift(scenarios.map(s => s.totalChange)))
+    : null;
+
+  for (const scenario of scenarios) {
+    scenario.totalChangeVsShift = relativeToShift(scenario.totalChange, shift);
+  }
+
+  const regressions = scenarios.filter(s => s.isRegression).length;
+  const improvements = scenarios.filter(s => s.status === 'improvement').length;
+  // Counted separately, never folded into Neutral. A scenario whose baseline could not be compared
+  // against was not cleared, and a dashboard that shows it beside the genuinely flat ones is the
+  // same "assessed by omission" failure the withheld delta exists to prevent.
+  const notAssessed = scenarios.filter(s => s.notAssessed).length;
+  // A scenario the baseline does not contain at all (new, or omitted by the median window) is not
+  // flat against a baseline -- there is nothing to be flat against. Without its own bucket it falls
+  // into the Neutral remainder below, claiming the one thing not known about it.
+  const noBaseline = scenarios.filter(s => !s.hasBaseline).length;
+
+  return {
+    meta: {
+      prNumber: meta.prNumber || null,
+      branch: meta.branch || 'unknown',
+      baseBranch: meta.baseBranch || 'develop',
+      pagesUrl: meta.pagesUrl || null,
+      commit: meta.commit || null,
+      runId: meta.runId || null,
+      generatedAt: new Date().toISOString(),
+      // The browser and machine this run executed on, pre-rendered so the client does not restate
+      // the format the markdown comment uses.
+      environment: formatEnvironment(meta.environment) || null,
+      // Why there is no baseline at all, when the teardown knows (a golden run after a Chromium or
+      // harness change). Compare mode carries the same text under baseline.unavailableReason.
+      baselineUnavailable: hasGolden ? null : (meta.baselineUnavailable || null),
+    },
+    // Where the baseline came from, so the report can say whether a delta was measured against one
+    // develop run or a median of several, and on which browser.
+    baseline: hasGolden && goldenSnapshots
+      ? {
+        timestamp: goldenSnapshots.timestamp ?? null,
+        isMedian: !!goldenSnapshots.isMedian,
+        isSelfCompare: !!goldenSnapshots.isSelfCompare,
+        medianWindowSize: goldenSnapshots.medianWindowSize ?? null,
+        medianSourceTimestamps: goldenSnapshots.medianSourceTimestamps ?? [],
+        chromium: goldenSnapshots.environment?.chromium ?? null,
+        // Why a self-comparison had nothing else to compare against, when the teardown knows.
+        unavailableReason: goldenSnapshots.isSelfCompare ? (meta.baselineUnavailable || null) : null,
+      }
+      : null,
+    runShift: shift,
+    // Serialized rather than restated in the client script, so the colour bands and the gate's
+    // lines cannot drift apart. No heap entry: the heap band is per scenario (`heapThreshold`
+    // on each scenario below), and a shared number here would be reached for and get the wrong
+    // band on the two scroll scenarios that carry a wider one.
+    thresholds: {
+      timing: REGRESSION_CALLOUT_THRESHOLD_TIMING,
+      cvWarning: CV_WARNING_THRESHOLD,
+    },
+    summary: {
+      total: scenarios.length,
+      regressions,
+      improvements,
+      notAssessed,
+      noBaseline,
+      neutral: scenarios.length - regressions - improvements - notAssessed - noBaseline,
+    },
+    hasBaseline: hasGolden,
+    scenarios,
+  };
+}
+
+/**
+ * @param {object} current
+ * @param {object | null} golden
+ * @param {{ comparable: boolean, reason: string | null, incompleteCategories: string[] }} verdict
+ *   -- required, and deliberately not defaulted: a caller passing the old boolean argument shape
+ *   would silently un-gate every per-category delta rather than fail
+ * @returns {Array<object>}
+ */
+function buildDetailedMetrics(current, golden, verdict) {
+  const rows = [];
+  const cCats = current.categories || {};
+  const gCats = golden?.categories || {};
+  const baselineIncomplete = !!golden && !verdict.comparable;
+  const { incompleteCategories } = verdict;
+  // Only the active categories participate in the comparability verdict. The others (loading,
+  // other, experience, idle) are reported but never summed into a total, so a trace-level mismatch
+  // (window or scenario version) is the only thing that invalidates them.
+  const isCrossWindow = TRACE_MISMATCH_REASONS.includes(verdict.reason);
+
+  for (const key of ['scripting', 'rendering', 'painting', 'loading', 'other', 'experience', 'idle']) {
+    const c = cCats[key];
+    const g = gCats?.[key];
+
+    if (c == null && g == null) {
+      continue;
+    }
+
+    // Withheld per category: on a window mismatch these are the deltas teardown warns are "not
+    // measurements of a code change; they are the two windows disagreeing", and on an incomplete
+    // capture the affected category's delta is the fake win the total guard exists to suppress.
+    const incomplete = isCrossWindow || incompleteCategories.includes(key);
+
+    rows.push({
+      label: categoryLabel(key),
+      key,
+      current: c ?? 0,
+      baseline: g ?? 0,
+      change: incomplete ? null : pctChange(g, c),
+      incomplete,
+      cv: calcCv(current._iterationValues?.categories?.[key]),
+    });
+  }
+
+  // Total active
+  const gTotal = golden ? sumActive(gCats) : 0;
+  const cTotal = sumActive(cCats);
+
+  rows.push({
+    label: 'Total active',
+    key: 'total-active',
+    current: cTotal,
+    baseline: gTotal,
+    // Withheld on the same terms as the card badge and the markdown comment. Publishing it here
+    // would put the exact number the badge refuses to show one click away, painted red.
+    change: baselineIncomplete ? null : pctChange(gTotal, cTotal),
+    incomplete: baselineIncomplete,
+    // Recombined per iteration rather than left null: the summed total is what the gate acts on,
+    // so its spread is the one a reader most needs beside it.
+    cv: calcCv(activeTotalsPerIteration(current._iterationValues?.categories)),
+    isBold: true,
+  });
+
+  // Trace window. Marked as informational: after the measurement fix this is mark-to-mark harness
+  // wall clock, not grid work. On the four scroll scenarios it is 500 sequential wheel round trips
+  // and sits at a run-to-run CV of 0.0-0.2% regardless of what the grid does, so colouring it
+  // red or green would report CI latency as a performance verdict.
+  rows.push({
+    label: 'Trace window',
+    key: 'trace-window',
+    current: current.rangeEnd || 0,
+    baseline: golden?.rangeEnd || 0,
+    change: pctChange(golden?.rangeEnd, current.rangeEnd),
+    cv: calcCv(current._iterationValues?.rangeEnd),
+    neutral: true,
+    // Deliberately still printed on a trace mismatch, and the one percentage that is: this row is
+    // the size of the two windows, so it explains the mismatch the other rows are withheld for.
+    note: traceWindowNote(verdict.reason),
+  });
+
+  return rows;
+}
+
+/**
+ * @param {string | null} reason -- the verdict's reason
+ * @returns {string}
+ */
+function traceWindowNote(reason) {
+  if (reason === 'window-mismatch') {
+    return 'harness wall clock; the windows differ';
+  }
+
+  if (reason === 'version-mismatch') {
+    return 'harness wall clock; the scenario was redefined';
+  }
+
+  return 'harness wall clock';
+}
+
+/**
+ * Every row here is an extremum over the UpdateCounters samples inside the parsed window -- heap,
+ * node count and listener count alike -- so a window mismatch invalidates all of them for exactly
+ * the reason it invalidates the heap maximum.
+ *
+ * @param {object} current
+ * @param {object | null} golden
+ * @param {boolean} [isCrossWindow]
+ * @returns {Array<object>}
+ */
+function buildMemoryMetrics(current, golden, isCrossWindow = false) {
+  const cUc = current.updateCounters;
+  const gUc = golden?.updateCounters;
+
+  if (!cUc) {
+    return [];
+  }
+
+  // [label, display key, numeric key, informational]. An informational row states its delta without
+  // a verdict on it: no threshold has been derived for the live set yet, and colouring it on the
+  // heap band would paint a 7% move red beside a flat jsHeapMaxBytes.
+  const pairs = [
+    ['Min JS heap', 'jsHeapMinLabel', 'jsHeapMinBytes', false],
+    ['Max JS heap', 'jsHeapMaxLabel', 'jsHeapMaxBytes', false],
+    // The live set after a forced GC (lib/heap-after-gc.mjs). Informational until enough goldens
+    // carry it to derive a threshold; the row is skipped for runs recorded before it existed.
+    ['JS heap after GC', 'jsHeapAfterGcLabel', 'jsHeapAfterGcBytes', true],
+    ['Min Nodes', 'nodesMin', 'nodesMin', false],
+    ['Max Nodes', 'nodesMax', 'nodesMax', false],
+    ['Min Listeners', 'listenersMin', 'listenersMin', false],
+    ['Max Listeners', 'listenersMax', 'listenersMax', false],
+  ];
+
+  const rows = [];
+
+  for (const [label, displayKey, numKey, neutral] of pairs) {
+    const cDisplay = cUc[displayKey];
+    const gDisplay = gUc?.[displayKey];
+
+    if (cDisplay == null && gDisplay == null) {
+      continue;
+    }
+
+    // The baseline carries the metric and this run does not: a capture that failed, which must not
+    // look like a metric nobody measured. Named for the side that missed it, like the timing rows.
+    const currentMissing = cDisplay == null && gDisplay != null;
+    const incomplete = isCrossWindow || currentMissing;
+
+    rows.push({
+      label,
+      currentDisplay: cDisplay != null ? String(cDisplay) : '--',
+      baselineDisplay: gDisplay != null ? String(gDisplay) : '--',
+      change: incomplete ? null : pctChange(gUc?.[numKey], cUc[numKey]),
+      incomplete,
+      // The row's own label when the row, not the scenario, is what is incomplete.
+      incompleteLabel: currentMissing && !isCrossWindow
+        ? INCOMPARABLE_LABELS['current-incomplete']
+        : null,
+      neutral,
+    });
+  }
+
+  return rows;
+}
+
+function buildHookTiming(current, golden) {
+  if (current.hookTiming == null) {
+    return null;
+  }
+
+  return {
+    current: current.hookTiming,
+    baseline: golden?.hookTiming ?? null,
+    change: golden?.hookTiming != null ? pctChange(golden.hookTiming, current.hookTiming) : null,
+    cv: calcCv(current._iterationValues?.hookTiming),
+  };
+}
+
+function buildHeapChartData(current, golden, isCrossWindow = false) {
+  const cur = current.updateCounters?.jsHeapMaxBytes;
+
+  if (cur == null) {
+    return null;
+  }
+
+  const baseline = golden?.updateCounters?.jsHeapMaxBytes ?? null;
+
+  return {
+    current: cur,
+    baseline,
+    // jsHeapMaxBytes is a maximum over the UpdateCounters samples inside the parsed window, so two
+    // different windows sample two different things and the delta between them means nothing.
+    change: baseline != null && !isCrossWindow ? pctChange(baseline, cur) : null,
+  };
+}
+
+function categoryLabel(key) {
+  const labels = {
+    scripting: 'Scripting',
+    rendering: 'Rendering',
+    painting: 'Painting',
+    loading: 'Loading',
+    other: 'System',
+    experience: 'Experience',
+    idle: 'Idle',
+  };
+
+  return labels[key] || key;
+}
+
+// --- CSS ---
+
+function buildStyles() {
+  return `<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #1f2328;
+  background: #ffffff;
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Header */
+.report-header {
+  border-bottom: 1px solid #d0d7de;
+  padding-bottom: 16px;
+  margin-bottom: 24px;
+}
+.report-header h1 {
+  font-size: 24px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.report-header .meta {
+  color: #656d76;
+  font-size: 13px;
+}
+
+/* Dashboard counters */
+.dashboard {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.counter-card {
+  flex: 1;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  padding: 12px 16px;
+  text-align: center;
+}
+.counter-card .count {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.counter-card .label {
+  font-size: 12px;
+  color: #656d76;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.counter-card.regression .count { color: #cf222e; }
+.counter-card.improvement .count { color: #1a7f37; }
+.counter-card.neutral .count { color: #656d76; }
+.counter-card.unknown .count { color: #9a6700; }
+
+/* Filter + sort bar */
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.filter-group, .sort-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.controls label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #656d76;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #f6f8fa;
+  color: #1f2328;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.btn:hover { background: #eaeef2; }
+.btn.active {
+  background: #0969da;
+  color: #ffffff;
+  border-color: #0969da;
+}
+
+/* Scenario cards */
+.scenario-card {
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+.scenario-card.regression { border-left: 3px solid #cf222e; }
+.scenario-card.improvement { border-left: 3px solid #1a7f37; }
+.scenario-card.neutral-up { border-left: 3px solid #bf8700; }
+.scenario-card.neutral-down { border-left: 3px solid #0969da; }
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+  background: #f6f8fa;
+}
+.card-header:hover { background: #eaeef2; }
+.card-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-header .arrow {
+  display: inline-block;
+  transition: transform 0.15s;
+  font-size: 12px;
+  color: #656d76;
+}
+.card-header .arrow.open { transform: rotate(90deg); }
+/* Keeps the badge and the baseline-spread note together on the right, so the header stays a
+   two-part flex layout however many notes are attached. */
+.card-header .header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.card-header .baseline-spread {
+  font-size: 12px;
+  color: #656d76;
+  white-space: nowrap;
+}
+
+/* Change badge */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.badge.regression { background: #ffebe9; color: #cf222e; }
+.badge.improvement { background: #dafbe1; color: #1a7f37; }
+.badge.neutral-up { background: #fff8c5; color: #bf8700; }
+.badge.neutral-down { background: #ddf4ff; color: #0969da; }
+.badge.neutral { background: #f6f8fa; color: #656d76; }
+.badge.unknown { background: #f6f8fa; color: #656d76; }
+
+/* Card body */
+.card-body {
+  padding: 16px;
+  display: none;
+  border-top: 1px solid #d0d7de;
+}
+.card-body.open { display: block; }
+
+/* Quick metrics row */
+.quick-metrics {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.quick-metric {
+  display: flex;
+  flex-direction: column;
+  min-width: 120px;
+}
+.quick-metric .metric-label {
+  font-size: 11px;
+  color: #656d76;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.quick-metric .metric-value {
+  font-size: 18px;
+  font-weight: 600;
+}
+.quick-metric .metric-change {
+  font-size: 12px;
+}
+
+/* Chart area */
+.chart-container {
+  margin: 16px 0;
+  overflow-x: auto;
+}
+.chart-container svg {
+  display: block;
+}
+
+/* Expandable sections */
+.expand-section {
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  margin-top: 12px;
+}
+.expand-header {
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: #656d76;
+  background: #f6f8fa;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.expand-header:hover { background: #eaeef2; }
+.expand-header .arrow {
+  display: inline-block;
+  transition: transform 0.15s;
+  font-size: 10px;
+}
+.expand-header .arrow.open { transform: rotate(90deg); }
+.expand-body {
+  display: none;
+  padding: 12px;
+}
+.expand-body.open { display: block; }
+
+/* Tables */
+.metrics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.metrics-table th {
+  text-align: left;
+  padding: 6px 10px;
+  font-weight: 600;
+  border-bottom: 2px solid #d0d7de;
+  color: #656d76;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+}
+.metrics-table th:hover { color: #1f2328; }
+.metrics-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #eaeef2;
+}
+.metrics-table tr:last-child td { border-bottom: none; }
+.metrics-table .bold { font-weight: 600; }
+.metrics-table .num { font-variant-numeric: tabular-nums; text-align: right; }
+/* Not scoped to .metrics-table: the baseline-spread note in a card header carries this class too,
+   and a table-only rule made that flag a silent no-op. The card-header rule below beats
+   .card-header .baseline-spread (two classes) on specificity, so the warning colour actually wins
+   there instead of just the bold weight. */
+.cv-warn { color: #cf222e; font-weight: 600; }
+.card-header .baseline-spread.cv-warn { color: #cf222e; }
+
+/* Hook timing */
+.hook-timing {
+  font-size: 13px;
+  color: #656d76;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: #f6f8fa;
+  border-radius: 6px;
+}
+
+/* Tooltip */
+.tooltip {
+  position: fixed;
+  background: #1f2328;
+  color: #ffffff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  pointer-events: none;
+  z-index: 1000;
+  white-space: nowrap;
+  display: none;
+}
+
+/* No results */
+.empty-state {
+  text-align: center;
+  padding: 40px;
+  color: #656d76;
+}
+</style>`;
+}
+
+// --- Client-side JavaScript ---
+
+function buildScript() {
+  return `<script>
+(function() {
+  'use strict';
+
+  const data = window.__PERF_DATA__;
+  const app = document.getElementById('app');
+
+  // --- State ---
+  let filterMode = 'all';
+  let sortKey = 'name';
+  let sortAsc = true;
+
+  // --- Tooltip (created once, outside render cycle) ---
+  const tooltip = buildTooltip();
+  document.body.appendChild(tooltip);
+
+  // --- Render ---
+  function render() {
+    app.innerHTML = '';
+    app.appendChild(buildHeader());
+    app.appendChild(buildDashboard());
+    app.appendChild(buildControls());
+    app.appendChild(buildScenarioList());
+  }
+
+  function buildHeader() {
+    const header = el('div', 'report-header');
+    header.appendChild(elText('h1', '\\u26A1 Performance Report'));
+    const parts = [];
+    if (data.meta.prNumber) parts.push('PR #' + data.meta.prNumber);
+    if (data.meta.branch !== 'unknown') parts.push(data.meta.branch + ' vs ' + data.meta.baseBranch);
+    parts.push('Generated: ' + new Date(data.meta.generatedAt).toUTCString());
+    if (data.meta.commit) parts.push('commit ' + String(data.meta.commit).slice(0, 7));
+    if (data.meta.runId) parts.push('run ' + data.meta.runId);
+    header.appendChild(elText('div', parts.join(' \\u00B7 '), 'meta'));
+
+    // The browser and machine the run executed on: the Chromium build is what the baseline was
+    // selected on, and the CPU model is what a later replay will test the runner lottery against.
+    if (data.meta.environment) {
+      header.appendChild(elText('div', 'Environment: ' + data.meta.environment, 'meta'));
+    }
+
+    // No baseline and a known reason: say it, or the page reads as if comparing silently stopped.
+    if (!data.baseline && data.meta.baselineUnavailable) {
+      header.appendChild(elText('div', 'No comparable develop baseline: ' + data.meta.baselineUnavailable, 'meta'));
+    }
+
+    // States what every delta below was measured against. Without it the report reads identically
+    // whether the baseline was a five-run median or one fluke develop push.
+    const baseline = data.baseline;
+    if (baseline) {
+      let text;
+      if (baseline.isSelfCompare) {
+        const why = baseline.unavailableReason
+          ? ': ' + baseline.unavailableReason
+          : ', no develop baseline was available';
+        text = 'Baseline: this run compared against itself' + why
+          + ' (every delta below is 0% by construction)';
+      } else if (baseline.isMedian) {
+        const sources = baseline.medianSourceTimestamps || [];
+        text = 'Baseline: median of ' + baseline.medianWindowSize + ' develop runs';
+        if (sources.length > 1) {
+          text += ' (' + sources[sources.length - 1] + ' to ' + sources[0] + ')';
+        }
+      } else if (baseline.timestamp) {
+        text = 'Baseline: single develop run ' + baseline.timestamp;
+      } else {
+        text = 'Baseline: unknown';
+      }
+      if (!baseline.isSelfCompare && baseline.chromium) {
+        text += ', Chromium ' + baseline.chromium;
+      }
+      header.appendChild(elText('div', text, 'meta'));
+    }
+
+    // How far the whole run sits from the baseline. Named so a reader can tell a row that moved
+    // with the runner from one that moved on its own; the gate still judges the raw delta.
+    if (data.runShift != null) {
+      header.appendChild(elText(
+        'div',
+        'Run shift: ' + fmtPct(data.runShift) + ' \\u2014 the median delta across scenarios, i.e. how much'
+          + ' faster or slower this runner ran than the baseline\\'s. "vs shift" figures remove it;'
+          + ' the regression gate judges the raw delta.',
+        'meta'
+      ));
+    }
+
+    return header;
+  }
+
+  function buildDashboard() {
+    const dash = el('div', 'dashboard');
+    dash.appendChild(counterCard(data.summary.total, 'Total Scenarios', 'neutral'));
+    dash.appendChild(counterCard(data.summary.regressions, 'Regressions', 'regression'));
+    dash.appendChild(counterCard(data.summary.improvements, 'Improvements', 'improvement'));
+    dash.appendChild(counterCard(data.summary.neutral, 'Neutral', 'neutral'));
+    if (data.summary.notAssessed > 0) {
+      dash.appendChild(counterCard(data.summary.notAssessed, 'Not assessed', 'unknown'));
+    }
+    if (data.summary.noBaseline > 0) {
+      dash.appendChild(counterCard(data.summary.noBaseline, 'No baseline', 'unknown'));
+    }
+    return dash;
+  }
+
+  function counterCard(count, label, cls) {
+    const card = el('div', 'counter-card ' + cls);
+    card.appendChild(elText('div', count, 'count'));
+    card.appendChild(elText('div', label, 'label'));
+    return card;
+  }
+
+  function buildControls() {
+    const controls = el('div', 'controls');
+
+    // Filter
+    const filterGroup = el('div', 'filter-group');
+    filterGroup.appendChild(elText('label', 'Filter:'));
+
+    const filters = [
+      ['all', 'All'],
+      ['regression', 'Regressions'],
+      ['improvement', 'Improvements'],
+      ['neutral', 'Neutral'],
+    ];
+
+    // Offered only when there is one, mirroring the counter card. Without its own filter a
+    // not-assessed scenario would be reachable from All alone, having just been excluded from
+    // Neutral -- less discoverable than before, not more.
+    if (data.summary.notAssessed > 0) {
+      filters.push(['notAssessed', 'Not assessed']);
+    }
+
+    if (data.summary.noBaseline > 0) {
+      filters.push(['noBaseline', 'No baseline']);
+    }
+
+    for (const [mode, text] of filters) {
+      const btn = elText('button', text, 'btn' + (filterMode === mode ? ' active' : ''));
+      btn.dataset.filter = mode;
+      btn.addEventListener('click', () => {
+        filterMode = mode;
+        render();
+      });
+      filterGroup.appendChild(btn);
+    }
+
+    controls.appendChild(filterGroup);
+
+    // Sort
+    const sortGroup = el('div', 'sort-group');
+    sortGroup.appendChild(elText('label', 'Sort:'));
+
+    const sorts = [
+      ['name', 'Name'],
+      ['total', 'Total'],
+      ['change', 'Change %'],
+    ];
+
+    for (const [key, text] of sorts) {
+      const arrow = sortKey === key ? (sortAsc ? ' \\u2191' : ' \\u2193') : '';
+      const btn = elText('button', text + arrow, 'btn' + (sortKey === key ? ' active' : ''));
+      btn.dataset.sort = key;
+      btn.addEventListener('click', () => {
+        if (sortKey === key) {
+          sortAsc = !sortAsc;
+        } else {
+          sortKey = key;
+          sortAsc = true;
+        }
+        render();
+      });
+      sortGroup.appendChild(btn);
+    }
+
+    controls.appendChild(sortGroup);
+    return controls;
+  }
+
+  function buildScenarioList() {
+    const list = el('div', 'scenario-list');
+    let scenarios = getFilteredSorted();
+
+    if (scenarios.length === 0) {
+      const empty = el('div', 'empty-state');
+      empty.textContent = 'No scenarios match the current filter.';
+      list.appendChild(empty);
+      return list;
+    }
+
+    for (const s of scenarios) {
+      list.appendChild(buildScenarioCard(s));
+    }
+
+    return list;
+  }
+
+  function getFilteredSorted() {
+    let list = [...data.scenarios];
+
+    // Filter
+    if (filterMode === 'regression') {
+      list = list.filter(s => s.isRegression || s.status === 'regression');
+    } else if (filterMode === 'improvement') {
+      list = list.filter(s => s.status === 'improvement');
+    } else if (filterMode === 'neutral') {
+      // Excludes the not-assessed and the no-baseline scenarios, matching the counter card of the
+      // same name. Without this the Neutral list is longer than the Neutral count, and a scenario
+      // nothing could be said about reads as one that was checked and cleared.
+      list = list.filter(s => !s.isRegression && s.status !== 'regression'
+        && s.status !== 'improvement' && !s.notAssessed && s.hasBaseline);
+    } else if (filterMode === 'notAssessed') {
+      list = list.filter(s => s.notAssessed);
+    } else if (filterMode === 'noBaseline') {
+      list = list.filter(s => !s.hasBaseline);
+    }
+
+    // Sort
+    list.sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === 'name') {
+        cmp = a.title.localeCompare(b.title);
+      } else if (sortKey === 'total') {
+        cmp = a.metrics.total.current - b.metrics.total.current;
+      } else if (sortKey === 'change') {
+        cmp = (a.totalChange || 0) - (b.totalChange || 0);
+      }
+      return sortAsc ? cmp : -cmp;
+    });
+
+    return list;
+  }
+
+  function buildScenarioCard(scenario) {
+    const card = el('div', 'scenario-card ' + scenario.status);
+    const autoExpand = scenario.isRegression;
+
+    // Header
+    const header = el('div', 'card-header');
+    const titleRow = el('h3');
+    const arrow = elText('span', '\\u25B6', 'arrow' + (autoExpand ? ' open' : ''));
+    titleRow.appendChild(arrow);
+    titleRow.appendChild(document.createTextNode(scenario.title));
+    header.appendChild(titleRow);
+
+    // The verdict's own label, not a fixed "baseline incomplete": saying the baseline failed when
+    // this run is the side that missed a category sends a maintainer to re-run develop for nothing.
+    const badgeText = scenario.baselineIncomplete && !scenario.badgeIsHeap
+      ? scenario.incompleteLabel
+      : fmtPct(scenario.badgeChange) + (scenario.badgeIsHeap ? ' heap' : '');
+    const right = el('div', 'header-right');
+    // Naming which side missed which category is the whole point of the label, and the short form
+    // on the badge cannot carry it. Without this the HTML report -- the artifact a reader opens
+    // precisely to get the detail -- is the one surface that loses it.
+    const badgeTitle = scenario.baselineIncomplete ? scenario.incompleteReason : null;
+
+    // How far apart the develop runs behind the baseline sit. A wide spread means the delta beside
+    // it is measured against a moving target, which the percentage alone does not say.
+    if (data.hasBaseline && scenario.baselineSpread != null) {
+      const spread = elText(
+        'span', 'baseline spread ' + fmtCvValue(scenario.baselineSpread), 'baseline-spread'
+      );
+      if (scenario.baselineSpread > data.thresholds.cvWarning) spread.classList.add('cv-warn');
+      right.appendChild(spread);
+    }
+
+    // The delta with the run's common shift removed, beside the raw one the badge carries. Neutral
+    // styling on purpose: it informs the reading of the badge, it does not compete with it. Shown
+    // for every row that has one, heap-only regressions included, as the markdown table does.
+    if (data.hasBaseline && scenario.totalChangeVsShift != null) {
+      const vsShift = elText('span', 'vs shift ' + fmtPct(scenario.totalChangeVsShift), 'baseline-spread');
+      vsShift.title = 'Total delta relative to this run\\'s shift of ' + fmtPct(data.runShift);
+      right.appendChild(vsShift);
+    }
+
+    const badge = elText('span', badgeText, 'badge ' + scenario.status);
+
+    if (badgeTitle) badge.title = badgeTitle;
+    right.appendChild(badge);
+    header.appendChild(right);
+
+    header.addEventListener('click', () => {
+      const body = card.querySelector('.card-body');
+      body.classList.toggle('open');
+      arrow.classList.toggle('open');
+    });
+
+    card.appendChild(header);
+
+    // Body
+    const body = el('div', 'card-body' + (autoExpand ? ' open' : ''));
+
+    // Quick metrics
+    body.appendChild(buildQuickMetrics(scenario));
+
+    // Chart
+    if (data.hasBaseline) {
+      body.appendChild(buildChart(scenario));
+
+      if (scenario.heap) {
+        body.appendChild(buildHeapChart(scenario));
+      }
+    }
+
+    // Hook timing
+    if (scenario.hookTiming) {
+      body.appendChild(buildHookTimingEl(scenario.hookTiming));
+    }
+
+    // Detailed metrics (expandable)
+    body.appendChild(buildExpandSection('Detailed Metrics', () => buildMetricsTable(scenario), autoExpand));
+
+    // Memory (expandable)
+    if (scenario.memory && scenario.memory.length > 0) {
+      body.appendChild(buildExpandSection('Memory & DOM', () => buildMemoryTable(scenario)));
+    }
+
+    card.appendChild(body);
+    return card;
+  }
+
+  function buildQuickMetrics(scenario) {
+    const row = el('div', 'quick-metrics');
+    const keys = ['scripting', 'rendering', 'painting', 'total'];
+    const labels = { scripting: 'Scripting', rendering: 'Rendering', painting: 'Painting', total: 'Total' };
+
+    for (const key of keys) {
+      const m = scenario.metrics[key];
+      const item = el('div', 'quick-metric');
+      item.appendChild(elText('span', labels[key], 'metric-label'));
+      item.appendChild(elText('span', Math.round(m.current) + ' ms', 'metric-value'));
+      if (data.hasBaseline && m.change != null) {
+        const changeEl = elText('span', fmtPct(m.change), 'metric-change');
+        const cls = classifyChangeCss(m.change);
+        changeEl.style.color = statusColor(cls);
+        item.appendChild(changeEl);
+      }
+      row.appendChild(item);
+    }
+
+    return row;
+  }
+
+  function buildChart(scenario) {
+    const container = el('div', 'chart-container');
+    const metrics = [
+      { label: 'Scripting', ...scenario.metrics.scripting },
+      { label: 'Rendering', ...scenario.metrics.rendering },
+      { label: 'Painting', ...scenario.metrics.painting },
+    ];
+
+    const maxVal = Math.max(...metrics.flatMap(m => [m.current, m.baseline]), 1);
+    const LABEL_W = 90;
+    const BAR_AREA = 460;
+    const BAR_H = 16;
+    const BAR_GAP = 3;
+    const GROUP_GAP = 16;
+    const groupH = BAR_H * 2 + BAR_GAP;
+    const totalH = metrics.length * (groupH + GROUP_GAP) + 36;
+    const W = LABEL_W + BAR_AREA + 100;
+
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('width', W);
+    svg.setAttribute('height', totalH);
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + totalH);
+
+    // Legend
+    const legendY = 12;
+    svg.appendChild(svgRect(LABEL_W, legendY - 9, 10, 10, '#6c8ebf', 1));
+    svg.appendChild(svgText(LABEL_W + 14, legendY, 'Baseline (' + data.meta.baseBranch + ')', '#656d76', 11));
+    svg.appendChild(svgRect(LABEL_W + 140, legendY - 9, 10, 10, '#d4a03c', 1));
+    svg.appendChild(svgText(LABEL_W + 154, legendY, 'Current (PR)', '#656d76', 11));
+
+    let y = 30;
+    for (const m of metrics) {
+      const bw = Math.max(1, (m.baseline / maxVal) * BAR_AREA);
+      const cw = Math.max(1, (m.current / maxVal) * BAR_AREA);
+
+      // Label
+      svg.appendChild(svgText(LABEL_W - 8, y + BAR_H - 2, m.label, '#1f2328', 12, 'end'));
+
+      // Baseline bar
+      const bBar = svgRect(LABEL_W, y, bw, BAR_H, '#6c8ebf', 2);
+      bBar.dataset.tooltip = m.label + ' baseline: ' + Math.round(m.baseline) + ' ms';
+      svg.appendChild(bBar);
+      svg.appendChild(svgText(LABEL_W + bw + 6, y + BAR_H - 4, Math.round(m.baseline) + ' ms', '#656d76', 11));
+
+      // Current bar
+      const cy = y + BAR_H + BAR_GAP;
+      const cBar = svgRect(LABEL_W, cy, cw, BAR_H, '#d4a03c', 2);
+      cBar.dataset.tooltip = m.label + ' current: ' + Math.round(m.current) + ' ms';
+      svg.appendChild(cBar);
+      svg.appendChild(svgText(LABEL_W + cw + 6, cy + BAR_H - 4, Math.round(m.current) + ' ms', '#656d76', 11));
+
+      y += groupH + GROUP_GAP;
+    }
+
+    container.appendChild(svg);
+    return container;
+  }
+
+  function buildHeapChart(scenario) {
+    const heap = scenario.heap;
+    const container = el('div', 'chart-container');
+    const cur = heap.current;
+    const hasBaseline = heap.baseline != null;
+    const base = hasBaseline ? heap.baseline : 0;
+    const maxVal = Math.max(cur, base, 1);
+    const LABEL_W = 90;
+    const BAR_AREA = 460;
+    const BAR_H = 16;
+    const BAR_GAP = 3;
+    const totalH = (BAR_H * 2) + BAR_GAP + 36;
+    const W = LABEL_W + BAR_AREA + 100;
+    const mb = bytes => (bytes / 1e6).toFixed(1) + ' MB';
+
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('width', W);
+    svg.setAttribute('height', totalH);
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + totalH);
+
+    // Legend (JS heap is in MB on its own scale -- not comparable to the ms chart above).
+    const legendY = 12;
+    svg.appendChild(svgRect(LABEL_W, legendY - 9, 10, 10, '#6c8ebf', 1));
+    svg.appendChild(svgText(LABEL_W + 14, legendY, 'Baseline (' + data.meta.baseBranch + ')', '#656d76', 11));
+    svg.appendChild(svgRect(LABEL_W + 140, legendY - 9, 10, 10, '#d4a03c', 1));
+    svg.appendChild(svgText(LABEL_W + 154, legendY, 'Current (PR)', '#656d76', 11));
+
+    const y = 30;
+
+    svg.appendChild(svgText(LABEL_W - 8, y + BAR_H - 2, 'JS Heap', '#1f2328', 12, 'end'));
+
+    // Draw the baseline bar only when the golden snapshot has heap data; otherwise show "no baseline"
+    // rather than a misleading 0 MB bar.
+    if (hasBaseline) {
+      const bw = Math.max(1, (base / maxVal) * BAR_AREA);
+      const bBar = svgRect(LABEL_W, y, bw, BAR_H, '#6c8ebf', 2);
+
+      bBar.dataset.tooltip = 'JS heap baseline: ' + mb(base);
+      svg.appendChild(bBar);
+      svg.appendChild(svgText(LABEL_W + bw + 6, y + BAR_H - 4, mb(base), '#656d76', 11));
+    } else {
+      svg.appendChild(svgText(LABEL_W, y + BAR_H - 4, 'no baseline', '#8c959f', 11));
+    }
+
+    const cy = y + BAR_H + BAR_GAP;
+    const cw = Math.max(1, (cur / maxVal) * BAR_AREA);
+    const cBar = svgRect(LABEL_W, cy, cw, BAR_H, '#d4a03c', 2);
+
+    cBar.dataset.tooltip = 'JS heap current: ' + mb(cur);
+    svg.appendChild(cBar);
+    svg.appendChild(svgText(LABEL_W + cw + 6, cy + BAR_H - 4, mb(cur), '#656d76', 11));
+
+    container.appendChild(svg);
+
+    return container;
+  }
+
+  function buildHookTimingEl(hookTiming) {
+    const div = el('div', 'hook-timing');
+    let text = 'Hook timing: ' + Math.round(hookTiming.current) + ' ms';
+    if (hookTiming.baseline != null) {
+      text = 'Hook timing: ' + Math.round(hookTiming.baseline)
+        + ' ms \\u2192 ' + Math.round(hookTiming.current) + ' ms';
+      if (hookTiming.change != null) {
+        text += ' (' + fmtPct(hookTiming.change) + ')';
+      }
+    }
+    if (hookTiming.cv != null) {
+      text += ' \\u00B7 CV ' + fmtCvValue(hookTiming.cv, false);
+    }
+    div.textContent = text;
+    return div;
+  }
+
+  function buildMetricsTable(scenario) {
+    const table = el('table', 'metrics-table');
+    const thead = el('thead');
+    const headRow = el('tr');
+
+    const headers = data.hasBaseline
+      ? ['Metric', 'Baseline', 'Current', 'Change', 'CV%']
+      : ['Metric', 'Value', 'CV%'];
+
+    for (const h of headers) {
+      headRow.appendChild(elText('th', h));
+    }
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = el('tbody');
+    for (const row of scenario.detailedMetrics) {
+      const tr = el('tr');
+      const labelTd = elText(
+        'td', row.note ? row.label + ' (' + row.note + ')' : row.label, row.isBold ? 'bold' : ''
+      );
+      tr.appendChild(labelTd);
+
+      if (data.hasBaseline) {
+        tr.appendChild(elText('td', Math.round(row.baseline) + ' ms', 'num'));
+        tr.appendChild(elText('td', Math.round(row.current) + ' ms', 'num'));
+        const changeTd = elText(
+          'td', row.incomplete ? scenario.incompleteLabel : fmtPct(row.change), 'num'
+        );
+        // An informational row (harness wall clock) states its number without a verdict on it.
+        changeTd.style.color = row.neutral || row.incomplete
+          ? statusColor('neutral')
+          : statusColor(classifyChangeCss(row.change));
+        if (row.note) changeTd.title = row.note;
+        tr.appendChild(changeTd);
+      } else {
+        tr.appendChild(elText('td', Math.round(row.current) + ' ms', 'num'));
+      }
+
+      // The run's own spread: shown, never flagged.
+      tr.appendChild(elText('td', fmtCvValue(row.cv, false), 'num'));
+
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    return table;
+  }
+
+  function buildMemoryTable(scenario) {
+    const table = el('table', 'metrics-table');
+    const thead = el('thead');
+    const headRow = el('tr');
+    const headers = data.hasBaseline
+      ? ['Metric', 'Baseline', 'Current', 'Change']
+      : ['Metric', 'Value'];
+    for (const h of headers) {
+      headRow.appendChild(elText('th', h));
+    }
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = el('tbody');
+    for (const row of scenario.memory) {
+      const tr = el('tr');
+      tr.appendChild(elText('td', row.label));
+      if (data.hasBaseline) {
+        tr.appendChild(elText('td', row.baselineDisplay, 'num'));
+        tr.appendChild(elText('td', row.currentDisplay, 'num'));
+        const changeTd = elText(
+          'td',
+          row.incomplete ? (row.incompleteLabel || scenario.incompleteLabel) : fmtPct(row.change),
+          'num'
+        );
+        // Memory is banded on the scenario's heap threshold, which is an order of magnitude tighter
+        // than the timing one because heap barely moves run to run -- except on the scenarios whose
+        // peak heap depends on GC timing, which carry a wider band (heapThresholdFor). An
+        // informational row (the live heap, no threshold derived yet) states its delta unbanded.
+        changeTd.style.color = row.incomplete || row.neutral
+          ? statusColor('neutral')
+          : statusColor(classifyChangeCss(row.change, scenario.heapThreshold));
+        tr.appendChild(changeTd);
+      } else {
+        tr.appendChild(elText('td', row.currentDisplay, 'num'));
+      }
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    return table;
+  }
+
+  function buildExpandSection(title, contentFn, autoOpen) {
+    const section = el('div', 'expand-section');
+    const header = el('div', 'expand-header');
+    const arrow = elText('span', '\\u25B6', 'arrow' + (autoOpen ? ' open' : ''));
+    header.appendChild(arrow);
+    header.appendChild(document.createTextNode(' ' + title));
+
+    const body = el('div', 'expand-body' + (autoOpen ? ' open' : ''));
+
+    header.addEventListener('click', () => {
+      // Lazy-render content on first expand
+      if (!body.dataset.rendered) {
+        body.appendChild(contentFn());
+        body.dataset.rendered = '1';
+      }
+      body.classList.toggle('open');
+      arrow.classList.toggle('open');
+    });
+
+    // If auto-open, render immediately
+    if (autoOpen) {
+      body.appendChild(contentFn());
+      body.dataset.rendered = '1';
+    }
+
+    section.appendChild(header);
+    section.appendChild(body);
+    return section;
+  }
+
+  function buildTooltip() {
+    const tip = el('div', 'tooltip');
+    tip.id = 'tooltip';
+
+    document.addEventListener('mouseover', (e) => {
+      const target = e.target.closest('[data-tooltip]');
+      if (target) {
+        tip.textContent = target.dataset.tooltip;
+        tip.style.display = 'block';
+      }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (tip.style.display === 'block') {
+        tip.style.left = (e.clientX + 12) + 'px';
+        tip.style.top = (e.clientY - 8) + 'px';
+      }
+    });
+
+    document.addEventListener('mouseout', (e) => {
+      if (e.target.closest('[data-tooltip]')) {
+        tip.style.display = 'none';
+      }
+    });
+
+    return tip;
+  }
+
+  // --- Helpers ---
+
+  function el(tag, cls) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    return e;
+  }
+
+  function elText(tag, text, cls) {
+    const e = el(tag, cls);
+    e.textContent = text;
+    return e;
+  }
+
+  function svgRect(x, y, w, h, fill, rx) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const rect = document.createElementNS(ns, 'rect');
+    rect.setAttribute('x', x);
+    rect.setAttribute('y', y);
+    rect.setAttribute('width', w);
+    rect.setAttribute('height', h);
+    rect.setAttribute('fill', fill);
+    if (rx) rect.setAttribute('rx', rx);
+    return rect;
+  }
+
+  function svgText(x, y, text, fill, size, anchor) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const t = document.createElementNS(ns, 'text');
+    t.setAttribute('x', x);
+    t.setAttribute('y', y);
+    t.setAttribute('fill', fill);
+    t.setAttribute('font-size', size);
+    t.setAttribute('font-family', '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif');
+    if (anchor) t.setAttribute('text-anchor', anchor);
+    t.textContent = text;
+    return t;
+  }
+
+  // Mirrors fmtPct() in thresholds.mjs: a tiny negative reads "+0.0%", never "-0.0%".
+  function fmtPct(pct) {
+    if (pct == null) return '--';
+    const rounded = Number(pct.toFixed(1)) + 0;
+    return (rounded >= 0 ? '+' : '') + rounded.toFixed(1) + '%';
+  }
+
+  // Mirrors classifyChange() in thresholds.mjs. The band edge is not restated here: it comes from
+  // the serialized thresholds, so a row can never be painted red at a percentage the comment
+  // reports as within tolerance.
+  function classifyChangeCss(pct, threshold) {
+    const edge = threshold != null ? threshold : data.thresholds.timing;
+    if (pct == null) return 'neutral';
+    if (pct > edge) return 'regression';
+    if (pct > 0) return 'neutral-up';
+    if (pct < -edge) return 'improvement';
+    if (pct < 0) return 'neutral-down';
+    return 'neutral';
+  }
+
+  // Mirrors fmtCvValue() in thresholds.mjs, warning glyph and \`flag\` included, so the markdown comment
+  // and this report flag the same spreads: a wide baseline, never the run's own.
+  function fmtCvValue(cv, flag) {
+    if (cv == null) return 'n/a';
+    return cv.toFixed(1) + '%' + (flag !== false && cv > data.thresholds.cvWarning ? ' \\u26A0\\uFE0F' : '');
+  }
+
+  function statusColor(cls) {
+    const colors = {
+      'regression': '#cf222e',
+      'neutral-up': '#bf8700',
+      'improvement': '#1a7f37',
+      'neutral-down': '#0969da',
+      'neutral': '#656d76',
+    };
+    return colors[cls] || '#656d76';
+  }
+
+  // --- Init ---
+  document.body.appendChild(buildTooltip());
+  render();
+})();
+<${'/' + 'script'}>`; // eslint-disable-line no-useless-concat
+}

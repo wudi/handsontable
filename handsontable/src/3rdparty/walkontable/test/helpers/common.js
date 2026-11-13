@@ -1,4 +1,28 @@
-/* eslint-disable jsdoc/require-description-complete-sentence */
+/**
+ * Test context object.
+ *
+ * @type {object}
+ */
+const specContext = {};
+
+beforeEach(function() {
+  specContext.spec = this;
+});
+
+afterEach(() => {
+  specContext.spec = null;
+  window.scrollTo(0, 0);
+});
+
+beforeAll(() => {
+  // Make the test more predictable by hiding the test suite dots
+  $('.jasmine_html-reporter').hide();
+});
+afterAll(() => {
+  // After the test are finished show the test suite dots
+  $('.jasmine_html-reporter').show();
+});
+
 /**
  * The function allows you to run the test suites based on different parameters (object configuration, datasets etc).
  *
@@ -28,7 +52,6 @@ export function using(name, parameters, func) {
     });
   });
 }
-/* eslint-enable jsdoc/require-description-complete-sentence */
 
 /**
  * @param {number} [delay=100] The delay in ms after which the Promise is resolved.
@@ -45,13 +68,6 @@ export function sleep(delay = 100) {
     }
   });
 }
-
-/**
- * Test context object.
- *
- * @type {object}
- */
-const specContext = {};
 
 /**
  * Get the test case context.
@@ -84,10 +100,45 @@ export function walkontable(options, table) {
   }
 
   options.table = table;
-
+  options.stylesHandler = createStylesHandler();
   currentSpec.wotInstance = new Walkontable.Core(options);
 
   return currentSpec.wotInstance;
+}
+
+/**
+ * @returns {Overlay} Returns the table's overlay instance.
+ */
+export function topOverlay() {
+  return wot().wtOverlays.topOverlay;
+}
+
+/**
+ * @returns {Overlay} Returns the table's overlay instance.
+ */
+export function bottomOverlay() {
+  return wot().wtOverlays.bottomOverlay;
+}
+
+/**
+ * @returns {Overlay} Returns the table's overlay instance.
+ */
+export function topInlineStartCornerOverlay() {
+  return wot().wtOverlays.topInlineStartCornerOverlay;
+}
+
+/**
+ * @returns {Overlay} Returns the table's overlay instance.
+ */
+export function inlineStartOverlay() {
+  return wot().wtOverlays.inlineStartOverlay;
+}
+
+/**
+ * @returns {Overlay} Returns the table's overlay instance.
+ */
+export function bottomInlineStartCornerOverlay() {
+  return wot().wtOverlays.bottomInlineStartCornerOverlay;
 }
 
 /**
@@ -154,24 +205,6 @@ export function getTotalColumns() {
 export function wheelOnElement(elem, deltaX = 0, deltaY = 0) {
   elem.dispatchEvent(new WheelEvent('wheel', { deltaX, deltaY }));
 }
-
-beforeEach(function() {
-  specContext.spec = this;
-});
-
-afterEach(() => {
-  specContext.spec = null;
-  window.scrollTo(0, 0);
-});
-
-beforeAll(() => {
-  // Make the test more predictable by hiding the test suite dots
-  $('.jasmine_html-reporter').hide();
-});
-afterAll(() => {
-  // After the test are finished show the test suite dots
-  $('.jasmine_html-reporter').show();
-});
 
 /**
  * Returns the table width.
@@ -272,34 +305,39 @@ export function createSelectionController(options = {}) {
         ...selectionOptions,
       });
     },
-    getHeader() {
+    getHeader(selectionOptions = {}) {
       return addSelectionToCollection(headerCtrl, {
         selectionType: 'header',
-        className: 'ht__highlight'
+        className: 'ht__highlight',
+        ...selectionOptions,
       });
     },
-    getActiveHeader() {
+    getActiveHeader(selectionOptions = {}) {
       return addSelectionToCollection(activeHeaderCtrl, {
         selectionType: 'active-header',
-        className: 'ht__active_highlight'
+        className: 'ht__active_highlight',
+        ...selectionOptions,
       });
     },
-    getRowHighlight() {
+    getRowHighlight(selectionOptions = {}) {
       return addSelectionToCollection(rowHighlightCtrl, {
         selectionType: 'row',
-        className: 'row'
+        className: 'row',
+        ...selectionOptions,
       });
     },
-    getColumnHighlight() {
+    getColumnHighlight(selectionOptions = {}) {
       return addSelectionToCollection(columnHighlightCtrl, {
         selectionType: 'column',
-        className: 'column'
+        className: 'column',
+        ...selectionOptions,
       });
     },
-    getCustomHighlight() {
+    getCustomHighlight(selectionOptions = {}) {
       return addSelectionToCollection(customHighlightCtrl, {
         selectionType: 'custom',
-        className: 'custom'
+        className: 'custom',
+        ...selectionOptions,
       });
     },
     [Symbol.iterator]() {
@@ -313,6 +351,42 @@ export function createSelectionController(options = {}) {
         ...columnHighlightCtrl,
         ...customHighlightCtrl,
       ][Symbol.iterator]();
+    },
+  };
+}
+
+/**
+ * Creates the stylesHandler for the Walkontable to be used in the tests.
+ *
+ * @returns {object} Styles Handler.
+ */
+export function createStylesHandler() {
+  return {
+    getDefaultRowHeight() {
+      return 23;
+    },
+    areCellsBorderBox() {
+      return false;
+    },
+    getStyleForTD(cssProperty) {
+      // The hider height compensation reads the cells' rendered bottom border here. Puppeteer runs
+      // this suite at 100% with no display scaling, so the declared 1px is what a browser paints.
+      return ({ 'border-bottom-width': '1px', 'box-sizing': 'content-box' })[cssProperty];
+    },
+    getCSSVariableValue(variableName) {
+      const cssVariables = {
+        'cell-autofill-size': 6,
+        'cell-autofill-border-width': 1,
+        'cell-autofill-border-color': '#FFF',
+        'cell-selection-handle-size': 8,
+        'cell-selection-handle-length': 24,
+        'cell-selection-handle-border-width': 1,
+        'cell-selection-handle-border-radius': 12,
+        'cell-selection-handle-border-color': '#1A73E8',
+        'cell-selection-handle-background-color': '#1A73E8',
+      };
+
+      return cssVariables[variableName];
     },
   };
 }
@@ -494,4 +568,90 @@ export function expectWtTable(wt, callb, name) {
   }
 
   return expect(callb(wt.wtOverlays[`${name}Overlay`].clone.wtTable)).withContext(`${name}: ${callbAsString}`);
+}
+
+/**
+ * Moves the table's viewport to the specified y scroll position.
+ *
+ * @param {number} y The scroll position.
+ */
+export async function scrollViewportVertically(y) {
+  const isWindow = wot().wtOverlays.scrollableElement === window;
+  const scrollableElement = isWindow ? window : getTableMaster().find('.wtHolder')[0];
+
+  return new Promise((resolve) => {
+    const scrollHandler = () => {
+      scrollableElement.removeEventListener('scroll', scrollHandler);
+      resolve();
+    };
+
+    scrollableElement.addEventListener('scroll', scrollHandler);
+
+    if (isWindow) {
+      scrollableElement.scrollTo(scrollableElement.scrollX, y);
+    } else {
+      scrollableElement.scrollTop = y;
+    }
+  });
+}
+
+/**
+ * Moves the table's viewport to the specified x scroll position.
+ *
+ * @param {number} x The scroll position.
+ */
+export async function scrollViewportHorizontally(x) {
+  const isWindow = wot().wtOverlays.scrollableElement === window;
+  const scrollableElement = isWindow ? window : getTableMaster().find('.wtHolder')[0];
+
+  return new Promise((resolve) => {
+    const scrollHandler = () => {
+      scrollableElement.removeEventListener('scroll', scrollHandler);
+      resolve();
+    };
+
+    scrollableElement.addEventListener('scroll', scrollHandler);
+
+    if (isWindow) {
+      scrollableElement.scrollTo(x, scrollableElement.scrollY);
+    } else {
+      scrollableElement.scrollLeft = x;
+    }
+  });
+}
+
+/**
+ * Moves the browser's viewport to the specified x and y scroll position.
+ *
+ * @param {number} x The scroll vertical position.
+ * @param {number} y The scroll horizontal position.
+ */
+export async function scrollWindowTo(x, y) {
+  return new Promise((resolve) => {
+    const scrollHandler = () => {
+      window.removeEventListener('scroll', scrollHandler);
+      resolve();
+    };
+
+    window.addEventListener('scroll', scrollHandler);
+    window.scrollTo(hot().isRtl() ? -x : x, y);
+  });
+}
+
+/**
+ * Moves the browser's viewport to the specified x and y scroll position.
+ *
+ * @param {number} x The scroll vertical position.
+ * @param {number} y The scroll horizontal position.
+ */
+export async function scrollWindowBy(x, y) {
+  return new Promise((resolve) => {
+    const scrollHandler = () => {
+      window.removeEventListener('scroll', scrollHandler);
+      resolve();
+    };
+
+    window.addEventListener('scroll', scrollHandler);
+    window.scrollBy(x, y);
+  });
 }

@@ -1,13 +1,14 @@
 import Handsontable from 'handsontable';
 
 const elem = document.createElement('div');
-const hot = new Handsontable(elem, {});
+const hot = Handsontable(elem, {});
 const shortcutManager = hot.getShortcutManager();
 const context = shortcutManager.addContext('contextName');
 
 shortcutManager.setActiveContextName('contextName');
 shortcutManager.getActiveContextName();
 shortcutManager.getContext('contextName');
+shortcutManager.getOrCreateContext('contextName');
 shortcutManager.isCtrlPressed();
 shortcutManager.destroy();
 
@@ -36,7 +37,7 @@ context.addShortcut(minimalSetup);
 context.addShortcuts([shortcut]);
 context.addShortcuts([withAllOptions]);
 context.addShortcuts([minimalSetup]);
-context.getShortcuts();
+context.getShortcuts(['control/meta', 'a']);
 context.hasShortcut(['control/meta', 'a']);
 context.removeShortcutsByKeys(['control/meta', 'a']);
 context.removeShortcutsByGroup('group');

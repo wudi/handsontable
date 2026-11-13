@@ -30,7 +30,7 @@ describe('BaseEditor API (RTL mode)', () => {
     describe('getEditedCellRect()', () => {
       describe('should return an object with provided correct information about size and position of the cell', () => {
         describe('for top overlay when viewport is scrolled to the top-right edge', () => {
-          it('and the scrollable element is not the Window object', () => {
+          it('and the scrollable element is not the Window object', async() => {
             handsontable({
               layoutDirection,
               data: createSpreadsheetData(10, 10),
@@ -38,43 +38,51 @@ describe('BaseEditor API (RTL mode)', () => {
               height: 200,
               editor: 'my-editor',
               fixedRowsTop: 2,
+              viewportColumnRenderingOffset: 10,
+              viewportRowRenderingOffset: 10,
             });
 
-            selectCell(0, 0);
+            await selectCell(0, 0);
 
-            expect(getActiveEditor().getEditedCellRect()).toEqual({
-              start: 0,
-              top: 0,
-              width: 50,
-              maxWidth: 285,
-              height: 24,
-              maxHeight: 185,
+            const { rect, expected, wh } = getEditedCellRectExpectation(() => {
+              const sb = Handsontable.dom.getScrollbarWidth(document);
+
+              return {
+                start: 0,
+                top: 0,
+                maxWidth: 300 - sb,
+                maxHeight: 200 - sb,
+              };
             });
+
+            expect(rect).toEqual(jasmine.objectContaining({ ...expected, ...wh }));
           });
 
-          it('and the scrollable element is the Window object', () => {
+          it('and the scrollable element is the Window object', async() => {
             handsontable({
               layoutDirection,
               data: createSpreadsheetData(100, 100),
               editor: 'my-editor',
               fixedRowsTop: 2,
+              viewportColumnRenderingOffset: 10,
+              viewportRowRenderingOffset: 10,
             });
 
-            selectCell(0, 0);
+            await selectCell(0, 0);
 
-            expect(getActiveEditor().getEditedCellRect()).toEqual({
+            const { rect, expected, wh } = getEditedCellRectExpectation(() => ({
               start: 0,
               top: 0,
-              width: 50,
               maxWidth: document.documentElement.clientWidth,
-              height: 24,
               maxHeight: document.documentElement.clientHeight,
-            });
+            }));
+
+            expect(rect).toEqual(jasmine.objectContaining({ ...expected, ...wh }));
           });
         });
 
         describe('for top overlay when viewport is scrolled to the bottom-left edge', () => {
-          it('and the scrollable element is not the Window object', () => {
+          it('and the scrollable element is not the Window object', async() => {
             handsontable({
               layoutDirection,
               data: createSpreadsheetData(10, 10),
@@ -82,24 +90,21 @@ describe('BaseEditor API (RTL mode)', () => {
               height: 200,
               editor: 'my-editor',
               fixedRowsTop: 2,
+              viewportColumnRenderingOffset: 10,
+              viewportRowRenderingOffset: 10,
             });
 
-            scrollViewportTo({
+            await scrollViewportTo({
               row: countRows() - 1,
               col: countCols() - 1,
               verticalSnap: 'top',
               horizontalSnap: 'start',
             });
-            selectCell(1, countRows() - 1);
+            await selectCell(1, countRows() - 1);
 
-            expect(getActiveEditor().getEditedCellRect()).toEqual(jasmine.objectContaining({
-              start: 234,
-              top: 23,
-              width: 51,
-              maxWidth: 51,
-              height: 24,
-              // maxHeight: ?, // returns wrong value! it will be fixed within #9206
-            }));
+            const { rect, expected, wh } = getEditedCellRectExpectation(rtlEditorRectAtColumnStart234);
+
+            expect(rect).toEqual(jasmine.objectContaining({ ...expected, ...wh }));
           });
 
           it('and the scrollable element is the Window object', async() => {
@@ -114,31 +119,36 @@ describe('BaseEditor API (RTL mode)', () => {
               data: createSpreadsheetData(100, 100),
               editor: 'my-editor',
               fixedRowsTop: 2,
+              viewportColumnRenderingOffset: 10,
+              viewportRowRenderingOffset: 10,
             });
 
-            scrollViewportTo({
+            await scrollViewportTo({
               row: countRows() - 1,
               col: countCols() - 1,
               verticalSnap: 'top',
               horizontalSnap: 'start',
             });
-            selectCell(1, countCols() - 1);
+            await selectCell(1, countCols() - 1);
 
-            await sleep(100);
+            const { rect, expected, wh } = getEditedCellRectExpectation((L) => {
+              const v = getE2eDocumentViewport();
+              const scrollLeftAbs = Math.abs(v.scrollLeft);
+              const lastColWidth = hot().getColWidth(countCols() - 1) + L.cellBorderWidth;
 
-            expect(getActiveEditor().getEditedCellRect()).toEqual(jasmine.objectContaining({
-              start: Math.abs(document.documentElement.scrollLeft) + document.documentElement.clientWidth - 50, // 50 - the width of the first cell
-              top: document.documentElement.offsetHeight - document.documentElement.clientHeight + 23,
-              width: 51,
-              maxWidth: 50,
-              height: 24,
-              // maxHeight: ?, // returns wrong value! it will be fixed within #9206
-            }));
+              return {
+                start: scrollLeftAbs + v.clientWidth - lastColWidth,
+                top: v.offsetHeight - v.clientHeight + L.defaultDataRowHeight,
+                maxWidth: lastColWidth,
+              };
+            });
+
+            expect(rect).toEqual(jasmine.objectContaining({ ...expected, ...wh }));
           });
         });
 
         describe('for top-right corner overlay when viewport is scrolled to the top-right edge', () => {
-          it('and the scrollable element is not the Window object', () => {
+          it('and the scrollable element is not the Window object', async() => {
             handsontable({
               layoutDirection,
               data: createSpreadsheetData(10, 10),
@@ -147,44 +157,52 @@ describe('BaseEditor API (RTL mode)', () => {
               editor: 'my-editor',
               fixedColumnsStart: 2,
               fixedRowsTop: 2,
+              viewportColumnRenderingOffset: 10,
+              viewportRowRenderingOffset: 10,
             });
 
-            selectCell(0, 0);
+            await selectCell(0, 0);
 
-            expect(getActiveEditor().getEditedCellRect()).toEqual({
-              start: 0,
-              top: 0,
-              width: 50,
-              maxWidth: 285,
-              height: 24,
-              maxHeight: 185,
+            const { rect, expected, wh } = getEditedCellRectExpectation(() => {
+              const sb = Handsontable.dom.getScrollbarWidth(document);
+
+              return {
+                start: 0,
+                top: 0,
+                maxWidth: 300 - sb,
+                maxHeight: 200 - sb,
+              };
             });
+
+            expect(rect).toEqual(jasmine.objectContaining({ ...expected, ...wh }));
           });
 
-          it('and the scrollable element is the Window object', () => {
+          it('and the scrollable element is the Window object', async() => {
             handsontable({
               layoutDirection,
               data: createSpreadsheetData(100, 100),
               editor: 'my-editor',
               fixedColumnsStart: 2,
               fixedRowsTop: 2,
+              viewportColumnRenderingOffset: 10,
+              viewportRowRenderingOffset: 10,
             });
 
-            selectCell(0, 0);
+            await selectCell(0, 0);
 
-            expect(getActiveEditor().getEditedCellRect()).toEqual({
+            const { rect, expected, wh } = getEditedCellRectExpectation(() => ({
               start: 0,
               top: 0,
-              width: 50,
               maxWidth: document.documentElement.clientWidth,
-              height: 24,
               maxHeight: document.documentElement.clientHeight,
-            });
+            }));
+
+            expect(rect).toEqual(jasmine.objectContaining({ ...expected, ...wh }));
           });
         });
 
         describe('for top-right corner overlay when viewport is scrolled to the bottom-left edge', () => {
-          it('and the scrollable element is not the Window object', () => {
+          it('and the scrollable element is not the Window object', async() => {
             handsontable({
               layoutDirection,
               data: createSpreadsheetData(10, 10),
@@ -193,56 +211,65 @@ describe('BaseEditor API (RTL mode)', () => {
               editor: 'my-editor',
               fixedColumnsStart: 2,
               fixedRowsTop: 2,
+              viewportColumnRenderingOffset: 10,
+              viewportRowRenderingOffset: 10,
             });
 
-            scrollViewportTo({
+            await scrollViewportTo({
               row: countRows() - 1,
               col: countCols() - 1,
               verticalSnap: 'top',
               horizontalSnap: 'start',
             });
-            selectCell(1, 1);
+            await selectCell(1, 1);
 
-            expect(getActiveEditor().getEditedCellRect()).toEqual(jasmine.objectContaining({
-              start: 49,
-              top: 23,
-              width: 51,
-              // maxWidth: ?, // returns wrong value! it will be fixed within #9206
-              height: 24,
-              // maxHeight: ?, // returns wrong value! it will be fixed within #9206
+            const { rect, expected, wh } = getEditedCellRectExpectation(L => ({
+              // Use live rendered column widths because AutoColumnSize may widen data columns
+              // beyond `defaultColumnWidth` under themes with wider fonts.
+              start: hot().getColWidth(0) - L.cellBorderWidth,
+              top: L.defaultDataRowHeight,
             }));
+
+            expect(rect).toEqual(jasmine.objectContaining({ ...expected, ...wh }));
           });
 
-          it('and the scrollable element is the Window object', () => {
+          it('and the scrollable element is the Window object', async() => {
             handsontable({
               layoutDirection,
               data: createSpreadsheetData(100, 100),
               editor: 'my-editor',
               fixedColumnsStart: 2,
               fixedRowsTop: 2,
+              viewportColumnRenderingOffset: 10,
+              viewportRowRenderingOffset: 10,
             });
 
-            scrollViewportTo({
+            await scrollViewportTo({
               row: countRows() - 1,
               col: countCols() - 1,
               verticalSnap: 'top',
               horizontalSnap: 'start',
             });
-            selectCell(1, 1);
+            await selectCell(1, 1);
 
-            expect(getActiveEditor().getEditedCellRect()).toEqual(jasmine.objectContaining({
-              start: Math.abs(document.documentElement.scrollLeft) + 49, // 49 - the width of the first cell
-              top: document.documentElement.offsetHeight - document.documentElement.clientHeight + 23,
-              width: 51,
-              // maxWidth: ?, // returns wrong value! it will be fixed within #9206
-              height: 24,
-              // maxHeight: ?, // returns wrong value! it will be fixed within #9206
-            }));
+            const { rect, expected, wh } = getEditedCellRectExpectation((L) => {
+              const v = getE2eDocumentViewport();
+              const scrollLeftAbs = Math.abs(v.scrollLeft);
+              const col0Width = hot().getColWidth(0);
+              const col1Start = col0Width - L.cellBorderWidth;
+
+              return {
+                start: scrollLeftAbs + col1Start,
+                top: v.offsetHeight - v.clientHeight + L.defaultDataRowHeight,
+              };
+            });
+
+            expect(rect).toEqual(jasmine.objectContaining({ ...expected, ...wh }));
           });
         });
 
         describe('for right overlay when viewport is scrolled to the top-right edge', () => {
-          it('and the scrollable element is not the Window object', () => {
+          it('and the scrollable element is not the Window object', async() => {
             handsontable({
               layoutDirection,
               data: createSpreadsheetData(10, 10),
@@ -250,43 +277,51 @@ describe('BaseEditor API (RTL mode)', () => {
               height: 200,
               editor: 'my-editor',
               fixedColumnsStart: 2,
+              viewportColumnRenderingOffset: 10,
+              viewportRowRenderingOffset: 10,
             });
 
-            selectCell(0, 0);
+            await selectCell(0, 0);
 
-            expect(getActiveEditor().getEditedCellRect()).toEqual({
-              start: 0,
-              top: 0,
-              width: 50,
-              maxWidth: 285,
-              height: 24,
-              maxHeight: 185,
+            const { rect, expected, wh } = getEditedCellRectExpectation(() => {
+              const sb = Handsontable.dom.getScrollbarWidth(document);
+
+              return {
+                start: 0,
+                top: 0,
+                maxWidth: 300 - sb,
+                maxHeight: 200 - sb,
+              };
             });
+
+            expect(rect).toEqual(jasmine.objectContaining({ ...expected, ...wh }));
           });
 
-          it('and the scrollable element is the Window object', () => {
+          it('and the scrollable element is the Window object', async() => {
             handsontable({
               layoutDirection,
               data: createSpreadsheetData(100, 100),
               editor: 'my-editor',
               fixedColumnsStart: 2,
+              viewportColumnRenderingOffset: 10,
+              viewportRowRenderingOffset: 10,
             });
 
-            selectCell(0, 0);
+            await selectCell(0, 0);
 
-            expect(getActiveEditor().getEditedCellRect()).toEqual({
+            const { rect, expected, wh } = getEditedCellRectExpectation(() => ({
               start: 0,
               top: 0,
-              width: 50,
               maxWidth: document.documentElement.clientWidth,
-              height: 24,
               maxHeight: document.documentElement.clientHeight,
-            });
+            }));
+
+            expect(rect).toEqual(jasmine.objectContaining({ ...expected, ...wh }));
           });
         });
 
         describe('for right overlay when viewport is scrolled to the bottom-left edge', () => {
-          it('and the scrollable element is not the Window object', () => {
+          it('and the scrollable element is not the Window object', async() => {
             handsontable({
               layoutDirection,
               data: createSpreadsheetData(10, 10),
@@ -294,55 +329,72 @@ describe('BaseEditor API (RTL mode)', () => {
               height: 200,
               editor: 'my-editor',
               fixedColumnsStart: 2,
+              viewportColumnRenderingOffset: 10,
+              viewportRowRenderingOffset: 10,
             });
 
-            scrollViewportTo({
+            await scrollViewportTo({
               row: countRows() - 1,
               col: countCols() - 1,
               verticalSnap: 'top',
               horizontalSnap: 'start',
             });
-            selectCell(countRows() - 1, 1);
+            await selectCell(countRows() - 1, 1);
 
-            expect(getActiveEditor().getEditedCellRect()).toEqual(jasmine.objectContaining({
-              start: 49,
-              top: 161,
-              width: 51,
-              // maxWidth: ?, // returns wrong value! it will be fixed within #9206
-              height: 24,
-              maxHeight: 24,
-            }));
+            const { rect, expected, wh } = getEditedCellRectExpectation((L) => {
+              const sb = Handsontable.dom.getScrollbarWidth(document);
+              const cellOuterHeight = L.cellContentHeight + (2 * L.cellBorderWidth);
+
+              return {
+                // Use live rendered column widths because AutoColumnSize may widen data columns
+                // beyond `defaultColumnWidth` under themes with wider fonts.
+                start: hot().getColWidth(0) - L.cellBorderWidth,
+                top: 200 - sb - cellOuterHeight,
+                maxHeight: cellOuterHeight,
+              };
+            });
+
+            expect(rect).toEqual(jasmine.objectContaining({ ...expected, ...wh }));
           });
 
-          it('and the scrollable element is the Window object', () => {
+          it('and the scrollable element is the Window object', async() => {
             handsontable({
               layoutDirection,
               data: createSpreadsheetData(100, 100),
               editor: 'my-editor',
               fixedColumnsStart: 2,
+              viewportColumnRenderingOffset: 10,
+              viewportRowRenderingOffset: 10,
             });
 
-            scrollViewportTo({
+            await scrollViewportTo({
               row: countRows() - 1,
               col: countCols() - 1,
               verticalSnap: 'top',
               horizontalSnap: 'start',
             });
-            selectCell(countRows() - 1, 1);
+            await selectCell(countRows() - 1, 1);
 
-            expect(getActiveEditor().getEditedCellRect()).toEqual(jasmine.objectContaining({
-              start: Math.abs(document.documentElement.scrollLeft) + 49, // 49 - the width of the first cell
-              top: document.documentElement.offsetHeight - 24, // 24 - the height of the last cell
-              width: 51,
-              // maxWidth: ?, // returns wrong value! it will be fixed within #9206
-              height: 24,
-              maxHeight: 24,
-            }));
+            const { rect, expected, wh } = getEditedCellRectExpectation((L) => {
+              const v = getE2eDocumentViewport();
+              const scrollLeftAbs = Math.abs(v.scrollLeft);
+              const cellOuterHeight = L.cellContentHeight + (2 * L.cellBorderWidth);
+              const col0Width = hot().getColWidth(0);
+              const col1Start = col0Width - L.cellBorderWidth;
+
+              return {
+                start: scrollLeftAbs + col1Start,
+                top: v.offsetHeight - cellOuterHeight,
+                maxHeight: cellOuterHeight,
+              };
+            });
+
+            expect(rect).toEqual(jasmine.objectContaining({ ...expected, ...wh }));
           });
         });
 
         describe('for bottom-right corner overlay when viewport is scrolled to the top-right edge', () => {
-          it('and the scrollable element is not the Window object', () => {
+          it('and the scrollable element is not the Window object', async() => {
             handsontable({
               layoutDirection,
               data: createSpreadsheetData(10, 10),
@@ -351,44 +403,51 @@ describe('BaseEditor API (RTL mode)', () => {
               editor: 'my-editor',
               fixedColumnsStart: 2,
               fixedRowsBottom: 2,
+              viewportColumnRenderingOffset: 10,
+              viewportRowRenderingOffset: 10,
             });
 
-            selectCell(8, 0);
+            await selectCell(8, 0);
 
-            expect(getActiveEditor().getEditedCellRect()).toEqual(jasmine.objectContaining({
-              start: 0,
-              top: 138,
-              width: 50,
-              maxWidth: 285,
-              height: 24,
-              // maxHeight: ?, // returns wrong value! it will be fixed within #9206
-            }));
+            const { rect, expected, wh } = getEditedCellRectExpectation((L) => {
+              const sb = Handsontable.dom.getScrollbarWidth(document);
+              const bottomOverlayHeight = L.overlayHeight({ rows: 2 });
+
+              return {
+                start: 0,
+                top: 200 - sb - bottomOverlayHeight,
+                maxWidth: 300 - sb,
+              };
+            });
+
+            expect(rect).toEqual(jasmine.objectContaining({ ...expected, ...wh }));
           });
 
-          it('and the scrollable element is the Window object', () => {
+          it('and the scrollable element is the Window object', async() => {
             handsontable({
               layoutDirection,
               data: createSpreadsheetData(100, 100),
               editor: 'my-editor',
               fixedColumnsStart: 2,
               fixedRowsBottom: 2,
+              viewportColumnRenderingOffset: 10,
+              viewportRowRenderingOffset: 10,
             });
 
-            selectCell(countRows() - 2, 0);
+            await selectCell(countRows() - 2, 0);
 
-            expect(getActiveEditor().getEditedCellRect()).toEqual(jasmine.objectContaining({
+            const { rect, expected, wh } = getEditedCellRectExpectation(L => ({
               start: 0,
-              top: document.documentElement.clientHeight - 47, // 47 - height of the 2 last rows,
-              width: 50,
+              top: document.documentElement.clientHeight - L.overlayHeight({ rows: 2 }),
               maxWidth: document.documentElement.clientWidth,
-              height: 24,
-              // maxHeight: ?, // returns wrong value! it will be fixed within #9206
             }));
+
+            expect(rect).toEqual(jasmine.objectContaining({ ...expected, ...wh }));
           });
         });
 
         describe('for bottom-right corner overlay when viewport is scrolled to the bottom-left edge', () => {
-          it('and the scrollable element is not the Window object', () => {
+          it('and the scrollable element is not the Window object', async() => {
             handsontable({
               layoutDirection,
               data: createSpreadsheetData(10, 10),
@@ -397,56 +456,67 @@ describe('BaseEditor API (RTL mode)', () => {
               editor: 'my-editor',
               fixedColumnsStart: 2,
               fixedRowsBottom: 2,
+              viewportColumnRenderingOffset: 10,
+              viewportRowRenderingOffset: 10,
             });
 
-            scrollViewportTo({
+            await scrollViewportTo({
               row: countRows() - 1,
               col: countCols() - 1,
               verticalSnap: 'top',
               horizontalSnap: 'start',
             });
-            selectCell(countRows() - 2, 0);
+            await selectCell(countRows() - 2, 0);
 
-            expect(getActiveEditor().getEditedCellRect()).toEqual(jasmine.objectContaining({
-              start: 0,
-              top: 138,
-              width: 50,
-              // maxWidth: ?, // returns wrong value! it will be fixed within #9206
-              height: 24,
-              // maxHeight: ?, // returns wrong value! it will be fixed within #9206
-            }));
+            const { rect, expected, wh } = getEditedCellRectExpectation((L) => {
+              const sb = Handsontable.dom.getScrollbarWidth(document);
+              const bottomOverlayHeight = L.overlayHeight({ rows: 2 });
+
+              return {
+                start: 0,
+                top: 200 - sb - bottomOverlayHeight,
+              };
+            });
+
+            expect(rect).toEqual(jasmine.objectContaining({ ...expected, ...wh }));
           });
 
-          it('and the scrollable element is the Window object', () => {
+          it('and the scrollable element is the Window object', async() => {
             handsontable({
               layoutDirection,
               data: createSpreadsheetData(100, 100),
               editor: 'my-editor',
               fixedColumnsStart: 2,
               fixedRowsBottom: 2,
+              viewportColumnRenderingOffset: 10,
+              viewportRowRenderingOffset: 10,
             });
 
-            scrollViewportTo({
+            await scrollViewportTo({
               row: countRows() - 1,
               col: countCols() - 1,
               verticalSnap: 'top',
               horizontalSnap: 'start',
             });
-            selectCell(countRows() - 2, 0);
+            await selectCell(countRows() - 2, 0);
 
-            expect(getActiveEditor().getEditedCellRect()).toEqual(jasmine.objectContaining({
-              start: Math.abs(document.documentElement.scrollLeft),
-              top: document.documentElement.offsetHeight - 47,
-              width: 50,
-              // maxWidth: ?, // returns wrong value! it will be fixed within #9206
-              height: 24,
-              // maxHeight: ?, // returns wrong value! it will be fixed within #9206
-            }));
+            const { rect, expected, wh } = getEditedCellRectExpectation((L) => {
+              const v = getE2eDocumentViewport();
+              const scrollLeftAbs = Math.abs(v.scrollLeft);
+              const bottomOverlayHeight = L.overlayHeight({ rows: 2 });
+
+              return {
+                start: scrollLeftAbs,
+                top: v.offsetHeight - bottomOverlayHeight,
+              };
+            });
+
+            expect(rect).toEqual(jasmine.objectContaining({ ...expected, ...wh }));
           });
         });
 
         describe('for bottom overlay when viewport is scrolled to the top-right edge', () => {
-          it('and the scrollable element is not the Window object', () => {
+          it('and the scrollable element is not the Window object', async() => {
             handsontable({
               layoutDirection,
               data: createSpreadsheetData(10, 10),
@@ -454,43 +524,50 @@ describe('BaseEditor API (RTL mode)', () => {
               height: 200,
               editor: 'my-editor',
               fixedRowsBottom: 2,
+              viewportColumnRenderingOffset: 10,
+              viewportRowRenderingOffset: 10,
             });
 
-            selectCell(countRows() - 2, 0);
+            await selectCell(countRows() - 2, 0);
 
-            expect(getActiveEditor().getEditedCellRect()).toEqual(jasmine.objectContaining({
-              start: 0,
-              top: 138,
-              width: 50,
-              maxWidth: 285,
-              height: 24,
-              // maxHeight: ?, // returns wrong value! it will be fixed within #9206
-            }));
+            const { rect, expected, wh } = getEditedCellRectExpectation((L) => {
+              const sb = Handsontable.dom.getScrollbarWidth(document);
+              const bottomOverlayHeight = L.overlayHeight({ rows: 2 });
+
+              return {
+                start: 0,
+                top: 200 - sb - bottomOverlayHeight,
+                maxWidth: 300 - sb,
+              };
+            });
+
+            expect(rect).toEqual(jasmine.objectContaining({ ...expected, ...wh }));
           });
 
-          it('and the scrollable element is the Window object', () => {
+          it('and the scrollable element is the Window object', async() => {
             handsontable({
               layoutDirection,
               data: createSpreadsheetData(100, 100),
               editor: 'my-editor',
               fixedRowsBottom: 2,
+              viewportColumnRenderingOffset: 10,
+              viewportRowRenderingOffset: 10,
             });
 
-            selectCell(countRows() - 2, 0);
+            await selectCell(countRows() - 2, 0);
 
-            expect(getActiveEditor().getEditedCellRect()).toEqual(jasmine.objectContaining({
+            const { rect, expected, wh } = getEditedCellRectExpectation(L => ({
               start: 0,
-              top: document.documentElement.clientHeight - 47, // 47 - height of the 2 last rows
-              width: 50,
+              top: document.documentElement.clientHeight - L.overlayHeight({ rows: 2 }),
               maxWidth: document.documentElement.clientWidth,
-              height: 24,
-              // maxHeight: ?, // returns wrong value! it will be fixed within #9206
             }));
+
+            expect(rect).toEqual(jasmine.objectContaining({ ...expected, ...wh }));
           });
         });
 
         describe('for bottom overlay when viewport is scrolled to the bottom-left edge', () => {
-          it('and the scrollable element is not the Window object', () => {
+          it('and the scrollable element is not the Window object', async() => {
             handsontable({
               layoutDirection,
               data: createSpreadsheetData(10, 10),
@@ -498,27 +575,34 @@ describe('BaseEditor API (RTL mode)', () => {
               height: 200,
               editor: 'my-editor',
               fixedRowsBottom: 2,
+              viewportColumnRenderingOffset: 10,
+              viewportRowRenderingOffset: 10,
             });
 
-            scrollViewportTo({
+            await scrollViewportTo({
               row: countRows() - 1,
               col: countCols() - 1,
               verticalSnap: 'top',
               horizontalSnap: 'start',
             });
-            selectCell(countRows() - 1, countCols() - 1);
+            await selectCell(countRows() - 1, countCols() - 1);
 
-            expect(getActiveEditor().getEditedCellRect()).toEqual(jasmine.objectContaining({
-              start: 234,
-              top: 161,
-              width: 51,
-              maxWidth: 51,
-              height: 24,
-              // maxHeight: ?, // returns wrong value! it will be fixed within #9206
-            }));
+            const { rect, expected, wh } = getEditedCellRectExpectation((L) => {
+              const sb = Handsontable.dom.getScrollbarWidth(document);
+              const colOuter = L.defaultColumnWidth + L.cellBorderWidth;
+              const cellOuterHeight = L.cellContentHeight + (2 * L.cellBorderWidth);
+
+              return {
+                start: 300 - sb - colOuter,
+                top: 200 - sb - cellOuterHeight,
+                maxWidth: colOuter,
+              };
+            });
+
+            expect(rect).toEqual(jasmine.objectContaining({ ...expected, ...wh }));
           });
 
-          it('and the scrollable element is the Window object', () => {
+          it('and the scrollable element is the Window object', async() => {
             // For this configuration object "{ htmlDir: 'ltr', layoutDirection: 'rtl' }" it's necessary to force
             // always RTL on document, otherwise the horizontal scrollbar won't appear and test fail.
             if (htmlDir === 'ltr' && layoutDirection === 'rtl') {
@@ -532,25 +616,24 @@ describe('BaseEditor API (RTL mode)', () => {
               fixedRowsBottom: 2,
               // Disabling `autoColumnSize` to prevent pixel-length differences in the spreader width dependent
               // on window size
-              autoColumnSize: false
+              autoColumnSize: false,
+              viewportColumnRenderingOffset: 10,
+              viewportRowRenderingOffset: 10,
             });
 
-            scrollViewportTo({
+            await scrollViewportTo({
               row: countRows() - 1,
               col: countCols() - 1,
               verticalSnap: 'top',
               horizontalSnap: 'start',
             });
-            selectCell(countRows() - 1, countCols() - 1);
+            await selectCell(countRows() - 1, countCols() - 1);
 
-            expect(getActiveEditor().getEditedCellRect()).toEqual(jasmine.objectContaining({
-              start: 4949,
-              top: document.documentElement.offsetHeight - 24,
-              width: 51,
-              maxWidth: 51,
-              height: 24,
-              // maxHeight: ?, // returns wrong value! it will be fixed within #9206
-            }));
+            const { rect, expected, wh } = getEditedCellRectExpectation(
+              L => rtlEditorRectAtColumnStart4949SnapBottom(L, getE2eDocumentViewport())
+            );
+
+            expect(rect).toEqual(jasmine.objectContaining({ ...expected, ...wh }));
           });
         });
       });

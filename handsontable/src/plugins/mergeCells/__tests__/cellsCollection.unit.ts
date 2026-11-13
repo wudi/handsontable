@@ -1,0 +1,1495 @@
+import MergedCellsCollection from '../cellsCollection';
+import MergedCell from '../cellCoords';
+import { CellCoords, CellRange } from '../../../3rdparty/walkontable/src';
+import { findNonIntersectingIndex } from '../../../selection/cellBlocks';
+import { _resetDeprecationWarnings } from '../../../helpers/console';
+import * as mergeCellsUtils from '../utils';
+
+describe('MergeCells', () => {
+  /**
+   *
+   */
+  function createMergedCell(row, col, rowspan, colspan) {
+    return new MergedCell(
+      row,
+      col,
+      rowspan,
+      colspan,
+      (...args) => new CellCoords(...args),
+      (...args) => new CellRange(...args),
+    );
+  }
+
+  describe('MergedCellsCollection', () => {
+    const hotMock = {
+      render: () => {
+      },
+      markAllCellsChanged: () => {
+      },
+      countCols: () => 100,
+      countRows: () => 100,
+      _createCellCoords: (row, column) => new CellCoords(row, column),
+      _createCellRange: (highlight, from, to) => new CellRange(highlight, from, to),
+    };
+
+    /**
+     *
+     */
+    function createCellRange(fromRow, fromColumn, toRow, toColumn) {
+      return new CellRange(
+        new CellCoords(fromRow, fromColumn),
+        new CellCoords(fromRow, fromColumn),
+        new CellCoords(toRow, toColumn)
+      );
+    }
+
+    // Shift+Arrow reads these through `findNonIntersectingIndex()`, fed with the merges on screen.
+    const startMostColumn = (collection, range, column) =>
+      findNonIntersectingIndex(collection.getVisibleMergedCells(), range, 'col', -1, column);
+    const endMostColumn = (collection, range, column) =>
+      findNonIntersectingIndex(collection.getVisibleMergedCells(), range, 'col', 1, column);
+    const topMostRow = (collection, range, row) =>
+      findNonIntersectingIndex(collection.getVisibleMergedCells(), range, 'row', -1, row);
+    const bottomMostRow = (collection, range, row) =>
+      findNonIntersectingIndex(collection.getVisibleMergedCells(), range, 'row', 1, row);
+
+    describe('`add` method', () => {
+      it('should add a merged cell object to the array of merged cells', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+        mergedCellsCollection.add({
+          row: 0,
+          col: 1,
+          rowspan: 3,
+          colspan: 4
+        });
+        mergedCellsCollection.add({
+          row: 10,
+          col: 11,
+          rowspan: 3,
+          colspan: 4
+        });
+        mergedCellsCollection.add({
+          row: 20,
+          col: 21,
+          rowspan: 3,
+          colspan: 4
+        });
+
+        expect(mergedCellsCollection.mergedCells.length).toEqual(3);
+        expect(mergedCellsCollection.mergedCells[0].row).toEqual(0);
+        expect(mergedCellsCollection.mergedCells[0].col).toEqual(1);
+        expect(mergedCellsCollection.mergedCells[0].rowspan).toEqual(3);
+        expect(mergedCellsCollection.mergedCells[0].colspan).toEqual(4);
+        expect(mergedCellsCollection.mergedCells[1].row).toEqual(10);
+        expect(mergedCellsCollection.mergedCells[1].col).toEqual(11);
+        expect(mergedCellsCollection.mergedCells[1].rowspan).toEqual(3);
+        expect(mergedCellsCollection.mergedCells[1].colspan).toEqual(4);
+        expect(mergedCellsCollection.mergedCells[2].row).toEqual(20);
+        expect(mergedCellsCollection.mergedCells[2].col).toEqual(21);
+        expect(mergedCellsCollection.mergedCells[2].rowspan).toEqual(3);
+        expect(mergedCellsCollection.mergedCells[2].colspan).toEqual(4);
+      });
+
+      it('should not add new merged cells and throw an appropriate warning, if the merged cell is overlapping any other ' +
+        'previously declared merged cell', () => {
+        const warnSpy = spyOn(console, 'warn');
+
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+        const newMergedCells = [
+          {
+            row: 0,
+            col: 1,
+            rowspan: 3,
+            colspan: 4
+          },
+          {
+            row: 1,
+            col: 2,
+            rowspan: 3,
+            colspan: 4
+          },
+          {
+            row: 20,
+            col: 21,
+            rowspan: 3,
+            colspan: 4
+          }];
+
+        mergedCellsCollection.add(newMergedCells[0]);
+        mergedCellsCollection.add(newMergedCells[1]);
+        mergedCellsCollection.add(newMergedCells[2]);
+
+        expect(warnSpy).toHaveBeenCalledWith(MergedCellsCollection.IS_OVERLAPPING_WARNING(newMergedCells[1]));
+        expect(mergedCellsCollection.mergedCells.length).toEqual(2);
+        expect(mergedCellsCollection.mergedCells[0].row).toEqual(0);
+        expect(mergedCellsCollection.mergedCells[0].col).toEqual(1);
+        expect(mergedCellsCollection.mergedCells[1].row).toEqual(20);
+        expect(mergedCellsCollection.mergedCells[1].col).toEqual(21);
+      });
+    });
+
+    describe('`canAdd` method', () => {
+      it('should accept a merged cell that neither overlaps another one nor starts at its anchor', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+        mergedCellsCollection.add({ row: 0, col: 1, rowspan: 3, colspan: 4 });
+
+        expect(mergedCellsCollection.canAdd({ row: 10, col: 1, rowspan: 2, colspan: 2 })).toBe(true);
+        expect(mergedCellsCollection.mergedCells.length).toBe(1);
+      });
+
+      it('should refuse a merged cell that overlaps another one and warn the way `add` does', () => {
+        const warnSpy = spyOn(console, 'warn');
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+        const overlapping = { row: 1, col: 0, rowspan: 2, colspan: 7 };
+
+        mergedCellsCollection.add({ row: 0, col: 1, rowspan: 5, colspan: 3 });
+
+        expect(mergedCellsCollection.canAdd(overlapping)).toBe(false);
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy).toHaveBeenCalledWith(MergedCellsCollection.IS_OVERLAPPING_WARNING(overlapping));
+        expect(mergedCellsCollection.mergedCells.length).toBe(1);
+      });
+
+      it('should refuse a merged cell whose anchor another merged cell already takes, also with `auto`', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+        mergedCellsCollection.add({ row: 0, col: 1, rowspan: 3, colspan: 4 });
+
+        expect(mergedCellsCollection.canAdd({ row: 0, col: 1, rowspan: 2, colspan: 2 }, true)).toBe(false);
+      });
+
+      it('should skip the overlap check with `auto`, as `add` does', () => {
+        const warnSpy = spyOn(console, 'warn');
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+        const overlapping = { row: 1, col: 0, rowspan: 2, colspan: 7 };
+
+        mergedCellsCollection.add({ row: 0, col: 1, rowspan: 5, colspan: 3 });
+
+        expect(mergedCellsCollection.canAdd(overlapping, true)).toBe(true);
+        expect(warnSpy).not.toHaveBeenCalled();
+        expect(mergedCellsCollection.add(overlapping, true)).toBeTruthy();
+      });
+
+      it('should accept a merged cell that only the merges it is told to ignore overlap or start at its anchor', () => {
+        const warnSpy = spyOn(console, 'warn');
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+        const inner = mergedCellsCollection.add({ row: 1, col: 0, rowspan: 2, colspan: 1 });
+        const outer = mergedCellsCollection.add({ row: 0, col: 5, rowspan: 5, colspan: 2 });
+
+        expect(mergedCellsCollection.canAdd({ row: 1, col: 0, rowspan: 2, colspan: 3 }, false, [inner])).toBe(true);
+        expect(mergedCellsCollection.canAdd({ row: 1, col: 0, rowspan: 2, colspan: 7 }, false, [inner])).toBe(false);
+        expect(mergedCellsCollection.canAdd({ row: 1, col: 0, rowspan: 2, colspan: 7 }, false, [inner, outer]))
+          .toBe(true);
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(mergedCellsCollection.mergedCells).toEqual([inner, outer]);
+      });
+
+      it('should accept a merged cell over the stale coordinates of a merge purged from the lookup matrix', () => {
+        const warnSpy = spyOn(console, 'warn');
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+        const purged = mergedCellsCollection.add({ row: 1, col: 1, rowspan: 2, colspan: 2 });
+        const overlapping = { row: 1, col: 0, rowspan: 2, colspan: 3 };
+
+        expect(mergedCellsCollection.canAdd(overlapping)).toBe(false);
+
+        warnSpy.calls.reset();
+        mergedCellsCollection.removeFromMatrix([purged]);
+
+        expect(mergedCellsCollection.canAdd(overlapping)).toBe(true);
+        expect(mergedCellsCollection.add(overlapping)).toBeTruthy();
+        expect(warnSpy).not.toHaveBeenCalled();
+      });
+
+      describe('the overlap check', () => {
+        afterEach(() => {
+          jest.restoreAllMocks();
+        });
+
+        /**
+         * Adds one-row merges in rows 50-79, far from the cells the tests check. With them the collection holds
+         * more merges than a small new merge has cells, so the check reads the new merge's cells instead of
+         * scanning the merge list.
+         *
+         * @param {MergedCellsCollection} collection The collection to fill.
+         */
+        function addDistantMerges(collection) {
+          for (let row = 50; row < 80; row++) {
+            collection.add({ row, col: 0, rowspan: 1, colspan: 2 });
+          }
+        }
+
+        it('should read only the cells of a small merged cell, never scan the merge list', () => {
+          const warnSpy = spyOn(console, 'warn');
+          const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+          addDistantMerges(mergedCellsCollection);
+          mergedCellsCollection.add({ row: 0, col: 1, rowspan: 5, colspan: 3 });
+
+          const scanSpy = jest.spyOn(mergeCellsUtils, 'areMergesOverlapping');
+          const overlapping = { row: 4, col: 3, rowspan: 2, colspan: 2 };
+
+          expect(mergedCellsCollection.canAdd(overlapping)).toBe(false);
+          expect(warnSpy).toHaveBeenCalledWith(MergedCellsCollection.IS_OVERLAPPING_WARNING(overlapping));
+          expect(mergedCellsCollection.canAdd({ row: 5, col: 3, rowspan: 2, colspan: 2 })).toBe(true);
+          expect(scanSpy).not.toHaveBeenCalled();
+        });
+
+        it('should scan the merge list for a merged cell with more cells than there are merges', () => {
+          const warnSpy = spyOn(console, 'warn');
+          const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+          mergedCellsCollection.add({ row: 90, col: 90, rowspan: 2, colspan: 2 });
+
+          const getSpy = spyOn(mergedCellsCollection, 'get').and.callThrough();
+
+          expect(mergedCellsCollection.canAdd({ row: 0, col: 0, rowspan: 100, colspan: 100 })).toBe(false);
+          expect(mergedCellsCollection.canAdd({ row: 0, col: 0, rowspan: 50, colspan: 100 })).toBe(true);
+          expect(warnSpy).toHaveBeenCalledTimes(1);
+          // The anchor of each new merge and the top-left of the one overlapping merge, not a read per cell.
+          expect(getSpy.calls.count()).toBeLessThanOrEqual(4);
+        });
+
+        [false, true].forEach((manyMerges) => {
+          const branch = manyMerges ? 'reading the cells' : 'scanning the list';
+
+          it(`should accept a merged cell that only the merges it is told to ignore overlap (${branch})`, () => {
+            const warnSpy = spyOn(console, 'warn');
+            const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+            if (manyMerges) {
+              addDistantMerges(mergedCellsCollection);
+            }
+
+            const inner = mergedCellsCollection.add({ row: 1, col: 0, rowspan: 2, colspan: 1 });
+            const outer = mergedCellsCollection.add({ row: 0, col: 5, rowspan: 5, colspan: 2 });
+
+            expect(mergedCellsCollection.canAdd({ row: 1, col: 0, rowspan: 2, colspan: 3 }, false, [inner]))
+              .toBe(true);
+            expect(mergedCellsCollection.canAdd({ row: 1, col: 0, rowspan: 2, colspan: 7 }, false, [inner]))
+              .toBe(false);
+            expect(mergedCellsCollection.canAdd({ row: 1, col: 0, rowspan: 2, colspan: 7 }, false, [inner, outer]))
+              .toBe(true);
+            expect(warnSpy).toHaveBeenCalledTimes(1);
+          });
+
+          it(`should accept a merged cell over the stale coordinates of a purged merge (${branch})`, () => {
+            const warnSpy = spyOn(console, 'warn');
+            const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+            if (manyMerges) {
+              addDistantMerges(mergedCellsCollection);
+            }
+
+            const purged = mergedCellsCollection.add({ row: 1, col: 1, rowspan: 2, colspan: 2 });
+            const overlapping = { row: 1, col: 0, rowspan: 2, colspan: 3 };
+
+            expect(mergedCellsCollection.canAdd(overlapping)).toBe(false);
+
+            mergedCellsCollection.removeFromMatrix([purged]);
+
+            expect(mergedCellsCollection.canAdd(overlapping)).toBe(true);
+            expect(warnSpy).toHaveBeenCalledTimes(1);
+          });
+
+          it(`should refuse a merged cell over a merge another one was drawn over, when that one is ignored (${branch})`,
+            () => {
+              const warnSpy = spyOn(console, 'warn');
+              const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+              if (manyMerges) {
+                addDistantMerges(mergedCellsCollection);
+              }
+
+              mergedCellsCollection.add({ row: 0, col: 1, rowspan: 2, colspan: 2 });
+              // Added without the overlap check, as a sort or a restore can draw it: it takes the cell [1, 1]
+              // of the merge above in the lookup matrix.
+              const over = mergedCellsCollection.add({ row: 1, col: 0, rowspan: 2, colspan: 2 }, true);
+
+              expect(mergedCellsCollection.get(1, 1)).toBe(over);
+              expect(mergedCellsCollection.canAdd({ row: 1, col: 0, rowspan: 2, colspan: 2 }, false, [over]))
+                .toBe(false);
+              expect(mergedCellsCollection.canAdd({ row: 2, col: 0, rowspan: 2, colspan: 2 }, false, [over]))
+                .toBe(true);
+              expect(warnSpy).toHaveBeenCalledTimes(1);
+            });
+
+          it(`should refuse a merged cell over a merge another one was drawn over and then removed (${branch})`, () => {
+            const warnSpy = spyOn(console, 'warn');
+            const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+            if (manyMerges) {
+              addDistantMerges(mergedCellsCollection);
+            }
+
+            const under = mergedCellsCollection.add({ row: 0, col: 1, rowspan: 2, colspan: 2 });
+
+            mergedCellsCollection.add({ row: 1, col: 0, rowspan: 2, colspan: 2 }, true);
+            mergedCellsCollection.remove(1, 0);
+
+            // The removal takes back only its own cells, so the cell [1, 1] of the merge under it is empty.
+            expect(mergedCellsCollection.get(1, 1)).toBe(false);
+            expect(mergedCellsCollection.get(0, 1)).toBe(under);
+            expect(mergedCellsCollection.canAdd({ row: 1, col: 1, rowspan: 2, colspan: 1 })).toBe(false);
+            expect(warnSpy).toHaveBeenCalledTimes(1);
+          });
+        });
+
+        it('should read the cells again once the lookup matrix is rebuilt without merges drawn over each other', () => {
+          const mergedCellsCollection = new MergedCellsCollection({ hot: { ...hotMock, getCell: () => null } });
+
+          mergedCellsCollection.add({ row: 0, col: 1, rowspan: 2, colspan: 2 });
+          mergedCellsCollection.add({ row: 1, col: 0, rowspan: 2, colspan: 2 }, true);
+          mergedCellsCollection.clear();
+          addDistantMerges(mergedCellsCollection);
+
+          const scanSpy = jest.spyOn(mergeCellsUtils, 'areMergesOverlapping');
+
+          expect(mergedCellsCollection.canAdd({ row: 0, col: 0, rowspan: 2, colspan: 2 })).toBe(true);
+          expect(scanSpy).not.toHaveBeenCalled();
+        });
+      });
+    });
+
+    describe('`remove` method', () => {
+      it('should remove a merged cell object from the array of merged cells by passing the starting coordinates', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+        mergedCellsCollection.add({
+          row: 0,
+          col: 1,
+          rowspan: 3,
+          colspan: 4
+        });
+        mergedCellsCollection.add({
+          row: 10,
+          col: 11,
+          rowspan: 3,
+          colspan: 4
+        });
+        mergedCellsCollection.add({
+          row: 20,
+          col: 21,
+          rowspan: 3,
+          colspan: 4
+        });
+
+        mergedCellsCollection.remove(10, 11);
+
+        expect(mergedCellsCollection.mergedCells.length).toEqual(2);
+        expect(mergedCellsCollection.mergedCells[0].row).toEqual(0);
+        expect(mergedCellsCollection.mergedCells[0].col).toEqual(1);
+        expect(mergedCellsCollection.mergedCells[0].rowspan).toEqual(3);
+        expect(mergedCellsCollection.mergedCells[0].colspan).toEqual(4);
+        expect(mergedCellsCollection.mergedCells[1].row).toEqual(20);
+        expect(mergedCellsCollection.mergedCells[1].col).toEqual(21);
+        expect(mergedCellsCollection.mergedCells[1].rowspan).toEqual(3);
+        expect(mergedCellsCollection.mergedCells[1].colspan).toEqual(4);
+      });
+
+      it('should remove a merged cell object from the array of merged cells by passing the coordinates from the middle of the merged cell', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+        mergedCellsCollection.add({
+          row: 0,
+          col: 1,
+          rowspan: 3,
+          colspan: 4
+        });
+        mergedCellsCollection.add({
+          row: 10,
+          col: 11,
+          rowspan: 3,
+          colspan: 4
+        });
+        mergedCellsCollection.add({
+          row: 20,
+          col: 21,
+          rowspan: 3,
+          colspan: 4
+        });
+
+        mergedCellsCollection.remove(12, 13);
+
+        expect(mergedCellsCollection.mergedCells.length).toEqual(2);
+        expect(mergedCellsCollection.mergedCells[0].row).toEqual(0);
+        expect(mergedCellsCollection.mergedCells[0].col).toEqual(1);
+        expect(mergedCellsCollection.mergedCells[0].rowspan).toEqual(3);
+        expect(mergedCellsCollection.mergedCells[0].colspan).toEqual(4);
+        expect(mergedCellsCollection.mergedCells[1].row).toEqual(20);
+        expect(mergedCellsCollection.mergedCells[1].col).toEqual(21);
+        expect(mergedCellsCollection.mergedCells[1].rowspan).toEqual(3);
+        expect(mergedCellsCollection.mergedCells[1].colspan).toEqual(4);
+      });
+    });
+
+    describe('`get` method', () => {
+      it('should get a merged cell object from the array of merged cells by passing the starting coordinates', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+        mergedCellsCollection.add({
+          row: 0,
+          col: 1,
+          rowspan: 3,
+          colspan: 4
+        });
+        mergedCellsCollection.add({
+          row: 10,
+          col: 11,
+          rowspan: 3,
+          colspan: 4
+        });
+        mergedCellsCollection.add({
+          row: 20,
+          col: 21,
+          rowspan: 3,
+          colspan: 4
+        });
+
+        const wantedCollection = mergedCellsCollection.get(10, 11);
+
+        expect(wantedCollection.row).toEqual(10);
+        expect(wantedCollection.col).toEqual(11);
+        expect(wantedCollection.rowspan).toEqual(3);
+        expect(wantedCollection.colspan).toEqual(4);
+      });
+
+      it('should get a merged cell object from the array of merged cells by passing coordinates from the middle of the merged cell', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+        mergedCellsCollection.add({
+          row: 0,
+          col: 1,
+          rowspan: 3,
+          colspan: 4
+        });
+        mergedCellsCollection.add({
+          row: 10,
+          col: 11,
+          rowspan: 3,
+          colspan: 4
+        });
+        mergedCellsCollection.add({
+          row: 20,
+          col: 21,
+          rowspan: 3,
+          colspan: 4
+        });
+
+        const wantedCollection = mergedCellsCollection.get(12, 13);
+
+        expect(wantedCollection.row).toEqual(10);
+        expect(wantedCollection.col).toEqual(11);
+        expect(wantedCollection.rowspan).toEqual(3);
+        expect(wantedCollection.colspan).toEqual(4);
+      });
+    });
+
+    describe('`getByRange` method', () => {
+      it('should get a merged cell object from the array of merged cells by passing coordinates from the middle of the merged cell', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+        mergedCellsCollection.add({
+          row: 0,
+          col: 1,
+          rowspan: 3,
+          colspan: 4
+        });
+        mergedCellsCollection.add({
+          row: 10,
+          col: 11,
+          rowspan: 3,
+          colspan: 4
+        });
+        mergedCellsCollection.add({
+          row: 20,
+          col: 21,
+          rowspan: 3,
+          colspan: 4
+        });
+
+        const range = new CellRange(
+          new CellCoords(9, 10),
+          new CellCoords(9, 10),
+          new CellCoords(12, 15),
+        );
+
+        const wantedCollection = mergedCellsCollection.getByRange(range);
+
+        expect(wantedCollection.row).toEqual(10);
+        expect(wantedCollection.col).toEqual(11);
+        expect(wantedCollection.rowspan).toEqual(3);
+        expect(wantedCollection.colspan).toEqual(4);
+      });
+
+      it('should skip a merge purged from the lookup matrix, whose coordinates are stale', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+        const purged = mergedCellsCollection.add({ row: 2, col: 0, rowspan: 2, colspan: 2 });
+
+        expect(mergedCellsCollection.getByRange(createCellRange(2, 0, 3, 1))).toBe(purged);
+
+        mergedCellsCollection.removeFromMatrix([purged]);
+
+        expect(mergedCellsCollection.getByRange(createCellRange(2, 0, 3, 1))).toBe(false);
+      });
+    });
+
+    describe('`getVisibleMergedCells` method', () => {
+      it('should return every merge except the ones purged from the lookup matrix, in list order', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+        const first = mergedCellsCollection.add({ row: 0, col: 0, rowspan: 2, colspan: 1 });
+        const purged = mergedCellsCollection.add({ row: 2, col: 0, rowspan: 2, colspan: 2 });
+        const last = mergedCellsCollection.add({ row: 5, col: 3, rowspan: 1, colspan: 2 });
+
+        expect(mergedCellsCollection.getVisibleMergedCells()).toEqual([first, purged, last]);
+
+        mergedCellsCollection.removeFromMatrix([purged]);
+
+        expect(mergedCellsCollection.getVisibleMergedCells()).toEqual([first, last]);
+        expect(mergedCellsCollection.mergedCells).toEqual([first, purged, last]);
+      });
+    });
+
+    describe('`getWithinRange` method', () => {
+      it('should get an array of merged cells within the provided range', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+        mergedCellsCollection.add({
+          row: 0,
+          col: 1,
+          rowspan: 3,
+          colspan: 4
+        });
+        mergedCellsCollection.add({
+          row: 10,
+          col: 11,
+          rowspan: 3,
+          colspan: 4
+        });
+        mergedCellsCollection.add({
+          row: 20,
+          col: 21,
+          rowspan: 3,
+          colspan: 4
+        });
+
+        const wantedCollections = mergedCellsCollection.getWithinRange(
+          new CellRange(new CellCoords(0, 0), new CellCoords(0, 0), new CellCoords(19, 20))
+        );
+
+        expect(wantedCollections.length).toEqual(2);
+        expect(wantedCollections[0].row).toEqual(0);
+        expect(wantedCollections[0].col).toEqual(1);
+        expect(wantedCollections[0].rowspan).toEqual(3);
+        expect(wantedCollections[0].colspan).toEqual(4);
+        expect(wantedCollections[1].row).toEqual(10);
+        expect(wantedCollections[1].col).toEqual(11);
+        expect(wantedCollections[1].rowspan).toEqual(3);
+        expect(wantedCollections[1].colspan).toEqual(4);
+      });
+
+      it('should return an empty array when no merged cells found', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+        const wantedCollections = mergedCellsCollection.getWithinRange(
+          new CellRange(new CellCoords(0, 0), new CellCoords(0, 0), new CellCoords(5, 5))
+        );
+
+        expect(wantedCollections).toEqual([]);
+      });
+    });
+
+    describe('`shiftCollections` method', () => {
+      it('should shift all the appropriate merged cells in the provided direction', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+        mergedCellsCollection.add({
+          row: 0,
+          col: 1,
+          rowspan: 3,
+          colspan: 4
+        });
+        mergedCellsCollection.add({
+          row: 10,
+          col: 11,
+          rowspan: 3,
+          colspan: 4
+        });
+        mergedCellsCollection.add({
+          row: 20,
+          col: 21,
+          rowspan: 3,
+          colspan: 4
+        });
+
+        mergedCellsCollection.shiftCollections('down', 0, 5);
+
+        expect(mergedCellsCollection.mergedCells[0].row).toEqual(5);
+        expect(mergedCellsCollection.mergedCells[0].col).toEqual(1);
+        expect(mergedCellsCollection.mergedCells[1].row).toEqual(15);
+        expect(mergedCellsCollection.mergedCells[1].col).toEqual(11);
+        expect(mergedCellsCollection.mergedCells[2].row).toEqual(25);
+        expect(mergedCellsCollection.mergedCells[2].col).toEqual(21);
+
+        mergedCellsCollection.shiftCollections('right', 0, 5);
+
+        expect(mergedCellsCollection.mergedCells[0].row).toEqual(5);
+        expect(mergedCellsCollection.mergedCells[0].col).toEqual(6);
+        expect(mergedCellsCollection.mergedCells[1].row).toEqual(15);
+        expect(mergedCellsCollection.mergedCells[1].col).toEqual(16);
+        expect(mergedCellsCollection.mergedCells[2].row).toEqual(25);
+        expect(mergedCellsCollection.mergedCells[2].col).toEqual(26);
+
+        mergedCellsCollection.shiftCollections('up', 0, 5);
+
+        expect(mergedCellsCollection.mergedCells[0].row).toEqual(0);
+        expect(mergedCellsCollection.mergedCells[0].col).toEqual(6);
+        expect(mergedCellsCollection.mergedCells[1].row).toEqual(10);
+        expect(mergedCellsCollection.mergedCells[1].col).toEqual(16);
+        expect(mergedCellsCollection.mergedCells[2].row).toEqual(20);
+        expect(mergedCellsCollection.mergedCells[2].col).toEqual(26);
+
+        mergedCellsCollection.shiftCollections('left', 0, 5);
+
+        expect(mergedCellsCollection.mergedCells[0].row).toEqual(0);
+        expect(mergedCellsCollection.mergedCells[0].col).toEqual(1);
+        expect(mergedCellsCollection.mergedCells[1].row).toEqual(10);
+        expect(mergedCellsCollection.mergedCells[1].col).toEqual(11);
+        expect(mergedCellsCollection.mergedCells[2].row).toEqual(20);
+        expect(mergedCellsCollection.mergedCells[2].col).toEqual(21);
+
+      });
+
+      it('should resize the merged cell (and shift the merged cells that follow) if the change happened inside a merged cell', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+        mergedCellsCollection.add({
+          row: 0,
+          col: 1,
+          rowspan: 3,
+          colspan: 4
+        });
+        mergedCellsCollection.add({
+          row: 10,
+          col: 11,
+          rowspan: 3,
+          colspan: 4
+        });
+        mergedCellsCollection.add({
+          row: 20,
+          col: 21,
+          rowspan: 3,
+          colspan: 4
+        });
+
+        mergedCellsCollection.shiftCollections('down', 1, 5);
+
+        expect(mergedCellsCollection.mergedCells[0].row).toEqual(0);
+        expect(mergedCellsCollection.mergedCells[0].col).toEqual(1);
+        expect(mergedCellsCollection.mergedCells[0].rowspan).toEqual(8);
+        expect(mergedCellsCollection.mergedCells[1].row).toEqual(15);
+        expect(mergedCellsCollection.mergedCells[1].col).toEqual(11);
+        expect(mergedCellsCollection.mergedCells[1].rowspan).toEqual(3);
+        expect(mergedCellsCollection.mergedCells[2].row).toEqual(25);
+        expect(mergedCellsCollection.mergedCells[2].col).toEqual(21);
+        expect(mergedCellsCollection.mergedCells[2].rowspan).toEqual(3);
+
+        mergedCellsCollection.shiftCollections('right', 2, 5);
+
+        expect(mergedCellsCollection.mergedCells[0].row).toEqual(0);
+        expect(mergedCellsCollection.mergedCells[0].col).toEqual(1);
+        expect(mergedCellsCollection.mergedCells[0].rowspan).toEqual(8);
+        expect(mergedCellsCollection.mergedCells[0].colspan).toEqual(9);
+        expect(mergedCellsCollection.mergedCells[1].row).toEqual(15);
+        expect(mergedCellsCollection.mergedCells[1].col).toEqual(16);
+        expect(mergedCellsCollection.mergedCells[1].rowspan).toEqual(3);
+        expect(mergedCellsCollection.mergedCells[2].row).toEqual(25);
+        expect(mergedCellsCollection.mergedCells[2].col).toEqual(26);
+        expect(mergedCellsCollection.mergedCells[2].rowspan).toEqual(3);
+
+      });
+    });
+
+    describe('`isOverlapping` method', () => {
+      it('should return whether the provided merged cell overlaps with the others in the merged cell', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+        mergedCellsCollection.add({
+          row: 0,
+          col: 1,
+          rowspan: 3,
+          colspan: 4
+        });
+        mergedCellsCollection.add({
+          row: 10,
+          col: 11,
+          rowspan: 3,
+          colspan: 4
+        });
+        mergedCellsCollection.add({
+          row: 20,
+          col: 21,
+          rowspan: 3,
+          colspan: 4
+        });
+
+        expect(mergedCellsCollection.isOverlapping(createMergedCell(30, 30, 3, 3))).toEqual(false);
+        expect(mergedCellsCollection.isOverlapping(createMergedCell(2, 2, 3, 3))).toEqual(true);
+        expect(mergedCellsCollection.isOverlapping(createMergedCell(9, 9, 3, 3))).toEqual(true);
+        expect(mergedCellsCollection.isOverlapping(createMergedCell(21, 19, 5, 5))).toEqual(true);
+        expect(mergedCellsCollection.isOverlapping(createMergedCell(21, 22, 5, 5))).toEqual(true);
+        expect(mergedCellsCollection.isOverlapping(createMergedCell(24, 25, 5, 5))).toEqual(false);
+      });
+    });
+
+    describe('deprecated line-scan methods', () => {
+      const methods = [
+        'getStartMostColumnIndex', 'getEndMostColumnIndex', 'getTopMostRowIndex', 'getBottomMostRowIndex',
+      ];
+
+      beforeEach(() => {
+        _resetDeprecationWarnings();
+      });
+
+      afterEach(() => {
+        jest.restoreAllMocks();
+      });
+
+      /**
+       * Builds the collection the line-scan tests below use: two merges that touch at a corner.
+       */
+      function createCollection() {
+        const collection = new MergedCellsCollection({ hot: hotMock });
+
+        collection.add({ row: 1, col: 2, rowspan: 2, colspan: 2 });
+        collection.add({ row: 3, col: 3, rowspan: 2, colspan: 2 });
+
+        return collection;
+      }
+
+      it('should keep answering like the shared line scan', () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const collection = createCollection();
+        const range = createCellRange(0, 1, 5, 5);
+
+        for (let index = 0; index < 6; index++) {
+          expect(collection.getStartMostColumnIndex(range, index)).toBe(startMostColumn(collection, range, index));
+          expect(collection.getEndMostColumnIndex(range, index)).toBe(endMostColumn(collection, range, index));
+          expect(collection.getTopMostRowIndex(range, index)).toBe(topMostRow(collection, range, index));
+          expect(collection.getBottomMostRowIndex(range, index)).toBe(bottomMostRow(collection, range, index));
+        }
+      });
+
+      it('should print one deprecation warning per method, however often it is called', () => {
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const collection = createCollection();
+        const range = createCellRange(0, 1, 5, 5);
+
+        methods.forEach((method) => {
+          collection[method](range, 2);
+          collection[method](range, 3);
+        });
+
+        expect(warnSpy).toHaveBeenCalledTimes(methods.length);
+        methods.forEach((method, index) => {
+          expect(warnSpy.mock.calls[index][0]).toContain(`MergedCellsCollection#${method}()\` is deprecated`);
+        });
+      });
+    });
+
+    describe('start-most column index (`findNonIntersectingIndex`)', () => {
+      it('should return start-most column index of where the merge cells are not intersected', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+        mergedCellsCollection.add({
+          row: 1,
+          col: 2,
+          rowspan: 2,
+          colspan: 2
+        });
+        mergedCellsCollection.add({
+          row: 3,
+          col: 3,
+          rowspan: 2,
+          colspan: 2
+        });
+
+        const range = createCellRange(0, 1, 5, 5);
+
+        expect(startMostColumn(mergedCellsCollection, range, 0)).toBe(0);
+        expect(startMostColumn(mergedCellsCollection, range, 1)).toBe(1);
+        expect(startMostColumn(mergedCellsCollection, range, 2)).toBe(2);
+        expect(startMostColumn(mergedCellsCollection, range, 3)).toBe(2);
+        expect(startMostColumn(mergedCellsCollection, range, 4)).toBe(2);
+        expect(startMostColumn(mergedCellsCollection, range, 5)).toBe(5);
+        expect(startMostColumn(mergedCellsCollection, range, 6)).toBe(5);
+      });
+    });
+
+    describe('end-most column index (`findNonIntersectingIndex`)', () => {
+      it('should return end-most column index of where the merge cells are not intersected', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+        mergedCellsCollection.add({
+          row: 1,
+          col: 2,
+          rowspan: 2,
+          colspan: 2
+        });
+        mergedCellsCollection.add({
+          row: 3,
+          col: 3,
+          rowspan: 2,
+          colspan: 2
+        });
+
+        const range = createCellRange(0, 1, 5, 5);
+
+        expect(endMostColumn(mergedCellsCollection, range, 0)).toBe(1);
+        expect(endMostColumn(mergedCellsCollection, range, 1)).toBe(1);
+        expect(endMostColumn(mergedCellsCollection, range, 2)).toBe(4);
+        expect(endMostColumn(mergedCellsCollection, range, 3)).toBe(4);
+        expect(endMostColumn(mergedCellsCollection, range, 4)).toBe(4);
+        expect(endMostColumn(mergedCellsCollection, range, 5)).toBe(5);
+        expect(endMostColumn(mergedCellsCollection, range, 6)).toBe(6);
+      });
+    });
+
+    describe('top-most row index (`findNonIntersectingIndex`)', () => {
+      it('should return top-most row index of where the merge cells are not intersected', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+        mergedCellsCollection.add({
+          row: 2,
+          col: 1,
+          rowspan: 2,
+          colspan: 2
+        });
+        mergedCellsCollection.add({
+          row: 3,
+          col: 3,
+          rowspan: 2,
+          colspan: 2
+        });
+
+        const range = createCellRange(1, 0, 5, 5);
+
+        expect(topMostRow(mergedCellsCollection, range, 0)).toBe(0);
+        expect(topMostRow(mergedCellsCollection, range, 1)).toBe(1);
+        expect(topMostRow(mergedCellsCollection, range, 2)).toBe(2);
+        expect(topMostRow(mergedCellsCollection, range, 3)).toBe(2);
+        expect(topMostRow(mergedCellsCollection, range, 4)).toBe(2);
+        expect(topMostRow(mergedCellsCollection, range, 5)).toBe(5);
+        expect(topMostRow(mergedCellsCollection, range, 6)).toBe(5);
+      });
+    });
+
+    describe('`getWithinRange` method with partials', () => {
+      it('should return a merged cell overlapping the range partially only when `countPartials` is `true`', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+        mergedCellsCollection.add({
+          row: 3,
+          col: 3,
+          rowspan: 4,
+          colspan: 4
+        });
+
+        const range = createCellRange(5, 5, 10, 10);
+
+        expect(mergedCellsCollection.getWithinRange(range, false)).toEqual([]);
+        expect(mergedCellsCollection.getWithinRange(range, true).length).toBe(1);
+        expect(mergedCellsCollection.getWithinRange(range, true)[0].row).toBe(3);
+      });
+
+      it('should return each merged cell exactly once, even when it spans multiple cells of the range', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+        mergedCellsCollection.add({
+          row: 1,
+          col: 1,
+          rowspan: 5,
+          colspan: 5
+        });
+
+        const range = createCellRange(0, 0, 10, 10);
+
+        expect(mergedCellsCollection.getWithinRange(range, true).length).toBe(1);
+        expect(mergedCellsCollection.getWithinRange(range, false).length).toBe(1);
+      });
+
+      it('should return merged cells ordered by their first covered cell in row-major order, ' +
+        'regardless of the insertion order', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+        mergedCellsCollection.add({ row: 20, col: 21, rowspan: 3, colspan: 4 });
+        mergedCellsCollection.add({ row: 0, col: 5, rowspan: 3, colspan: 4 });
+        mergedCellsCollection.add({ row: 0, col: 1, rowspan: 3, colspan: 4 });
+        mergedCellsCollection.add({ row: 10, col: 11, rowspan: 3, colspan: 4 });
+
+        const wantedCollections = mergedCellsCollection.getWithinRange(createCellRange(0, 0, 30, 30));
+
+        expect(wantedCollections.map(({ row, col }) => [row, col])).toEqual([
+          [0, 1], [0, 5], [10, 11], [20, 21],
+        ]);
+      });
+    });
+
+    describe('non-intersecting index lookups compared with the exhaustive cell-scan reference', () => {
+      /**
+       * The pre-optimization implementation: visits every cell of the range and gathers, per
+       * row/column line, the set of indexes the line's cells point at. Kept here as the source
+       * of truth the optimized implementation must agree with.
+       */
+      function referenceNonIntersectingIndexes(collection, range, axis, scanDirection) {
+        const indexes = new Map();
+        const from = scanDirection === 1 ? range.getTopStartCorner() : range.getBottomEndCorner();
+        const to = scanDirection === 1 ? range.getBottomEndCorner() : range.getTopStartCorner();
+
+        for (let row = from.row; scanDirection === 1 ? row <= to.row : row >= to.row; row += scanDirection) {
+          for (
+            let column = from.col;
+            scanDirection === 1 ? column <= to.col : column >= to.col;
+            column += scanDirection
+          ) {
+            const index = axis === 'row' ? row : column;
+            const mergedCell = collection.get(row, column);
+            let lastIndex = index;
+
+            if (mergedCell) {
+              lastIndex = scanDirection === 1 ? mergedCell[axis] + mergedCell[`${axis}span`] - 1 : mergedCell[axis];
+            }
+
+            if (!indexes.has(index)) {
+              indexes.set(index, new Set());
+            }
+
+            indexes.get(index).add(lastIndex);
+          }
+        }
+
+        return Array.from(
+          new Set(Array.from(indexes.entries())
+            .filter(([, set]) => set.size === 1)
+            .flatMap(([, set]) => Array.from(set)))
+        );
+      }
+
+      /**
+       * Replays the pre-optimization caller loop: the first emitted index at or past the
+       * provided visual index (in the scan direction) wins.
+       */
+      function referenceMostIndex(collection, range, axis, scanDirection, visualIndex) {
+        const indexes = referenceNonIntersectingIndexes(collection, range, axis, scanDirection);
+        let result = visualIndex;
+
+        for (let i = 0; i < indexes.length; i++) {
+          if (scanDirection === 1 ? indexes[i] >= visualIndex : indexes[i] <= visualIndex) {
+            result = indexes[i];
+            break;
+          }
+        }
+
+        return result;
+      }
+
+      /**
+       * Deterministic pseudo-random generator (Park-Miller), so failures are reproducible.
+       */
+      function createRandom(seed) {
+        let state = (seed % 2147483647) || 1;
+
+        return () => {
+          state = (state * 16807) % 2147483647;
+
+          return (state - 1) / 2147483646;
+        };
+      }
+
+      it('should agree with the reference implementation on randomized merge layouts', () => {
+        const random = createRandom(2026);
+        const randomInt = (min, max) => min + Math.floor(random() * (max - min + 1));
+
+        for (let round = 0; round < 30; round++) {
+          const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+          // Non-overlapping placement: one optional merge per 5x5 block of a 30x30 grid.
+          for (let blockRow = 0; blockRow < 6; blockRow++) {
+            for (let blockColumn = 0; blockColumn < 6; blockColumn++) {
+              if (random() < 0.4) {
+                const rowspan = randomInt(1, 5);
+                const colspan = randomInt(1, 5);
+
+                if (rowspan === 1 && colspan === 1) {
+                  continue;
+                }
+
+                mergedCellsCollection.add({
+                  row: (blockRow * 5) + randomInt(0, 5 - rowspan),
+                  col: (blockColumn * 5) + randomInt(0, 5 - colspan),
+                  rowspan,
+                  colspan,
+                });
+              }
+            }
+          }
+
+          for (let check = 0; check < 20; check++) {
+            const rowA = randomInt(0, 29);
+            const rowB = randomInt(0, 29);
+            const columnA = randomInt(0, 29);
+            const columnB = randomInt(0, 29);
+            const range = createCellRange(
+              Math.min(rowA, rowB), Math.min(columnA, columnB),
+              Math.max(rowA, rowB), Math.max(columnA, columnB)
+            );
+            const visualRow = randomInt(-2, 31);
+            const visualColumn = randomInt(-2, 31);
+            const context = `round ${round}, check ${check}, ` +
+              `range [${range.getTopStartCorner().row}, ${range.getTopStartCorner().col}, ` +
+              `${range.getBottomEndCorner().row}, ${range.getBottomEndCorner().col}], ` +
+              `visualRow ${visualRow}, visualColumn ${visualColumn}`;
+
+            expect({ context, value: startMostColumn(mergedCellsCollection, range, visualColumn) })
+              .toEqual({ context, value: referenceMostIndex(mergedCellsCollection, range, 'col', -1, visualColumn) });
+            expect({ context, value: endMostColumn(mergedCellsCollection, range, visualColumn) })
+              .toEqual({ context, value: referenceMostIndex(mergedCellsCollection, range, 'col', 1, visualColumn) });
+            expect({ context, value: topMostRow(mergedCellsCollection, range, visualRow) })
+              .toEqual({ context, value: referenceMostIndex(mergedCellsCollection, range, 'row', -1, visualRow) });
+            expect({ context, value: bottomMostRow(mergedCellsCollection, range, visualRow) })
+              .toEqual({ context, value: referenceMostIndex(mergedCellsCollection, range, 'row', 1, visualRow) });
+          }
+        }
+      });
+    });
+
+    describe('static `detectContiguousRuns` method', () => {
+      it('should return an empty array for an empty input', () => {
+        expect(MergedCellsCollection.detectContiguousRuns([])).toEqual([]);
+      });
+
+      it('should return a single run for a single index', () => {
+        expect(MergedCellsCollection.detectContiguousRuns([5])).toEqual([
+          { start: 5, length: 1 },
+        ]);
+      });
+
+      it('should detect a single contiguous run', () => {
+        expect(MergedCellsCollection.detectContiguousRuns([2, 3, 4])).toEqual([
+          { start: 2, length: 3 },
+        ]);
+      });
+
+      it('should split into runs at gaps', () => {
+        expect(MergedCellsCollection.detectContiguousRuns([0, 3, 4])).toEqual([
+          { start: 0, length: 1 },
+          { start: 3, length: 2 },
+        ]);
+      });
+
+      it('should handle three separated runs', () => {
+        expect(MergedCellsCollection.detectContiguousRuns([0, 2, 4, 5])).toEqual([
+          { start: 0, length: 1 },
+          { start: 2, length: 1 },
+          { start: 4, length: 2 },
+        ]);
+      });
+    });
+
+    describe('`capturePhysicalSpans` method', () => {
+      it('should map every merge to its visual->physical column indexes', () => {
+        const hot = {
+          ...hotMock,
+          toPhysicalColumn: visualIndex => visualIndex + 100,
+          toPhysicalRow: visualIndex => visualIndex,
+        };
+        const collection = new MergedCellsCollection({ hot });
+
+        collection.add({ row: 0, col: 2, rowspan: 1, colspan: 3 });
+        collection.add({ row: 4, col: 7, rowspan: 2, colspan: 1 });
+
+        const snapshot = collection.capturePhysicalSpans('column');
+
+        expect(snapshot.size).toBe(2);
+        expect(snapshot.get(collection.mergedCells[0])).toEqual([102, 103, 104]);
+        expect(snapshot.get(collection.mergedCells[1])).toEqual([107]);
+      });
+
+      it('should map every merge to its visual->physical row indexes', () => {
+        const hot = {
+          ...hotMock,
+          toPhysicalColumn: visualIndex => visualIndex,
+          toPhysicalRow: visualIndex => visualIndex + 200,
+        };
+        const collection = new MergedCellsCollection({ hot });
+
+        collection.add({ row: 3, col: 0, rowspan: 2, colspan: 1 });
+
+        const snapshot = collection.capturePhysicalSpans('row');
+
+        expect(snapshot.size).toBe(1);
+        expect(snapshot.get(collection.mergedCells[0])).toEqual([203, 204]);
+      });
+    });
+
+    describe('`translateAfterAxisMove` method', () => {
+      /**
+       *
+       */
+      function createHot(physicalToVisual) {
+        const visualToPhysical = new Map();
+
+        physicalToVisual.forEach((visual, physical) => {
+          visualToPhysical.set(visual, physical);
+        });
+
+        return {
+          ...hotMock,
+          toVisualColumn: physical => (physicalToVisual.has(physical) ? physicalToVisual.get(physical) : -1),
+          toPhysicalColumn: visual => (visualToPhysical.has(visual) ? visualToPhysical.get(visual) : -1),
+          toVisualRow: physical => (physicalToVisual.has(physical) ? physicalToVisual.get(physical) : -1),
+          toPhysicalRow: visual => (visualToPhysical.has(visual) ? visualToPhysical.get(visual) : -1),
+        };
+      }
+
+      it('should keep a merge intact when its physical span stays contiguous', () => {
+        const collection = new MergedCellsCollection({
+          hot: createHot(new Map([[2, 3], [3, 4], [4, 5]])),
+        });
+
+        collection.add({ row: 0, col: 2, rowspan: 1, colspan: 3 });
+
+        const snapshot = new Map();
+
+        snapshot.set(collection.mergedCells[0], [2, 3, 4]);
+
+        collection.translateAfterAxisMove('column', snapshot);
+
+        expect(collection.mergedCells.length).toBe(1);
+        expect(collection.mergedCells[0].col).toBe(3);
+        expect(collection.mergedCells[0].colspan).toBe(3);
+        expect(collection.mergedCells[0].rowspan).toBe(1);
+      });
+
+      it('should split a merge whose physical span becomes non-contiguous', () => {
+        const collection = new MergedCellsCollection({
+          hot: createHot(new Map([[2, 3], [3, 0], [4, 4]])),
+        });
+
+        collection.add({ row: 0, col: 2, rowspan: 2, colspan: 3 });
+
+        const snapshot = new Map();
+
+        snapshot.set(collection.mergedCells[0], [2, 3, 4]);
+
+        collection.translateAfterAxisMove('column', snapshot);
+
+        const sorted = collection.mergedCells.slice().sort((a, b) => a.col - b.col);
+
+        expect(sorted.length).toBe(2);
+        expect(sorted[0].col).toBe(0);
+        expect(sorted[0].colspan).toBe(1);
+        expect(sorted[0].rowspan).toBe(2);
+        expect(sorted[1].col).toBe(3);
+        expect(sorted[1].colspan).toBe(2);
+        expect(sorted[1].rowspan).toBe(2);
+      });
+
+      it('should drop fragments that collapse to a single cell', () => {
+        const collection = new MergedCellsCollection({
+          hot: createHot(new Map([[2, 5], [3, 1]])),
+        });
+
+        collection.add({ row: 0, col: 2, rowspan: 1, colspan: 2 });
+
+        const snapshot = new Map();
+
+        snapshot.set(collection.mergedCells[0], [2, 3]);
+
+        collection.translateAfterAxisMove('column', snapshot);
+
+        expect(collection.mergedCells.length).toBe(0);
+      });
+
+      it('should keep a single-cell fragment whose physical index the caller retained', () => {
+        const collection = new MergedCellsCollection({
+          hot: createHot(new Map([[2, 5], [3, 1]])),
+        });
+
+        collection.add({ row: 2, col: 0, rowspan: 2, colspan: 1 });
+
+        const merge = collection.mergedCells[0];
+        const snapshot = new Map([[merge, [2, 3]]]);
+        const retained = new Map([[merge, new Set([2])]]);
+
+        collection.translateAfterAxisMove('row', snapshot, retained);
+
+        expect(collection.mergedCells.length).toBe(1);
+        expect(collection.mergedCells[0].row).toBe(5);
+        expect(collection.mergedCells[0].rowspan).toBe(1);
+        expect(collection.mergedCells[0].colspan).toBe(1);
+      });
+
+      it('should not let one merge\'s retained index keep another merge\'s single-cell fragment', () => {
+        const collection = new MergedCellsCollection({
+          hot: createHot(new Map([[2, 5], [3, 1]])),
+        });
+
+        // both merges cover physical rows 2 and 3, in different columns, so a retained index shared
+        // between them would keep a fragment of the merge that retained nothing
+        collection.add({ row: 2, col: 0, rowspan: 2, colspan: 1 });
+        collection.add({ row: 2, col: 2, rowspan: 2, colspan: 1 });
+
+        const [notRetaining, retaining] = collection.mergedCells;
+        const snapshot = new Map([[notRetaining, [2, 3]], [retaining, [2, 3]]]);
+        const retained = new Map([[retaining, new Set([2])]]);
+
+        collection.translateAfterAxisMove('row', snapshot, retained);
+
+        expect(collection.mergedCells.length).toBe(1);
+        expect(collection.mergedCells[0].col).toBe(2);
+        expect(collection.mergedCells[0].row).toBe(5);
+      });
+
+      it('should keep a single-cell fragment on the column axis whose physical column the caller retained', () => {
+        const collection = new MergedCellsCollection({
+          hot: createHot(new Map([[0, 0], [1, 4], [2, 1], [3, 2], [4, 3]])),
+        });
+
+        // the merge is already `rowspan: 1` (its other rows are trimmed) and spans physical columns
+        // 1,2,3; physical 1 leaves the block, so it comes out as a single cell and must be retained
+        collection.add({ row: 2, col: 1, rowspan: 1, colspan: 3 });
+
+        const merge = collection.mergedCells[0];
+        const snapshot = new Map([[merge, [1, 2, 3]]]);
+        const retained = new Map([[merge, new Set([1, 2, 3])]]);
+
+        collection.translateAfterAxisMove('column', snapshot, retained);
+
+        expect(collection.mergedCells.map(({ row, col, rowspan, colspan }) => ({ row, col, rowspan, colspan })))
+          .toEqual([
+            { row: 2, col: 1, rowspan: 1, colspan: 2 },
+            { row: 2, col: 4, rowspan: 1, colspan: 1 },
+          ]);
+      });
+
+      it('should drop a merge whose physical indexes are all unmapped', () => {
+        const collection = new MergedCellsCollection({
+          hot: createHot(new Map()),
+        });
+
+        collection.add({ row: 0, col: 2, rowspan: 1, colspan: 2 });
+
+        const snapshot = new Map();
+
+        snapshot.set(collection.mergedCells[0], [2, 3]);
+
+        collection.translateAfterAxisMove('column', snapshot);
+
+        expect(collection.mergedCells.length).toBe(0);
+      });
+    });
+
+    describe('`relocateInMatrix` method', () => {
+      it('should move a merge to its new top-left, clearing the old footprint and writing the new one', () => {
+        const collection = new MergedCellsCollection({ hot: hotMock });
+        const merge = collection.add({ row: 0, col: 1, rowspan: 2, colspan: 2 }); // (0,1)-(1,2)
+
+        collection.relocateInMatrix([{ mergedCell: merge, row: 5, col: 5 }]);
+
+        // the merge's own coords are updated
+        expect(merge.row).toBe(5);
+        expect(merge.col).toBe(5);
+
+        // the old footprint no longer resolves to the merge
+        expect(collection.get(0, 1)).toBe(false);
+        expect(collection.get(1, 2)).toBe(false);
+
+        // the new footprint resolves to the merge across its whole span
+        expect(collection.get(5, 5)).toBe(merge);
+        expect(collection.get(6, 6)).toBe(merge);
+
+        // the merge stays in the list — only the matrix lookup is touched
+        expect(collection.mergedCells).toEqual([merge]);
+      });
+
+      it('should keep both merges intact when two merges swap visual positions (two-pass remove-then-add)', () => {
+        const collection = new MergedCellsCollection({ hot: hotMock });
+        const mergeA = collection.add({ row: 0, col: 0, rowspan: 1, colspan: 2 }); // (0,0)-(0,1)
+        const mergeB = collection.add({ row: 0, col: 2, rowspan: 1, colspan: 2 }); // (0,2)-(0,3)
+
+        // swap them: A takes B's old slot and B takes A's old slot, in one batch
+        collection.relocateInMatrix([
+          { mergedCell: mergeA, row: 0, col: 2 },
+          { mergedCell: mergeB, row: 0, col: 0 },
+        ]);
+
+        // the second merge's removal (done first, in the remove-all pass) must not clobber the first
+        // merge's freshly written entries — each footprint still resolves to the correct merge
+        expect(collection.get(0, 0)).toBe(mergeB);
+        expect(collection.get(0, 1)).toBe(mergeB);
+        expect(collection.get(0, 2)).toBe(mergeA);
+        expect(collection.get(0, 3)).toBe(mergeA);
+      });
+
+      it('should shrink the footprint when the relocation carries a smaller row span', () => {
+        const collection = new MergedCellsCollection({ hot: hotMock });
+        const merge = collection.add({ row: 0, col: 0, rowspan: 3, colspan: 2 }); // (0,0)-(2,1)
+
+        // two of the merge's three rows were trimmed away
+        collection.relocateInMatrix([{ mergedCell: merge, row: 0, col: 0, rowspan: 1 }]);
+
+        expect(merge.rowspan).toBe(1);
+        expect(collection.get(0, 0)).toBe(merge);
+
+        // the rows the merge no longer occupies are free for whatever surfaces there
+        expect(collection.get(1, 0)).toBe(false);
+        expect(collection.get(2, 0)).toBe(false);
+      });
+
+      it('should grow the footprint when the relocation carries a larger row span', () => {
+        const collection = new MergedCellsCollection({ hot: hotMock });
+        const merge = collection.add({ row: 0, col: 0, rowspan: 1, colspan: 2 });
+
+        // the trimmed rows became visible again
+        collection.relocateInMatrix([{ mergedCell: merge, row: 0, col: 0, rowspan: 3 }]);
+
+        expect(merge.rowspan).toBe(3);
+        expect(collection.get(1, 1)).toBe(merge);
+        expect(collection.get(2, 1)).toBe(merge);
+      });
+
+      it('should not let a shrinking merge leave a footprint on top of the merge below it', () => {
+        const collection = new MergedCellsCollection({ hot: hotMock });
+        const mergeA = collection.add({ row: 0, col: 0, rowspan: 3, colspan: 1 }); // (0,0)-(2,0)
+        const mergeB = collection.add({ row: 3, col: 0, rowspan: 3, colspan: 1 }); // (3,0)-(5,0)
+
+        // A's last two rows were trimmed away, so B moves up into the space they occupied
+        collection.relocateInMatrix([
+          { mergedCell: mergeA, row: 0, col: 0, rowspan: 1 },
+          { mergedCell: mergeB, row: 1, col: 0, rowspan: 3 },
+        ]);
+
+        expect(collection.get(0, 0)).toBe(mergeA);
+        expect(collection.get(1, 0)).toBe(mergeB);
+        expect(collection.get(2, 0)).toBe(mergeB);
+        expect(collection.get(3, 0)).toBe(mergeB);
+      });
+
+      it('should leave the matrix unchanged for an empty relocation list', () => {
+        const collection = new MergedCellsCollection({ hot: hotMock });
+        const merge = collection.add({ row: 0, col: 0, rowspan: 2, colspan: 2 });
+
+        collection.relocateInMatrix([]);
+
+        expect(collection.get(0, 0)).toBe(merge);
+        expect(collection.get(1, 1)).toBe(merge);
+      });
+    });
+
+    describe('`removeFromMatrix` method', () => {
+      it('should remove the merges\' footprints from the lookup matrix while keeping them in the list', () => {
+        const collection = new MergedCellsCollection({ hot: hotMock });
+        const mergeA = collection.add({ row: 0, col: 0, rowspan: 2, colspan: 2 });
+        const mergeB = collection.add({ row: 5, col: 5, rowspan: 2, colspan: 2 });
+
+        collection.removeFromMatrix([mergeA]);
+
+        // A is gone from the matrix...
+        expect(collection.get(0, 0)).toBe(false);
+        expect(collection.get(1, 1)).toBe(false);
+
+        // ...but still present in the list, and B is left untouched
+        expect(collection.mergedCells).toEqual([mergeA, mergeB]);
+        expect(collection.get(5, 5)).toBe(mergeB);
+      });
+
+      it('should write a fresh footprint with no stale duplicates when a removed merge is relocated back', () => {
+        const collection = new MergedCellsCollection({ hot: hotMock });
+        const merge = collection.add({ row: 0, col: 0, rowspan: 2, colspan: 2 });
+
+        collection.removeFromMatrix([merge]);
+
+        expect(collection.get(0, 0)).toBe(false);
+
+        // relocating it back to the same coords re-adds it cleanly
+        collection.relocateInMatrix([{ mergedCell: merge, row: 0, col: 0 }]);
+
+        expect(collection.get(0, 0)).toBe(merge);
+        expect(collection.get(1, 1)).toBe(merge);
+      });
+    });
+
+    describe('`dropMerges` method', () => {
+      it('should drop the merges from both the list and the lookup matrix', () => {
+        const collection = new MergedCellsCollection({ hot: hotMock });
+        const mergeA = collection.add({ row: 0, col: 0, rowspan: 2, colspan: 2 });
+        const mergeB = collection.add({ row: 5, col: 5, rowspan: 2, colspan: 2 });
+
+        collection.dropMerges([mergeA]);
+
+        expect(collection.mergedCells).toEqual([mergeB]);
+        expect(collection.get(0, 0)).toBe(false);
+        expect(collection.get(1, 1)).toBe(false);
+        expect(collection.get(5, 5)).toBe(mergeB);
+      });
+
+      it('should drop a merge already purged from the matrix, and one whose coordinates match nothing', () => {
+        const collection = new MergedCellsCollection({ hot: hotMock });
+        const purged = collection.add({ row: 0, col: 0, rowspan: 2, colspan: 2 });
+        const survivor = collection.add({ row: 5, col: 5, rowspan: 2, colspan: 2 });
+
+        collection.removeFromMatrix([purged]);
+
+        // the merge kept the stale coordinates it was purged with, and another merge has since taken
+        // the slot they name — dropping by identity must not touch that one
+        purged.row = 5;
+        purged.col = 5;
+
+        collection.dropMerges([purged]);
+
+        expect(collection.mergedCells).toEqual([survivor]);
+      });
+
+      it('should ignore a merge that is not in the list', () => {
+        const collection = new MergedCellsCollection({ hot: hotMock });
+        const merge = collection.add({ row: 0, col: 0, rowspan: 2, colspan: 2 });
+
+        collection.dropMerges([createMergedCell(5, 5, 2, 2)]);
+
+        expect(collection.mergedCells).toEqual([merge]);
+        expect(collection.get(0, 0)).toBe(merge);
+      });
+    });
+
+    describe('bottom-most row index (`findNonIntersectingIndex`)', () => {
+      it('should return bottom-most row index of where the merge cells are not intersected', () => {
+        const mergedCellsCollection = new MergedCellsCollection({ hot: hotMock });
+
+        mergedCellsCollection.add({
+          row: 2,
+          col: 1,
+          rowspan: 2,
+          colspan: 2
+        });
+        mergedCellsCollection.add({
+          row: 3,
+          col: 3,
+          rowspan: 2,
+          colspan: 2
+        });
+
+        const range = createCellRange(1, 0, 5, 5);
+
+        expect(bottomMostRow(mergedCellsCollection, range, 0)).toBe(1);
+        expect(bottomMostRow(mergedCellsCollection, range, 1)).toBe(1);
+        expect(bottomMostRow(mergedCellsCollection, range, 2)).toBe(4);
+        expect(bottomMostRow(mergedCellsCollection, range, 3)).toBe(4);
+        expect(bottomMostRow(mergedCellsCollection, range, 4)).toBe(4);
+        expect(bottomMostRow(mergedCellsCollection, range, 5)).toBe(5);
+        expect(bottomMostRow(mergedCellsCollection, range, 6)).toBe(6);
+      });
+    });
+  });
+});

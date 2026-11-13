@@ -1,0 +1,989 @@
+import { BasePlugin } from '../base';
+import { objectEach } from '../../helpers/object';
+import { DestinationWrites, isDataRow, type CellProp, type DataRow } from './destinationWrites';
+import Endpoints, { type EndpointConfig } from './endpoints';
+import { toSingleLine } from '../../helpers/templateLiteralTag';
+import { holdsNoNumber, isBlank } from './utils';
+import { throwWithCause } from '../../helpers/errors';
+import { normalizeClassNames } from '../../helpers/dom/element';
+import { LICENSE } from './feature.generated';
+
+export const PLUGIN_KEY = 'columnSummary';
+export const PLUGIN_PRIORITY = 220;
+
+/**
+ * Result shown when a range holds no value to calculate from.
+ */
+const NOT_ENOUGH_DATA = 'Not enough data';
+
+export interface SummaryEndpoint {
+  ranges?: number[][];
+  sourceColumn?: number;
+  destinationRow?: number;
+  destinationColumn?: number;
+  forceNumeric?: boolean;
+  type?: string;
+  result?: number | string;
+  customFunction?: ((this: ColumnSummary, endpoint: SummaryEndpoint) => number | string) | null;
+  [key: string]: unknown;
+}
+
+/**
+ * @plugin ColumnSummary
+ * @class ColumnSummary
+ *
+ * @description
+ * The `ColumnSummary` plugin lets you [easily summarize your columns](@/guides/columns/column-summary/column-summary.md).
+ *
+ * You can use the [built-in summary functions](@/guides/columns/column-summary/column-summary.md#built-in-summary-functions),
+ * or implement a [custom summary function](@/guides/columns/column-summary/column-summary.md#implement-a-custom-summary-function).
+ *
+ * For each column summary, you can set the following configuration options:
+ *
+ * | Option | Required | Type | Default | Description |
+ * |---|---|---|---|---|
+ * | `sourceColumn` | No | Number | Same as `destinationColumn` | [Selects a column to summarize](@/guides/columns/column-summary/column-summary.md#step-2-select-cells-that-you-want-to-summarize) |
+ * | `ranges` | No | Array | - | [Selects ranges of rows to summarize](@/guides/columns/column-summary/column-summary.md#step-2-select-cells-that-you-want-to-summarize) |
+ * | `type` | Yes | String | - | [Sets a summary function](@/guides/columns/column-summary/column-summary.md#step-3-calculate-your-summary) |
+ * | `destinationRow` | Yes | Number | - | [Sets the destination cell's row coordinate](@/guides/columns/column-summary/column-summary.md#step-4-provide-the-destination-cell-s-coordinates) |
+ * | `destinationColumn` | Yes | Number | - | [Sets the destination cell's column coordinate](@/guides/columns/column-summary/column-summary.md#step-4-provide-the-destination-cell-s-coordinates) |
+ * | `forceNumeric` | No | Boolean | `false` | [Forces the summary to treat non-numerics as numerics](@/guides/columns/column-summary/column-summary.md#force-numeric-values) |
+ * | `reversedRowCoords` | No | Boolean | `false` | [Reverses the row coordinate, count row coordinates backward](@/guides/columns/column-summary/column-summary.md#step-5-make-room-for-the-destination-cell). Useful when displaying summary results at the bottom of the grid, as it allows you to reference rows relative to the last row (e.g., `destinationRow: 0` refers to the last row when this option is enabled) |
+ * | `suppressDataTypeErrors` | No | Boolean | `true` | [Suppresses data type errors](@/guides/columns/column-summary/column-summary.md#throw-data-type-errors) |
+ * | `readOnly` | No | Boolean | `true` | Makes summary cell [read-only](@/api/options.md#readonly). The plugin keeps the cell read-only: the "Read only" menu item and [`setCellMeta()`](@/api/core.md#setcellmeta) can't make it editable |
+ * | `roundFloat` | No | Number/<br>Boolean | - | [Rounds summary result](@/guides/columns/column-summary/column-summary.md#round-a-column-summary-result) |
+ * | `customFunction` | No | Function | - | [Lets you add a custom summary function](@/guides/columns/column-summary/column-summary.md#implement-a-custom-summary-function) |
+ *
+ * @example
+ * ::: only-for javascript
+ * ```js
+ * const container = document.getElementById('example');
+ * const hot = new Handsontable(container, {
+ *   data: getData(),
+ *   colHeaders: true,
+ *   rowHeaders: true,
+ *   columnSummary: [
+ *     {
+ *       type: 'min',
+ *       destinationRow: 4,
+ *       destinationColumn: 1,
+ *     },
+ *     {
+ *       type: 'max',
+ *       destinationRow: 0,
+ *       destinationColumn: 3,
+ *       reversedRowCoords: true
+ *     },
+ *     {
+ *       type: 'sum',
+ *       destinationRow: 4,
+ *       destinationColumn: 5,
+ *       forceNumeric: true
+ *     }
+ *   ]
+ * });
+ * ```
+ * :::
+ *
+ * ::: only-for react
+ * ```jsx
+ * <HotTable
+ *   data={getData()}
+ *   colHeaders={true}
+ *   rowHeaders={true}
+ *   columnSummary={[
+ *     {
+ *       type: 'min',
+ *       destinationRow: 4,
+ *       destinationColumn: 1,
+ *     },
+ *     {
+ *       type: 'max',
+ *       destinationRow: 0,
+ *       destinationColumn: 3,
+ *       reversedRowCoords: true
+ *     },
+ *     {
+ *       type: 'sum',
+ *       destinationRow: 4,
+ *       destinationColumn: 5,
+ *       forceNumeric: true
+ *     }
+ *   ]}
+ * />
+ * ```
+ * :::
+ *
+ * ::: only-for angular
+ * ```ts
+ * settings = {
+ *   data: getData(),
+ *   colHeaders: true,
+ *   rowHeaders: true,
+ *   columnSummary: [
+ *     {
+ *       type: "min",
+ *       destinationRow: 4,
+ *       destinationColumn: 1,
+ *     },
+ *     {
+ *       type: "max",
+ *       destinationRow: 0,
+ *       destinationColumn: 3,
+ *       reversedRowCoords: true,
+ *     },
+ *     {
+ *       type: "sum",
+ *       destinationRow: 4,
+ *       destinationColumn: 5,
+ *       forceNumeric: true,
+ *     },
+ *   ],
+ * };
+ * ```
+ *
+ * ```html
+ * <hot-table [settings]="settings"></hot-table>
+ * ```
+ * :::
+ */
+export class ColumnSummary extends BasePlugin {
+  /**
+   * Returns the plugin key used to identify this plugin in Handsontable settings.
+   */
+  static get PLUGIN_KEY() {
+    return PLUGIN_KEY;
+  }
+
+  /**
+   * Returns the priority order used to determine the order in which plugins are initialized.
+   */
+  static get PLUGIN_PRIORITY() {
+    return PLUGIN_PRIORITY;
+  }
+
+  /**
+   * Returns the license token of the plugin, its display name, where it is checked, and the tokens it
+   * requires.
+   */
+  static get LICENSE() {
+    return LICENSE;
+  }
+
+  /**
+   * The Endpoints class instance. Used to make all endpoint-related operations.
+   *
+   * @private
+   * @type {null|Endpoints}
+   */
+  endpoints: Endpoints | null = null;
+  /**
+   * Plugin settings provided by the user, or `null` if none were supplied.
+   */
+  declare settings: Record<string, unknown> | null;
+  /**
+   * The endpoint configuration object currently being processed during a summary calculation.
+   */
+  declare currentEndpoint: unknown;
+
+  /**
+   * `true` from an `enablePlugin()` until the endpoints are parsed and computed. The ready step computes them;
+   * `onDataReady()` does when core applies the settings ahead of their data.
+   */
+  #endpointsOwed = false;
+
+  /**
+   * Re-entry guard for the `afterFormulasValuesUpdate` hook so that the summary
+   * recalculation triggered by writing the summary result does not start
+   * another refresh.
+   *
+   * @type {boolean}
+   */
+  #refreshingFromFormulas = false;
+
+  /**
+   * What each destination cell held before the plugin first wrote a summary result there, and the
+   * value it holds since, keyed by the source row object and the cell's property. The results are
+   * written into the data array itself, so when the grid replaces that array (`loadData()`,
+   * `updateData()`, a sheets bar switch) the array the grid leaves gets its own values back. Loaded
+   * again, it then sums what the first load summed, instead of counting the previous result as input.
+   * It lives as long as the plugin instance, because a settings update re-enables the plugin
+   * (`updatePlugin()`) before the data it describes is loaded.
+   *
+   * @type {DestinationWrites}
+   */
+  #destinationWrites = new DestinationWrites();
+
+  /**
+   * Checks if the plugin is enabled in the handsontable settings. This method is executed in {@link Hooks#beforeInit}
+   * hook and if it returns `true` then the {@link ColumnSummary#enablePlugin} method is called.
+   *
+   * @returns {boolean}
+   */
+  isEnabled(): boolean {
+    return !!this.hot.getSettings()[PLUGIN_KEY];
+  }
+
+  /**
+   * Enables the plugin functionality for this Handsontable instance.
+   */
+  enablePlugin(): void {
+    if (this.enabled) {
+      return;
+    }
+
+    this.settings = this.hot.getSettings()[PLUGIN_KEY] as unknown as Record<string, unknown>;
+    this.endpoints = new Endpoints(
+      this, this.settings as unknown as EndpointConfig[] | ((...args: unknown[]) => EndpointConfig[])
+    );
+
+    this.addHook('afterChange', this.#onAfterChange);
+    this.addHook('afterUpdateSettings', this.#onAfterUpdateSettings);
+    this.addHook('afterLoadData', this.#onAfterLoadData);
+    this.addHook('afterUpdateData', this.#onAfterUpdateData);
+    this.addHook('beforeChange', this.#onBeforeChangeTrackWrites);
+    this.addHook('afterChange', this.#onAfterChangeTrackWrites);
+    this.addHook('beforeLoadData', this.#onBeforeLoadData);
+    this.addHook('beforeUpdateData', this.#onBeforeUpdateData);
+
+    this.addHook('beforeCreateRow', (index: number, amount: number) => {
+      this.endpoints!.resetSetupBeforeStructureAlteration('insert_row', index, amount);
+    });
+    this.addHook('beforeCreateCol', (index: number, amount: number) => {
+      this.endpoints!.resetSetupBeforeStructureAlteration('insert_col', index, amount);
+    });
+    this.addHook('beforeRemoveRow', (index: number, amount: number) => {
+      this.endpoints!.resetSetupBeforeStructureAlteration('remove_row', index, amount);
+    });
+    this.addHook('beforeRemoveCol', (index: number, amount: number) => {
+      this.endpoints!.resetSetupBeforeStructureAlteration('remove_col', index, amount);
+    });
+
+    this.addHook('afterCreateRow', (index: number, amount: number, source: string) => {
+      this.endpoints!.resetSetupAfterStructureAlteration('insert_row', index, amount, null, source);
+    });
+    this.addHook('afterCreateCol', (index: number, amount: number, source: string) => {
+      this.endpoints!.resetSetupAfterStructureAlteration('insert_col', index, amount, null, source);
+    });
+    this.addHook('afterRemoveRow',
+      (index: number, amount: number, physicalRows: number[], source: string) => this.endpoints!.resetSetupAfterStructureAlteration('remove_row', index, amount, physicalRows, source)); // eslint-disable-line max-len
+    this.addHook('afterRemoveCol',
+      (index: number, amount: number, physicalColumns: number[], source: string) => this.endpoints!.resetSetupAfterStructureAlteration('remove_col', index, amount, physicalColumns, source)); // eslint-disable-line max-len
+    this.addHook('afterRowMove', this.#onAfterRowMove);
+    this.addHook('afterFormulasValuesUpdate', this.#onAfterFormulasValuesUpdate);
+    this.addHook('beforeSetCellMeta', this.#onBeforeSetCellMeta);
+    this.addHook('beforeRemoveCellMeta', this.#onBeforeRemoveCellMeta);
+
+    this.#endpointsOwed = true;
+
+    super.enablePlugin();
+  }
+
+  /**
+   * Disables the plugin functionality for this Handsontable instance.
+   *
+   * When the settings turn the plugin off (not the disable step of `updatePlugin()`), the data the grid
+   * holds gets its destination values back, so it sums the same input when the plugin comes back.
+   */
+  disablePlugin(): void {
+    if (!this.isEnabled()) {
+      this.#restoreDestinationOriginals();
+    }
+
+    this.endpoints = null;
+    this.settings = null;
+    this.currentEndpoint = null;
+
+    super.disablePlugin();
+  }
+
+  /**
+   * Updates the plugin's state.
+   *
+   * This method is executed when [`updateSettings()`](@/api/core.md#updatesettings) is invoked with any of the following configuration options:
+   *  - [`columnSummary`](@/api/options.md#columnsummary)
+   *
+   * The endpoints are computed in the ready step, once the call returns and the data is loaded. While
+   * core applies the settings ahead of their data (`isDataWorkDeferred()`), `onDataReady()` computes them.
+   */
+  updatePlugin(): void {
+    this.disablePlugin();
+    this.enablePlugin();
+
+    if (this.isDataWorkDeferred()) {
+      this.deferDataWork();
+    }
+
+    super.updatePlugin();
+  }
+
+  /**
+   * Computes the summaries once the data they describe is loaded. Core's `_applySettingsAndData()`
+   * applies settings ahead of their data, and the endpoints wait for this step then: parsed and
+   * calculated against the rows the grid still held, they were checked against the wrong size (a
+   * false out-of-bounds warning) and their results were written into those rows. Endpoints that were
+   * already parsed are recalculated, because the load replaced the rows they read.
+   *
+   * @private
+   */
+  onDataReady() {
+    if (this.takeDeferredDataWork()) {
+      this.#endpointsOwed = false;
+      this.endpoints!.initEndpoints();
+    } else {
+      this.endpoints?.refreshAllEndpoints();
+    }
+  }
+
+  /**
+   * Parses the endpoints and computes the summaries after an enable or update. Core runs it once the call
+   * returns, when the data is loaded and the editor manager exists: the results are written through
+   * `setDataAtCell()`. At init that is before the `init` hook, with the render held for the first one.
+   *
+   * @private
+   */
+  onGridReady() {
+    if (!this.#endpointsOwed) {
+      return;
+    }
+
+    this.#endpointsOwed = false;
+    this.endpoints!.initEndpoints();
+  }
+
+  /**
+   * Puts into a copy of the grid's data the values its destination cells held before the summary
+   * results, row for row, so the copy sums its own rows when it is loaded rather than the copied
+   * results. The sheets bar calls it on a duplicate of the sheet the grid shows. A copy of other data
+   * is left as it is.
+   *
+   * @private
+   * @param {Array} source The data the copy was made from.
+   * @param {Array} copy The copy, with the same row order.
+   */
+  restoreDestinationValuesInCopy(source: unknown[], copy: unknown[]): void {
+    const { data, dataDotNotation } = this.hot.getSettings();
+
+    if (source === data) {
+      this.#destinationWrites.restoreInCopy(source, copy, !!dataDotNotation);
+    }
+  }
+
+  /**
+   * Returns the endpoints in the form of the plugin's settings, at the positions they hold now, or `null`
+   * while the plugin is off or configured with a function. The sheets bar stores them when the user
+   * leaves a sheet and applies them on the return, so a summary a row insert moved stays where it went.
+   *
+   * @private
+   * @returns {object[]|null}
+   */
+  exportEndpointSettings(): EndpointConfig[] | null {
+    return this.enabled && this.endpoints ? this.endpoints.exportSettings() : null;
+  }
+
+  /**
+   * Calculates math for a single endpoint.
+   *
+   * @private
+   * @param {object} endpoint Contains information about the endpoint.
+   */
+  calculate(endpoint: SummaryEndpoint): void {
+    switch (endpoint.type!.toLowerCase()) {
+      case 'sum':
+        endpoint.result = this.calculateSum(endpoint);
+        break;
+      case 'min':
+        endpoint.result = this.calculateMinMax(endpoint, endpoint.type as 'min' | 'max');
+        break;
+      case 'max':
+        endpoint.result = this.calculateMinMax(endpoint, endpoint.type as 'min' | 'max');
+        break;
+      case 'count':
+        endpoint.result = this.countEntries(endpoint);
+        break;
+      case 'average':
+        endpoint.result = this.calculateAverage(endpoint);
+        break;
+      case 'custom':
+        endpoint.result = endpoint.customFunction!.call(this, endpoint);
+        break;
+      default:
+        break;
+    }
+  }
+
+  /**
+   * Calculates sum of the values contained in ranges provided in the plugin config.
+   *
+   * @private
+   * @param {object} endpoint Contains the endpoint information.
+   * @returns {number} Sum for the selected range.
+   */
+  calculateSum(endpoint: SummaryEndpoint): number {
+    let sum = 0;
+
+    for (const range of endpoint.ranges!) {
+      sum += this.getPartialSum(range, endpoint.sourceColumn!);
+    }
+
+    return sum;
+  }
+
+  /**
+   * Returns partial sum of values from a single row range.
+   *
+   * @private
+   * @param {Array} rowRange Range for the sum.
+   * @param {number} col Column index.
+   * @returns {number} The partial sum.
+   */
+  getPartialSum(rowRange: number[], col: number): number {
+    let sum = 0;
+    let i = rowRange[1] || rowRange[0];
+    let cellValue: number | null = null;
+    let biggestDecimalPlacesCount = 0;
+
+    do {
+      const rawValue = this.getCellValue(i, col);
+
+      cellValue = holdsNoNumber(rawValue) ? null : Number(rawValue);
+
+      if (cellValue !== null) {
+        const decimalPlaces = (((`${cellValue}`).split('.')[1] || []).length) || 1;
+
+        if (decimalPlaces > biggestDecimalPlacesCount) {
+          biggestDecimalPlacesCount = decimalPlaces;
+        }
+      }
+
+      sum += cellValue ?? 0;
+      i -= 1;
+    } while (i >= rowRange[0]);
+
+    // Workaround for e.g. 802.2 + 1.1 = 803.3000000000001
+    return Math.round(sum * (10 ** biggestDecimalPlacesCount)) / (10 ** biggestDecimalPlacesCount);
+  }
+
+  /**
+   * Calculates the minimal value for the selected ranges.
+   *
+   * @private
+   * @param {object} endpoint Contains the endpoint information.
+   * @param {string} type `'min'` or `'max'`.
+   * @returns {number} Min or Max value.
+   */
+  calculateMinMax(endpoint: SummaryEndpoint, type: 'min' | 'max'): number | string {
+    let result: number | null = null;
+
+    for (const range of endpoint.ranges!) {
+      const partialResult = this.getPartialMinMax(range, endpoint.sourceColumn!, type);
+
+      if (result === null && partialResult !== null) {
+        result = partialResult;
+      }
+
+      if (partialResult !== null) {
+        switch (type) {
+          case 'min':
+            result = Math.min(result!, partialResult);
+            break;
+          case 'max':
+            result = Math.max(result!, partialResult);
+            break;
+          default:
+            break;
+        }
+      }
+    }
+
+    return result === null ? NOT_ENOUGH_DATA : result;
+  }
+
+  /**
+   * Returns a local minimum of the provided sub-range.
+   *
+   * @private
+   * @param {Array} rowRange Range for the calculation.
+   * @param {number} col Column index.
+   * @param {string} type `'min'` or `'max'`.
+   * @returns {number|null} Min or max value.
+   */
+  getPartialMinMax(rowRange: number[], col: number, type: 'min' | 'max'): number | null {
+    let result: number | null = null;
+    let i = rowRange[1] || rowRange[0];
+    let cellValue: number | null;
+
+    do {
+      const rawValue = this.getCellValue(i, col);
+
+      cellValue = holdsNoNumber(rawValue) ? null : Number(rawValue);
+
+      if (result === null) {
+        result = cellValue;
+      } else if (cellValue !== null) {
+        switch (type) {
+          case 'min':
+            result = Math.min(result, cellValue);
+            break;
+          case 'max':
+            result = Math.max(result, cellValue);
+            break;
+          default:
+            break;
+        }
+
+      }
+
+      i -= 1;
+    } while (i >= rowRange[0]);
+
+    return result;
+  }
+
+  /**
+   * Counts empty cells in the provided row range.
+   *
+   * @private
+   * @param {Array} rowRange Row range for the calculation.
+   * @param {number} col Column index.
+   * @returns {number} Empty cells count.
+   */
+  countEmpty(rowRange: number[], col: number): number {
+    let cellValue;
+    let counter = 0;
+    let i = rowRange[1] || rowRange[0];
+
+    do {
+      cellValue = this.getCellValue(i, col);
+      cellValue = holdsNoNumber(cellValue) ? null : cellValue;
+
+      if (cellValue === null) {
+        counter += 1;
+      }
+
+      i -= 1;
+    } while (i >= rowRange[0]);
+
+    return counter;
+  }
+
+  /**
+   * Counts the cells that hold a number in the provided row range.
+   *
+   * @private
+   * @param {object} endpoint Contains the endpoint information.
+   * @returns {number} Entry count.
+   */
+  countEntries(endpoint: SummaryEndpoint): number {
+    let result = 0;
+    const ranges = endpoint.ranges!;
+
+    for (const range of ranges) {
+      const partial = range[1] === undefined ? 1 : range[1] - range[0] + 1;
+      const emptyCount = this.countEmpty(range, endpoint.sourceColumn!);
+
+      result += partial;
+      result -= emptyCount;
+    }
+
+    return result;
+  }
+
+  /**
+   * Calculates the average value from the cells in the range.
+   *
+   * @private
+   * @param {object} endpoint Contains the endpoint information.
+   * @returns {number|string} Average value, or `'Not enough data'` when the range holds no entries.
+   */
+  calculateAverage(endpoint: SummaryEndpoint): number | string {
+    const entriesCount = this.countEntries(endpoint);
+
+    // An all-empty range divides by zero, and a malformed range bound makes the count negative or
+    // `NaN`. Report all of them the way `min` and `max` do instead of letting `NaN` reach the cell.
+    if (!Number.isFinite(entriesCount) || entriesCount <= 0) {
+      return NOT_ENOUGH_DATA;
+    }
+
+    return this.calculateSum(endpoint) / entriesCount;
+  }
+
+  /**
+   * Returns a cell value, taking into consideration a basic validation.
+   *
+   * @private
+   * @param {number} row Physical row index.
+   * @param {number} col Physical column index.
+   * @returns {string} The cell value.
+   */
+  getCellValue(row: number, col: number): number | string | null {
+    const visualRowIndex = this.hot.toVisualRow(row);
+    // The endpoint columns are physical, like the rows, while every read below takes a visual column -
+    // `getSourceDataAtCell` included, which pairs a physical row with a visual column.
+    const visualColumnIndex = this.hot.toVisualColumn(col);
+
+    if (visualColumnIndex === null) {
+      return null;
+    }
+
+    let cellValue: number | string | null = (visualRowIndex !== null
+      ? this.hot.getDataAtCell(visualRowIndex, visualColumnIndex)
+      : this.hot.getSourceDataAtCell(row, visualColumnIndex)) as number | string | null;
+
+    // A trimmed row has no visual coordinates, so its cell meta - and with it the
+    // `columnSummaryResult` class - cannot be read. Fall back to the endpoint destinations, or a
+    // hidden summary row is summed as plain data and inflates every summary covering it.
+    //
+    // The two tests are deliberately exclusive, not OR-ed: a *visible* destination cell still holds
+    // the user's own value on the first calculation pass, before any result was written, and that
+    // value counts towards the summary. Three long-standing specs pin that behavior.
+    const isSummaryResult = visualRowIndex !== null
+      ? ((this.hot.getCellMetaTransient(visualRowIndex, visualColumnIndex).className as string) || '')
+        .indexOf('columnSummaryResult') > -1
+      : this.endpoints!.isSummaryDestination(row, col);
+
+    if (isSummaryResult) {
+      return null;
+    }
+
+    const isBlankCell = isBlank(cellValue);
+
+    if (this.endpoints!.currentEndpoint!.forceNumeric) {
+      if (typeof cellValue === 'string') {
+        cellValue = cellValue.replace(/,/, '.');
+      }
+
+      cellValue = parseFloat(cellValue as string);
+    }
+
+    if (isNaN(Number(cellValue))) {
+      // A blank cell inside the default range is not bad data: the user never named that range, and it covers
+      // the empty rows the grid adds (an appended row, or a row an undo restores). An explicit range keeps
+      // throwing on a blank cell (DEV-2995).
+      const isUnnamedBlankCell = isBlankCell && Boolean(this.endpoints!.currentEndpoint!.rangesFromDefault);
+
+      if (!this.endpoints!.currentEndpoint!.suppressDataTypeErrors && !isUnnamedBlankCell) {
+        throwWithCause(toSingleLine`ColumnSummary plugin: cell at (${row}, ${col}) is not in a\x20
+          numeric format. Cannot do the calculation.`);
+      }
+    }
+
+    return cellValue;
+  }
+
+  /**
+   * Checks whether a cell is the destination of a summary configured as `readOnly` (the default).
+   *
+   * The plugin owns the `readOnly` state of such a cell: it writes it on every recalculation, and
+   * nothing else may clear it. The "Read only" menu item leaves these cells out, and a `setCellMeta`
+   * that would make one writable, or a `removeCellMeta` of its `readOnly` key, is vetoed.
+   *
+   * A cache hit alone is not enough: it is keyed by the endpoint's `destinationColumn` as configured
+   * and is not re-keyed when a column moves (see the `manualColumnMove` limit in `AGENTS.md`), so it
+   * can still name a column a plain cell has since moved into. The cell's own current meta - the
+   * `readOnly` flag and the `columnSummaryResult` class the plugin itself writes - confirms the hit.
+   *
+   * @private
+   * @param {number} row Visual row index.
+   * @param {number} column Visual column index.
+   * @returns {boolean}
+   */
+  isLockedSummaryCell(row: number, column: number): boolean {
+    if (!this.enabled || !this.endpoints) {
+      return false;
+    }
+
+    // Matches how `setCellMeta`/`_setCellMetaDeclarative` resolve `row` in `core.ts`: below the
+    // current row count it is a visual index to translate, at or past it it is already physical
+    // (a trimmed or otherwise out-of-range row addressed by its physical index directly). Reading
+    // `toPhysicalRow(row)` unconditionally instead answers `null` for such a row - which is `false`
+    // by construction below - and a locked, trimmed summary row loses its lock while trimmed.
+    const physicalRow = row < this.hot.countRows() ? this.hot.toPhysicalRow(row) : row;
+
+    if (physicalRow === null || !this.endpoints.isReadOnlyDestination(physicalRow, column)) {
+      return false;
+    }
+
+    // The cache above is keyed by `destinationColumn` as configured, and nothing re-keys it when a
+    // column moves (the plugin has no `afterColumnMove` refresh - see `AGENTS.md`). A cell that
+    // merely moved into that column position, and was never the plugin's own destination, must not
+    // be reported as locked just because a stale cache entry still names its column. The cell the
+    // plugin actually wrote to still carries the class and the flag it wrote, whatever the cache
+    // says, so confirming both against the CURRENT meta - the same signal `getCellValue()` uses to
+    // recognize a result - rules out a plain cell the cache alone cannot tell apart from the summary.
+    const cellMeta = this.hot.getCellMetaTransient(row, column);
+
+    return Boolean(cellMeta.readOnly) &&
+      normalizeClassNames(cellMeta.className as string | string[]).includes('columnSummaryResult');
+  }
+
+  /**
+   * `beforeSetCellMeta` hook callback. Vetoes any public write to the `readOnly` key of a locked
+   * summary cell: from the "Read only" menu item, its undo or redo, or a direct `setCellMeta` call.
+   *
+   * Every value is vetoed, not only a falsy one that would unlock the cell. Redo replays a "make
+   * read-only" toggle by writing `true` over its whole captured range, including a cell that was
+   * already locked - and unlike `_setCellMetaDeclarative`, the public `setCellMeta` records that as
+   * user-defined meta. Left unblocked, that write would survive a later `updateSettings` that moves
+   * the summary elsewhere, permanently pinning `readOnly` on a cell the plugin no longer tracks.
+   *
+   * The plugin's own writes go through `_setCellMetaDeclarative`, which fires no hooks, so they are
+   * never vetoed here.
+   *
+   * @param {number} row Visual row index.
+   * @param {number} column Visual column index.
+   * @param {string} key The cell meta key.
+   * @returns {boolean|undefined} `false` to veto the write.
+   */
+  #onBeforeSetCellMeta = (row: number, column: number, key: string) => {
+    if (key === 'readOnly' && this.isLockedSummaryCell(row, column)) {
+      return false;
+    }
+  };
+
+  /**
+   * `beforeRemoveCellMeta` hook callback. Vetoes removing the `readOnly` key of a read-only summary
+   * cell, which would make it writable the same way a `setCellMeta` to `false` would.
+   *
+   * @param {number} row Visual row index.
+   * @param {number} column Visual column index.
+   * @param {string} key The cell meta key.
+   * @returns {boolean|undefined} `false` to veto the removal.
+   */
+  #onBeforeRemoveCellMeta = (row: number, column: number, key: string) => {
+    if (key === 'readOnly' && this.isLockedSummaryCell(row, column)) {
+      return false;
+    }
+  };
+
+  /**
+   * Called after the settings were updated. There is a need to refresh cell metas after the settings update with
+   * the `columns`, `cells`, `cell` or the grid-level `type` property as the Core resets the cell metas to their
+   * initial state.
+   *
+   * @param {object} settings The settings object.
+   */
+  #onAfterUpdateSettings = (settings: Record<string, unknown>) => {
+    if (settings.columns !== undefined || settings.cells !== undefined || settings.cell !== undefined ||
+        settings.type !== undefined) {
+      this.endpoints!.refreshCellMetas();
+    }
+  };
+
+  /**
+   * `afterChange` hook callback.
+   *
+   * @param {Array} changes 2D array containing information about each of the edited cells.
+   * @param {string} source The string that identifies source of changes.
+   */
+  #onAfterChange = (changes: unknown[][], source: string) => {
+    if (changes && source !== 'ColumnSummary.reset' && source !== 'ColumnSummary.set' && source !== 'loadData') {
+      this.endpoints!.refreshChangedEndpoints(changes);
+    }
+  };
+
+  /**
+   * `afterLoadData` hook callback.
+   *
+   * @param {Array} data The updated data.
+   * @param {boolean} firstRun `true` if called on initial load, `false` otherwise.
+   */
+  #onAfterLoadData = (data: unknown[], firstRun: boolean) => {
+    if (!firstRun && !this.isDataWorkDeferred()) {
+      this.endpoints!.refreshAllEndpoints();
+    }
+  };
+
+  /**
+   * Resolves the data row object and the cell property a change of the plugin's own writes into. A grid
+   * with a `modifyRowData` listener (NestedRows) does not keep its rows at their physical indexes in the
+   * data array, so its writes are not followed.
+   *
+   * @param {Array[]|null} changes The changes.
+   * @param {string} source The source of the changes.
+   * @returns {Array} The row and the property of each change the plugin writes.
+   */
+  #resolveDestinationCells(changes: unknown[][] | null, source: string): [DataRow, CellProp][] {
+    if (!changes || (source !== 'ColumnSummary.set' && source !== 'ColumnSummary.reset')
+      || this.hot.hasHook('modifyRowData')) {
+      return [];
+    }
+
+    const data = this.hot.getSettings().data as unknown[] | undefined;
+    const cells: [DataRow, CellProp][] = [];
+
+    if (!Array.isArray(data)) {
+      return cells;
+    }
+
+    changes.forEach((change) => {
+      if (!change) {
+        return;
+      }
+
+      const [visualRow, prop] = change;
+      const physicalRow = this.hot.toPhysicalRow(visualRow as number);
+      const row = physicalRow === null ? undefined : data[physicalRow];
+
+      if (isDataRow(row) && (typeof prop === 'string' || typeof prop === 'number' || typeof prop === 'function')) {
+        cells.push([row, prop as CellProp]);
+      }
+    });
+
+    return cells;
+  }
+
+  /**
+   * Records what each destination cell holds right before the plugin's first result is written there.
+   *
+   * @param {Array[]} changes The changes the plugin is about to make.
+   * @param {string} source The source of the changes.
+   */
+  #onBeforeChangeTrackWrites = (changes: unknown[][] | null, source: string) => {
+    const dataDotNotation = !!this.hot.getSettings().dataDotNotation;
+
+    this.#resolveDestinationCells(changes, source).forEach(([row, prop]) => {
+      this.#destinationWrites.recordBefore(row, prop, dataDotNotation);
+    });
+  };
+
+  /**
+   * Records the value each destination cell holds once the plugin's result is written, read back from the
+   * cell.
+   *
+   * @param {Array[]} changes The changes the plugin made.
+   * @param {string} source The source of the changes.
+   */
+  #onAfterChangeTrackWrites = (changes: unknown[][] | null, source: string) => {
+    const dataDotNotation = !!this.hot.getSettings().dataDotNotation;
+
+    this.#resolveDestinationCells(changes, source).forEach(([row, prop]) => {
+      this.#destinationWrites.recordAfter(row, prop, dataDotNotation);
+    });
+  };
+
+  /**
+   * `beforeLoadData` hook callback. A load clears the cell meta that keeps a summary result out of
+   * its own range, so the outgoing array gets its values back even when it is loaded again.
+   */
+  #onBeforeLoadData = () => {
+    this.#restoreDestinationOriginals();
+  };
+
+  /**
+   * `beforeUpdateData` hook callback. An update with the array the grid already holds (a wrapper
+   * re-render) keeps the cell meta of the results and writes nothing back, so the results stay in
+   * place and are not summed. Any other array gets its values back.
+   *
+   * @param {Array} data The incoming data.
+   */
+  #onBeforeUpdateData = (data: unknown) => {
+    if (data !== this.hot.getSettings().data) {
+      this.#restoreDestinationOriginals();
+    }
+  };
+
+  /**
+   * Writes back into the data the grid is about to replace the values its destination cells held
+   * before the first summary result, straight into the row objects: no hooks, no undo step, no
+   * render. A cell whose value is no longer the result the plugin wrote last (the user or the host
+   * replaced it), a row that is no longer in the data, and a cell the row does not let be written (a
+   * frozen row) keep their values.
+   */
+  #restoreDestinationOriginals() {
+    const { data, dataDotNotation } = this.hot.getSettings();
+
+    if (Array.isArray(data)) {
+      this.#destinationWrites.restore(data, !!dataDotNotation);
+    } else {
+      this.#destinationWrites.clear();
+    }
+  }
+
+  /**
+   * `afterUpdateData` hook callback.
+   *
+   * @param {Array} data The updated data.
+   * @param {boolean} firstRun `true` if called on initial load, `false` otherwise.
+   */
+  #onAfterUpdateData = (data: unknown[], firstRun: boolean) => {
+    if (!firstRun) {
+      this.endpoints!.refreshAllEndpoints();
+    }
+  };
+
+  /**
+   * `afterFormulasValuesUpdate` hook callback. Refresh only endpoints whose
+   * `sourceColumn` (physical) maps to a column the engine recalculated.
+   *
+   * @param {Array} changes Changes from the formula engine.
+   */
+  #onAfterFormulasValuesUpdate = (changes: Array<{ address?: { sheet: number; col: number } }>) => {
+    if (this.#refreshingFromFormulas || !this.endpoints || !changes?.length) {
+      return;
+    }
+
+    const formulasPlugin = this.hot.getPlugin('formulas');
+
+    if (!formulasPlugin?.enabled) {
+      return;
+    }
+
+    const sheetId = formulasPlugin.sheetId;
+    const changedHfColumns = new Set();
+
+    changes.forEach((change) => {
+      if (change?.address?.sheet === sheetId) {
+        changedHfColumns.add(change.address.col);
+      }
+    });
+
+    if (changedHfColumns.size === 0) {
+      return;
+    }
+
+    const changedSourceColumns = new Set<number>();
+
+    this.endpoints.getAllEndpoints().forEach((endpoint) => {
+      const sourceColumn = endpoint.sourceColumn ?? 0;
+      const hfSourceColumn = formulasPlugin.columnAxisSyncer!.getHfIndexFromPhysicalIndex(sourceColumn);
+
+      if (changedHfColumns.has(hfSourceColumn)) {
+        changedSourceColumns.add(sourceColumn);
+      }
+    });
+
+    if (changedSourceColumns.size === 0) {
+      return;
+    }
+
+    this.#refreshingFromFormulas = true;
+
+    try {
+      this.endpoints.refreshEndpointsBySourceColumns(changedSourceColumns);
+    } finally {
+      this.#refreshingFromFormulas = false;
+    }
+  };
+
+  /**
+   * `afterRowMove` hook callback. The endpoint rows and ranges are physical, and ManualRowMove only permutes
+   * the row index, so a move changes neither which records a summary covers nor which record holds its
+   * result - both travel with their rows. The endpoints are still recalculated: NestedRows moves a row by
+   * splicing the data itself, which does change what a physical range holds, and a `custom` function may
+   * read the row order.
+   *
+   * @param {Array} rows Array of visual row indexes that were moved.
+   * @param {number} finalIndex Visual row index, being a start index for the moved rows.
+   * @param {number|undefined} dropIndex Visual row index, being a drop index for the moved rows.
+   * @param {boolean} movePossible Indicates if it was possible to move rows to the desired position.
+   * @param {boolean} orderChanged Indicates if order of rows was changed by move.
+   */
+  #onAfterRowMove = (
+    rows: number[], finalIndex: number, dropIndex: number | undefined, movePossible: boolean, orderChanged: boolean
+  ) => {
+    if (orderChanged) {
+      this.endpoints!.refreshAllEndpoints();
+    }
+  };
+}

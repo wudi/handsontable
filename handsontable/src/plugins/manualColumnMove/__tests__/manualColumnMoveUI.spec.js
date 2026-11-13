@@ -13,7 +13,7 @@ describe('manualColumnMove', () => {
   });
 
   describe('UI', () => {
-    it('should append UI elements to wtHider after click on column header', () => {
+    it('should append UI elements to wtHider after click on column header', async() => {
       handsontable({
         data: createSpreadsheetData(30, 30),
         colHeaders: true,
@@ -30,7 +30,7 @@ describe('manualColumnMove', () => {
       expect(spec().$container.find('.ht__manualColumnMove--backlight').length).toBe(1);
     });
 
-    it('should part of UI elements be visible on dragging action', () => {
+    it('should part of UI elements be visible on dragging action', async() => {
       handsontable({
         data: createSpreadsheetData(30, 30),
         colHeaders: true,
@@ -47,7 +47,7 @@ describe('manualColumnMove', () => {
       expect(spec().$container.find('.ht__manualColumnMove--backlight:visible').length).toBe(1);
     });
 
-    it('should all of UI elements be visible on dragging action', () => {
+    it('should all of UI elements be visible on dragging action', async() => {
       handsontable({
         data: createSpreadsheetData(30, 30),
         colHeaders: true,
@@ -70,9 +70,9 @@ describe('manualColumnMove', () => {
       expect(spec().$container.find('.ht__manualColumnMove--backlight:visible').length).toBe(1);
     });
 
-    it('should set proper z-index of the backlight and guideline element and be greater than top overlay z-index', () => {
+    it('should set proper z-index of the backlight and guideline element and be greater than top overlay z-index', async() => {
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+        data: createSpreadsheetData(10, 10),
         manualColumnMove: true,
         rowHeaders: true,
         colHeaders: true,
@@ -88,7 +88,7 @@ describe('manualColumnMove', () => {
       expect($('.ht__manualColumnMove--guideline').css('z-index')).toBeGreaterThan(getTopClone().css('z-index'));
     });
 
-    it('should not run moving ui if mousedown was fired on sorting element', () => {
+    it('should not move the column when the sorting element is pressed and released without moving', async() => {
       handsontable({
         data: createSpreadsheetData(30, 30),
         colHeaders: true,
@@ -104,17 +104,18 @@ describe('manualColumnMove', () => {
       $headerTH.simulate('mousedown');
       $headerTH.simulate('mouseup');
 
-      const $backlight = spec().$container.find('.ht__manualColumnMove--backlight')[0];
-
+      // The sorting label is part of the draggable header, so pressing it does arm a move.
+      // Releasing without any pointer movement has to leave the column order untouched - that
+      // gesture is a click to sort, and only a press that travels moves the column.
       $summaryElement.simulate('mousedown');
+      $summaryElement.simulate('mouseup');
 
-      const displayProp = $backlight.currentStyle ?
-        $backlight.currentStyle.display : getComputedStyle($backlight, null).display;
-
-      expect(displayProp).toEqual('none');
+      expect(getDataAtRow(0)).toEqual(getSourceDataAtRow(0));
+      expect(columnIndexMapper().getIndexesSequence())
+        .toEqual(Array.from({ length: 30 }, (_, index) => index));
     });
 
-    it('should run moving ui if mousedown was fired on sorting element when sort header action is not enabled', function() {
+    it('should run moving ui if mousedown was fired on sorting element when sort header action is not enabled', async() => {
       handsontable({
         data: createSpreadsheetData(30, 30),
         colHeaders: true,
@@ -124,12 +125,12 @@ describe('manualColumnMove', () => {
         }
       });
 
-      const $headerTH = this.$container.find('thead tr:eq(0) th:eq(6)');
+      const $headerTH = spec().$container.find('thead tr:eq(0) th:eq(6)');
       const $summaryElement = $headerTH.find('.columnSorting');
 
       $summaryElement.simulate('mousedown');
 
-      const $backlight = this.$container.find('.ht__manualColumnMove--backlight');
+      const $backlight = spec().$container.find('.ht__manualColumnMove--backlight');
 
       expect($backlight.length).toBe(0);
     });

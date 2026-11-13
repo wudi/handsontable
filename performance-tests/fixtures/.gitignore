@@ -1,0 +1,5 @@
+*.js
+*.css
+*.map
+!.gitkeep
+!test-license-key.js

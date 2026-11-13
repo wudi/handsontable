@@ -1,0 +1,72 @@
+import type { HotInstance } from '../../../core/types';
+import * as C from '../../../i18n/constants';
+
+/**
+ * @param {HiddenColumns} hiddenColumnsPlugin The plugin instance.
+ * @returns {object}
+ */
+export default function hideColumnItem(hiddenColumnsPlugin: Record<string, Function>) {
+  return {
+    key: 'hidden_columns_hide',
+    name(this: HotInstance): string {
+      const selection = this.getSelectedActive();
+      let pluralForm = 0;
+
+      if (Array.isArray(selection)) {
+        const [, fromColumn, , toColumn] = selection;
+
+        if (fromColumn - toColumn !== 0) {
+          pluralForm = 1;
+        }
+      }
+
+      return (this.getTranslatedPhrase(C.CONTEXTMENU_ITEMS_HIDE_COLUMN, pluralForm) as string);
+    },
+    callback(this: HotInstance) {
+      const selectedRange = this.getSelectedRangeActive();
+
+      if (!selectedRange) {
+        return;
+      }
+
+      const { from, to } = selectedRange;
+
+      if (from.col === null || to.col === null) {
+        return;
+      }
+
+      const start = Math.max(Math.min(from.col, to.col), 0);
+      const end = Math.max(from.col, to.col);
+      const columnsToHide = [];
+
+      for (let visualColumn = start; visualColumn <= end; visualColumn += 1) {
+        columnsToHide.push(visualColumn);
+      }
+
+      hiddenColumnsPlugin.hideColumns(columnsToHide);
+
+      const lastHiddenColumn = columnsToHide[columnsToHide.length - 1];
+      const columnToSelect = this.columnIndexMapper.getNearestNotHiddenIndex(lastHiddenColumn, 1, true);
+
+      if (columnToSelect !== null && Number.isInteger(columnToSelect) && columnToSelect >= 0) {
+        this.selectColumns(columnToSelect);
+
+      } else {
+        this.deselectCell();
+      }
+
+      this.render();
+    },
+    disabled: false,
+    hidden(this: HotInstance) {
+      if (!(this.selection.isSelectedByColumnHeader() || this.selection.isSelectedByCorner())) {
+        return true;
+      }
+
+      // Nothing to hide — no column is rendered. A corner select-all with every column already
+      // hidden is the reported case (DEV-164); an empty grid is the same dead entry
+      // (`hideColumns([])` hides nothing), so suppress the item whenever no column is visible.
+      return this.columnIndexMapper.getRenderableIndexesLength() === 0;
+    }
+  };
+}

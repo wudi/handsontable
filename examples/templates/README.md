@@ -37,13 +37,13 @@ It's done! Now take a closer look at files inside templates.
 
 #### 2. Template files
 
-Every template has files that can be modified to match your needs. But there are some files that you **shouldn't modify** *unless* you know what you are doing (things can break). These files are either framework-specific: `angular.json`, `tsconfig*.json`, `config-overrides.js`, `vue.config.js`, `babel.config.js` or common for every template: `spec/support/jasmine.config.js`.
+Every template has files that can be modified to match your needs. But there are some files that you **shouldn't modify** *unless* you know what you are doing (things can break). These files are either framework-specific: `angular.json`, `tsconfig*.json`, `vite.config.mjs`, `vue.config.js`, `babel.config.js` or common for every template: `spec/support/jasmine.config.js`.
 
 What you **should modify** though is the `README.md` file. You should add code example-specific content between curly braces. Note: "Live preview" section should have a link to CodeSandbox, but it won't work until this example is pushed to the repo. You can learn more about CodeSandbox links [here](../#live-on-production).
 
 Another important file is a `package.json` file. Some properties of this file should be the same for every new code example and **shouldn't be modified** (except `"@handsontable/{{ WRAPPER NAME }}"`):
 
-```javascript
+```js
 {
   "version": "0.0.0", // will be overwritten on new version created,
   "homepage": "https://handsontable.com/",
@@ -59,7 +59,7 @@ Another important file is a `package.json` file. Some properties of this file sh
   "license": "SEE LICENSE IN LICENSE.txt",
   "dependencies": {
     "handsontable": "latest",
-    "@handsontable/{{ WRAPPER NAME }}": "latest" // only for frameworks, e.g. "@handsontable/react": "latest"
+    "@handsontable/{{ WRAPPER NAME }}": "latest" // only for frameworks, e.g. "@handsontable/react-wrapper": "latest"
   }
 }
 ```

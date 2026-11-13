@@ -21,84 +21,84 @@ describe('CustomBorders', () => {
   });
 
   describe('enabling/disabling plugin', () => {
-    it('should be defined by default', () => {
-      const hot = handsontable();
+    it('should be defined by default', async() => {
+      handsontable();
 
-      expect(hot.getPlugin('customBorders')).toBeDefined();
+      expect(getPlugin('customBorders')).toBeDefined();
     });
 
-    it('should be defined when disabled by configuration', () => {
-      const hot = handsontable({
+    it('should be defined when disabled by configuration', async() => {
+      handsontable({
         customBorders: false
       });
 
-      expect(hot.getPlugin('customBorders')).toBeDefined();
+      expect(getPlugin('customBorders')).toBeDefined();
     });
 
-    it('should be defined when enabled by configuration', () => {
-      const hot = handsontable({
+    it('should be defined when enabled by configuration', async() => {
+      handsontable({
         customBorders: true
       });
 
-      expect(hot.getPlugin('customBorders')).toBeDefined();
+      expect(getPlugin('customBorders')).toBeDefined();
     });
 
-    it('should be disabled by default', () => {
-      const hot = handsontable();
+    it('should be disabled by default', async() => {
+      handsontable();
 
-      expect(hot.getPlugin('customBorders').isEnabled()).toBe(false);
+      expect(getPlugin('customBorders').isEnabled()).toBe(false);
     });
 
-    it('should disable plugin using updateSettings', () => {
-      const hot = handsontable({
+    it('should disable plugin using updateSettings', async() => {
+      handsontable({
         customBorders: true
       });
 
-      hot.updateSettings({
+      await updateSettings({
         customBorders: false
       });
 
-      expect(hot.getPlugin('customBorders')).toBeDefined();
-      expect(hot.getPlugin('customBorders').isEnabled()).toBe(false);
+      expect(getPlugin('customBorders')).toBeDefined();
+      expect(getPlugin('customBorders').isEnabled()).toBe(false);
     });
 
-    it('should enable plugin using updateSettings', () => {
-      const hot = handsontable({
+    it('should enable plugin using updateSettings', async() => {
+      handsontable({
         customBorders: false
       });
 
-      hot.updateSettings({
+      await updateSettings({
         customBorders: true
       });
 
-      expect(hot.getPlugin('customBorders')).toBeDefined();
-      expect(hot.getPlugin('customBorders').isEnabled()).toBe(true);
+      expect(getPlugin('customBorders')).toBeDefined();
+      expect(getPlugin('customBorders').isEnabled()).toBe(true);
     });
 
-    it('should NOT disable plugin using disablePlugin', () => {
-      const hot = handsontable({
+    it('should NOT disable plugin using disablePlugin', async() => {
+      handsontable({
         customBorders: true
       });
 
-      hot.getPlugin('customBorders').disablePlugin();
+      getPlugin('customBorders').disablePlugin();
 
-      expect(hot.getPlugin('customBorders')).toBeDefined();
-      expect(hot.getPlugin('customBorders').isEnabled()).toBe(true); // TODO this assertion checks current behavior that looks like a bug. I would expect false
+      expect(getPlugin('customBorders')).toBeDefined();
+      expect(getPlugin('customBorders').isEnabled()).toBe(true); // TODO this assertion checks current behavior that looks like a bug. I would expect false
     });
 
-    it('should NOT enable plugin using enablePlugin', () => {
-      const hot = handsontable({
+    it('should NOT enable plugin using enablePlugin', async() => {
+      handsontable({
         customBorders: false
       });
 
-      hot.getPlugin('customBorders').enablePlugin();
+      getPlugin('customBorders').enablePlugin();
 
-      expect(hot.getPlugin('customBorders')).toBeDefined();
-      expect(hot.getPlugin('customBorders').isEnabled()).toBe(false); // TODO this assertion checks current behavior that looks like a bug. I would expect true
+      expect(getPlugin('customBorders')).toBeDefined();
+      expect(getPlugin('customBorders').isEnabled()).toBe(false); // TODO this assertion checks current behavior that looks like a bug. I would expect true
     });
 
-    it('should hide borders when disabled using updateSettings', () => {
-      const hot = handsontable({
+    it('should hide borders when disabled using updateSettings', async() => {
+      handsontable({
         customBorders: [{
           row: 2,
           col: 2,
@@ -108,7 +108,7 @@ describe('CustomBorders', () => {
         }]
       });
 
-      hot.updateSettings({
+      await updateSettings({
         customBorders: false
       });
 
@@ -116,8 +116,8 @@ describe('CustomBorders', () => {
       expect(countCustomBorders()).toBe(0);
     });
 
-    it('should hide borders when disabled using disablePlugin', () => {
-      const hot = handsontable({
+    it('should hide borders when disabled using disablePlugin', async() => {
+      handsontable({
         customBorders: [{
           row: 2,
           col: 2,
@@ -127,14 +127,14 @@ describe('CustomBorders', () => {
         }]
       });
 
-      hot.getPlugin('customBorders').disablePlugin();
+      getPlugin('customBorders').disablePlugin();
 
       expect(countVisibleCustomBorders()).toBe(0);
       expect(countCustomBorders()).toBe(0);
     });
 
-    it('should show initial borders when re-enabled using updateSettings', () => {
-      const hot = handsontable({
+    it('should show initial borders when re-enabled using updateSettings', async() => {
+      handsontable({
         customBorders: [{
           row: 2,
           col: 2,
@@ -144,10 +144,10 @@ describe('CustomBorders', () => {
         }]
       });
 
-      hot.updateSettings({
+      await updateSettings({
         customBorders: false
       });
-      hot.updateSettings({
+      await updateSettings({
         customBorders: true
       });
 
@@ -155,8 +155,8 @@ describe('CustomBorders', () => {
       expect(countCustomBorders()).toBe(5); // TODO this assertion checks current behavior that looks like a bug. I would expect 0
     });
 
-    it('should show initial borders when re-enabled using disablePlugin', () => {
-      const hot = handsontable({
+    it('should show initial borders when re-enabled using disablePlugin', async() => {
+      handsontable({
         customBorders: [{
           row: 2,
           col: 2,
@@ -166,14 +166,15 @@ describe('CustomBorders', () => {
         }]
       });
 
-      hot.getPlugin('customBorders').disablePlugin();
-      hot.getPlugin('customBorders').enablePlugin();
+      getPlugin('customBorders').disablePlugin();
+      getPlugin('customBorders').enablePlugin();
 
-      expect(countVisibleCustomBorders()).toBe(0); // TODO this assertion checks current behavior that looks like a bug. I would expect 3
-      expect(countCustomBorders()).toBe(0);
+      // The ready step applies the declared borders again, as the `updateSettings` re-enable above does.
+      expect(countVisibleCustomBorders()).toBe(3);
+      expect(countCustomBorders()).toBe(5);
     });
 
-    it('should throw an error while initialization if the mixed API is used ("start"/"end" and "left"/"right")', () => {
+    it('should throw an error while initialization if the mixed API is used ("start"/"end" and "left"/"right")', async() => {
       expect(() => {
         handsontable({
           customBorders: [{
@@ -184,11 +185,11 @@ describe('CustomBorders', () => {
             top: GREEN_BORDER
           }]
         });
-      }).toThrowError('The "left"/"right" and "start"/"end" options should not be used together. ' +
-                      'Please use only the option "start"/"end".');
+      }).toThrowWithCause('The "left"/"right" and "start"/"end" options should not be used together. ' +
+                      'Please use only the option "start"/"end".', { handsontable: true });
     });
 
-    it('should throw an error while calling the `updateSettings` method when the mixed API is used ("start"/"end" and "left"/"right")', () => {
+    it('should throw an error while calling the `updateSettings` method when the mixed API is used ("start"/"end" and "left"/"right")', async() => {
       handsontable({
         customBorders: [{
           row: 2,
@@ -199,6 +200,7 @@ describe('CustomBorders', () => {
       });
 
       expect(() => {
+        // eslint-disable-next-line handsontable/require-await
         updateSettings({
           customBorders: [{
             row: 2,
@@ -207,11 +209,11 @@ describe('CustomBorders', () => {
             right: RED_BORDER,
           }]
         });
-      }).toThrowError('The "left"/"right" and "start"/"end" options should not be used together. ' +
-                      'Please use only the option "start"/"end".');
+      }).toThrowWithCause('The "left"/"right" and "start"/"end" options should not be used together. ' +
+                      'Please use only the option "start"/"end".', { handsontable: true });
     });
 
-    it('should create a deep clone of the borders object configuration', () => {
+    it('should create a deep clone of the borders object configuration', async() => {
       const customBorders = [{
         row: 2,
         col: 2,
@@ -233,7 +235,7 @@ describe('CustomBorders', () => {
       ]);
       expect(getPlugin('customBorders').savedBorders).not.toBe(customBorders);
 
-      updateSettings({ customBorders });
+      await updateSettings({ customBorders });
 
       expect(customBorders).toEqual([
         {
@@ -246,7 +248,7 @@ describe('CustomBorders', () => {
       expect(getPlugin('customBorders').savedBorders).not.toBe(customBorders);
     });
 
-    it('should be possible to update borders using backward compatible API ("left"/"right") even when Handsontable was initialized using new API ("start"/"end")', () => {
+    it('should be possible to update borders using backward compatible API ("left"/"right") even when Handsontable was initialized using new API ("start"/"end")', async() => {
       handsontable({
         customBorders: [{
           row: 2,
@@ -256,7 +258,7 @@ describe('CustomBorders', () => {
         }]
       });
 
-      updateSettings({
+      await updateSettings({
         customBorders: [{
           row: 2,
           col: 2,
@@ -269,7 +271,7 @@ describe('CustomBorders', () => {
       expect(countCustomBorders()).toBe(5);
     });
 
-    it('should be possible to update borders using new API ("start"/"end") even when Handsontable was initialized using backward compatible API ("left"/"right")', () => {
+    it('should be possible to update borders using new API ("start"/"end") even when Handsontable was initialized using backward compatible API ("left"/"right")', async() => {
       handsontable({
         customBorders: [{
           row: 2,
@@ -279,7 +281,7 @@ describe('CustomBorders', () => {
         }]
       });
 
-      updateSettings({
+      await updateSettings({
         customBorders: [{
           row: 2,
           col: 2,
@@ -293,13 +295,13 @@ describe('CustomBorders', () => {
     });
   });
 
-  it('should throw an exception `Unsupported selection ranges schema type was provided.` after calling setBorder method without parameter', () => {
-    const hot = handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+  it('should throw an exception `Unsupported selection ranges schema type was provided.` after calling setBorder method without parameter', async() => {
+    handsontable({
+      data: createSpreadsheetData(4, 4),
       customBorders: true
     });
 
-    const customBorders = hot.getPlugin('customBorders');
+    const customBorders = getPlugin('customBorders');
     let errors = 0;
 
     try {
@@ -311,18 +313,18 @@ describe('CustomBorders', () => {
     expect(errors).toEqual(1);
   });
 
-  it('should not draw any custom borders by default', () => {
+  it('should not draw any custom borders by default', async() => {
     handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+      data: createSpreadsheetData(4, 4),
       customBorders: true
     });
 
     expect(countCustomBorders()).toBe(0);
   });
 
-  it('should render specific borders provided in the configuration', () => {
+  it('should render specific borders provided in the configuration', async() => {
     handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+      data: createSpreadsheetData(4, 4),
       customBorders: [{
         row: 2,
         col: 2,
@@ -360,20 +362,20 @@ describe('CustomBorders', () => {
     expect(countCustomBorders()).toBe(5);
   });
 
-  it('should draw new borders by use setBorders method (while selected)', () => {
-    const hot = handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+  it('should draw new borders by use setBorders method (while selected)', async() => {
+    handsontable({
+      data: createSpreadsheetData(4, 4),
       customBorders: true
     });
 
-    const customBorders = hot.getPlugin('customBorders');
+    const customBorders = getPlugin('customBorders');
 
-    selectCells([[1, 1, 2, 2]]);
+    await selectCells([[1, 1, 2, 2]]);
     customBorders.setBorders(getSelected(), {
       top: RED_BORDER,
       end: RED_BORDER
     });
-    deselectCell();
+    await deselectCell();
 
     expect(getCellMeta(1, 1).borders.top).toEqual(RED_BORDER);
     expect(getCellMeta(1, 1).borders.bottom).toEqual(EMPTY);
@@ -399,13 +401,13 @@ describe('CustomBorders', () => {
     expect(countCustomBorders()).toBe(4 * 5); // there are 4 cells in the provided range
   });
 
-  it('should draw new borders by use setBorders method (while deselected)', () => {
-    const hot = handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+  it('should draw new borders by use setBorders method (while deselected)', async() => {
+    handsontable({
+      data: createSpreadsheetData(4, 4),
       customBorders: true
     });
 
-    const customBorders = hot.getPlugin('customBorders');
+    const customBorders = getPlugin('customBorders');
 
     customBorders.setBorders([[1, 1, 2, 2]], {
       top: RED_BORDER,
@@ -436,9 +438,9 @@ describe('CustomBorders', () => {
     expect(countCustomBorders()).toBe(4 * 5); // there are 4 cells in the provided range
   });
 
-  it('should redraw existing borders by use setBorders method (while selected)', () => {
-    const hot = handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+  it('should redraw existing borders by use setBorders method (while selected)', async() => {
+    handsontable({
+      data: createSpreadsheetData(4, 4),
       customBorders: [{
         row: 2,
         col: 2,
@@ -448,15 +450,16 @@ describe('CustomBorders', () => {
       }]
     });
 
-    const customBorders = hot.getPlugin('customBorders');
+    const customBorders = getPlugin('customBorders');
 
-    selectCell(2, 2);
+    await selectCell(2, 2);
+
     customBorders.setBorders(getSelectedRange(), {
       top: RED_BORDER,
       bottom: GREEN_BORDER,
       end: RED_BORDER
     });
-    deselectCell();
+    await deselectCell();
 
     expect(getCellMeta(2, 2).borders.top).toEqual(RED_BORDER);
     expect(getCellMeta(2, 2).borders.start).toEqual(RED_BORDER);
@@ -466,9 +469,9 @@ describe('CustomBorders', () => {
     expect(countCustomBorders()).toBe(5);
   });
 
-  it('should redraw existing borders by use setBorders method (while deselected)', () => {
-    const hot = handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+  it('should redraw existing borders by use setBorders method (while deselected)', async() => {
+    handsontable({
+      data: createSpreadsheetData(4, 4),
       customBorders: [{
         row: 2,
         col: 2,
@@ -478,7 +481,7 @@ describe('CustomBorders', () => {
       }]
     });
 
-    const customBorders = hot.getPlugin('customBorders');
+    const customBorders = getPlugin('customBorders');
 
     customBorders.setBorders([[2, 2]], {
       top: RED_BORDER,
@@ -494,9 +497,9 @@ describe('CustomBorders', () => {
     expect(countCustomBorders()).toBe(5);
   });
 
-  it('should hide only specific border by use setBorders method with {hide: true} (while selected)', () => {
-    const hot = handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+  it('should hide only specific border by use setBorders method with {hide: true} (while selected)', async() => {
+    handsontable({
+      data: createSpreadsheetData(4, 4),
       customBorders: [{
         row: 2,
         col: 2,
@@ -506,14 +509,15 @@ describe('CustomBorders', () => {
       }]
     });
 
-    const customBorders = hot.getPlugin('customBorders');
+    const customBorders = getPlugin('customBorders');
 
-    selectCell(2, 2);
+    await selectCell(2, 2);
+
     customBorders.setBorders(getSelected(), {
       top: EMPTY,
       end: EMPTY,
     });
-    deselectCell();
+    await deselectCell();
 
     expect(getCellMeta(2, 2).borders.top).toEqual(EMPTY);
     expect(getCellMeta(2, 2).borders.start).toEqual(RED_BORDER);
@@ -523,9 +527,9 @@ describe('CustomBorders', () => {
     expect(countCustomBorders()).toBe(5);
   });
 
-  it('should hide only specific border by use setBorders method with {hide: true} (while deselected)', () => {
-    const hot = handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+  it('should hide only specific border by use setBorders method with {hide: true} (while deselected)', async() => {
+    handsontable({
+      data: createSpreadsheetData(4, 4),
       customBorders: [{
         row: 2,
         col: 2,
@@ -535,7 +539,7 @@ describe('CustomBorders', () => {
       }]
     });
 
-    const customBorders = hot.getPlugin('customBorders');
+    const customBorders = getPlugin('customBorders');
 
     customBorders.setBorders([[2, 2]], {
       top: EMPTY,
@@ -550,9 +554,9 @@ describe('CustomBorders', () => {
     expect(countCustomBorders()).toBe(5);
   });
 
-  it('should hide only specific border by use setBorders method with {top: false} (while selected)', () => {
-    const hot = handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+  it('should hide only specific border by use setBorders method with {top: false} (while selected)', async() => {
+    handsontable({
+      data: createSpreadsheetData(4, 4),
       customBorders: [{
         row: 2,
         col: 2,
@@ -562,14 +566,15 @@ describe('CustomBorders', () => {
       }]
     });
 
-    const customBorders = hot.getPlugin('customBorders');
+    const customBorders = getPlugin('customBorders');
 
-    selectCell(2, 2);
+    await selectCell(2, 2);
+
     customBorders.setBorders(getSelected(), {
       top: false,
       end: false,
     });
-    deselectCell();
+    await deselectCell();
 
     expect(getCellMeta(2, 2).borders.top).toEqual(EMPTY);
     expect(getCellMeta(2, 2).borders.start).toEqual(RED_BORDER);
@@ -599,9 +604,9 @@ describe('CustomBorders', () => {
     expect(countCustomBorders()).toBe(5);
   });
 
-  it('should hide only specific border by use setBorders method with {top: false} (while deselected)', () => {
-    const hot = handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+  it('should hide only specific border by use setBorders method with {top: false} (while deselected)', async() => {
+    handsontable({
+      data: createSpreadsheetData(4, 4),
       customBorders: [{
         row: 2,
         col: 2,
@@ -611,7 +616,7 @@ describe('CustomBorders', () => {
       }]
     });
 
-    const customBorders = hot.getPlugin('customBorders');
+    const customBorders = getPlugin('customBorders');
 
     customBorders.setBorders([[2, 2]], {
       top: false,
@@ -646,9 +651,9 @@ describe('CustomBorders', () => {
     expect(countCustomBorders()).toBe(5);
   });
 
-  it('should return borders from the selected area by use getBorders method', () => {
-    const hot = handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+  it('should return borders from the selected area by use getBorders method', async() => {
+    handsontable({
+      data: createSpreadsheetData(4, 4),
       customBorders: [{
         row: 2,
         col: 2,
@@ -658,12 +663,13 @@ describe('CustomBorders', () => {
       }]
     });
 
-    const customBorders = hot.getPlugin('customBorders');
+    const customBorders = getPlugin('customBorders');
 
-    hot.selectCells([[1, 1, 2, 2]]);
+    await selectCells([[1, 1, 2, 2]]);
+
     const borders = customBorders.getBorders(getSelected());
 
-    deselectCell();
+    await deselectCell();
 
     expect(borders.length).toEqual(1);
     expect(borders[0].top).toEqual(GREEN_BORDER);
@@ -674,9 +680,9 @@ describe('CustomBorders', () => {
     expect(countCustomBorders()).toBe(5);
   });
 
-  it('should return all borders by use getBorders method without parameter', () => {
-    const hot = handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+  it('should return all borders by use getBorders method without parameter', async() => {
+    handsontable({
+      data: createSpreadsheetData(4, 4),
       customBorders: [{
         range: {
           from: {
@@ -702,7 +708,7 @@ describe('CustomBorders', () => {
       }]
     });
 
-    const customBorders = hot.getPlugin('customBorders');
+    const customBorders = getPlugin('customBorders');
 
     const borders = customBorders.getBorders();
 
@@ -711,9 +717,9 @@ describe('CustomBorders', () => {
     expect(countCustomBorders()).toBe(9 * 5); // there are 9 cells in the provided range
   });
 
-  it('should clear borders from area by use clearBorders method (while selected)', () => {
-    const hot = handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+  it('should clear borders from area by use clearBorders method (while selected)', async() => {
+    handsontable({
+      data: createSpreadsheetData(4, 4),
       customBorders: [{
         range: {
           from: {
@@ -739,7 +745,7 @@ describe('CustomBorders', () => {
       }]
     });
 
-    const customBorders = hot.getPlugin('customBorders');
+    const customBorders = getPlugin('customBorders');
 
     /*
     Was:
@@ -749,9 +755,9 @@ describe('CustomBorders', () => {
     0111
     */
 
-    selectCells([[0, 0, 2, 2]]);
+    await selectCells([[0, 0, 2, 2]]);
     customBorders.clearBorders(getSelectedRange());
-    deselectCell();
+    await deselectCell();
 
     /*
     Is:
@@ -778,9 +784,9 @@ describe('CustomBorders', () => {
     expect(countCustomBorders()).toBe(5 * 5);
   });
 
-  it('should clear borders from area by use clearBorders method (while deselected)', () => {
-    const hot = handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+  it('should clear borders from area by use clearBorders method (while deselected)', async() => {
+    handsontable({
+      data: createSpreadsheetData(4, 4),
       customBorders: [{
         range: {
           from: {
@@ -806,7 +812,7 @@ describe('CustomBorders', () => {
       }]
     });
 
-    const customBorders = hot.getPlugin('customBorders');
+    const customBorders = getPlugin('customBorders');
 
     /*
     Was:
@@ -843,9 +849,9 @@ describe('CustomBorders', () => {
     expect(countCustomBorders()).toBe(5 * 5);
   });
 
-  it('should clear all borders by use clearBorders method without parameter', () => {
-    const hot = handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+  it('should clear all borders by use clearBorders method without parameter', async() => {
+    handsontable({
+      data: createSpreadsheetData(4, 4),
       customBorders: [{
         range: {
           from: {
@@ -871,7 +877,7 @@ describe('CustomBorders', () => {
       }]
     });
 
-    const customBorders = hot.getPlugin('customBorders');
+    const customBorders = getPlugin('customBorders');
 
     customBorders.clearBorders();
 
@@ -892,7 +898,7 @@ describe('CustomBorders', () => {
 
   it('should not throw an error when borders menu is opened through row header', async() => {
     handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+      data: createSpreadsheetData(4, 4),
       rowHeaders: true,
       contextMenu: true,
       customBorders: true,
@@ -900,22 +906,24 @@ describe('CustomBorders', () => {
 
     await selectContextSubmenuOption('Borders', 'Top', getCell(0, -1));
 
-    deselectCell();
+    await deselectCell();
 
-    expect(getCellMeta(0, 0).borders.top).toEqual(DEFAULT_BORDER);
-    expect(getCellMeta(0, 1).borders.top).toEqual(DEFAULT_BORDER);
-    expect(getCellMeta(0, 2).borders.top).toEqual(DEFAULT_BORDER);
-    expect(getCellMeta(0, 3).borders.top).toEqual(DEFAULT_BORDER);
+    expect(getCellMeta(0, 0).borders.top).toEqual(CONTEXT_MENU_BORDER);
+    expect(getCellMeta(0, 1).borders.top).toEqual(CONTEXT_MENU_BORDER);
+    expect(getCellMeta(0, 2).borders.top).toEqual(CONTEXT_MENU_BORDER);
+    expect(getCellMeta(0, 3).borders.top).toEqual(CONTEXT_MENU_BORDER);
     expect(getCellMeta(0, 0).borders.start).toEqual(EMPTY);
     expect(getCellMeta(0, 0).borders.bottom).toEqual(EMPTY);
     expect(getCellMeta(0, 0).borders.end).toEqual(EMPTY);
     expect(countVisibleCustomBorders()).toBe(4);
-    expect(countCustomBorders()).toBe(40);
+    // Border DOM is virtualized: only the 4 bordered cells in the master overlay carry border
+    // elements (4 × 5 divs); the header overlay no longer materializes redundant copies.
+    expect(countCustomBorders()).toBe(20);
   });
 
   it('should not throw an error when borders menu is opened through column header', async() => {
     handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+      data: createSpreadsheetData(4, 4),
       colHeaders: true,
       contextMenu: true,
       customBorders: true,
@@ -923,22 +931,24 @@ describe('CustomBorders', () => {
 
     await selectContextSubmenuOption('Borders', 'Right', getCell(-1, 0));
 
-    deselectCell();
+    await deselectCell();
 
-    expect(getCellMeta(0, 0).borders.end).toEqual(DEFAULT_BORDER);
-    expect(getCellMeta(1, 0).borders.end).toEqual(DEFAULT_BORDER);
-    expect(getCellMeta(2, 0).borders.end).toEqual(DEFAULT_BORDER);
-    expect(getCellMeta(3, 0).borders.end).toEqual(DEFAULT_BORDER);
+    expect(getCellMeta(0, 0).borders.end).toEqual(CONTEXT_MENU_BORDER);
+    expect(getCellMeta(1, 0).borders.end).toEqual(CONTEXT_MENU_BORDER);
+    expect(getCellMeta(2, 0).borders.end).toEqual(CONTEXT_MENU_BORDER);
+    expect(getCellMeta(3, 0).borders.end).toEqual(CONTEXT_MENU_BORDER);
     expect(getCellMeta(0, 0).borders.top).toEqual(EMPTY);
     expect(getCellMeta(0, 0).borders.bottom).toEqual(EMPTY);
     expect(getCellMeta(0, 0).borders.start).toEqual(EMPTY);
     expect(countVisibleCustomBorders()).toBe(4);
-    expect(countCustomBorders()).toBe(40);
+    // Border DOM is virtualized: only the 4 bordered cells in the master overlay carry border
+    // elements (4 × 5 divs); the header overlay no longer materializes redundant copies.
+    expect(countCustomBorders()).toBe(20);
   });
 
   it('should draw borders from context menu options when was first cleared borders by the clearBorders method', async() => {
-    const hot = handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+    handsontable({
+      data: createSpreadsheetData(4, 4),
       contextMenu: true,
       customBorders: [{
         row: 0,
@@ -949,16 +959,16 @@ describe('CustomBorders', () => {
       }]
     });
 
-    const customBorders = hot.getPlugin('customBorders');
+    const customBorders = getPlugin('customBorders');
 
-    selectCell(0, 0);
+    await selectCell(0, 0);
     customBorders.clearBorders(getSelectedRange());
-    deselectCell();
+    await deselectCell();
 
     await selectContextSubmenuOption('Borders', 'Top');
-    deselectCell();
+    await deselectCell();
 
-    expect(getCellMeta(0, 0).borders.top).toEqual(DEFAULT_BORDER);
+    expect(getCellMeta(0, 0).borders.top).toEqual(CONTEXT_MENU_BORDER);
     expect(getCellMeta(0, 0).borders.bottom).toEqual(EMPTY);
     expect(getCellMeta(0, 0).borders.start).toEqual(EMPTY);
     expect(getCellMeta(0, 0).borders.end).toEqual(EMPTY);
@@ -969,8 +979,8 @@ describe('CustomBorders', () => {
   it('should clear all borders when first was cleared borders by the clearBorders method with selections, ' +
      'then draw borders from context menu options, and then was cleared borders by the clearBorders ' +
      'method without selections', async() => {
-    const hot = handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+    handsontable({
+      data: createSpreadsheetData(4, 4),
       contextMenu: true,
       customBorders: [{
         row: 0,
@@ -981,14 +991,14 @@ describe('CustomBorders', () => {
       }]
     });
 
-    const customBorders = hot.getPlugin('customBorders');
+    const customBorders = getPlugin('customBorders');
 
-    selectCell(0, 0);
+    await selectCell(0, 0);
     customBorders.clearBorders(getSelectedRange());
-    deselectCell();
+    await deselectCell();
 
     await selectContextSubmenuOption('Borders', 'Top');
-    deselectCell();
+    await deselectCell();
 
     customBorders.clearBorders();
     expect(getCellMeta(0, 0).borders).toBeUndefined();
@@ -998,15 +1008,15 @@ describe('CustomBorders', () => {
 
   it('should draw top border from context menu options', async() => {
     handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+      data: createSpreadsheetData(4, 4),
       contextMenu: true,
       customBorders: true
     });
 
     await selectContextSubmenuOption('Borders', 'Top');
-    deselectCell();
+    await deselectCell();
 
-    expect(getCellMeta(0, 0).borders.top).toEqual(DEFAULT_BORDER);
+    expect(getCellMeta(0, 0).borders.top).toEqual(CONTEXT_MENU_BORDER);
     expect(getCellMeta(0, 0).borders.bottom).toEqual(EMPTY);
     expect(getCellMeta(0, 0).borders.start).toEqual(EMPTY);
     expect(getCellMeta(0, 0).borders.end).toEqual(EMPTY);
@@ -1017,19 +1027,19 @@ describe('CustomBorders', () => {
 
   it('should draw left border from context menu options', async() => {
     handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+      data: createSpreadsheetData(4, 4),
       contextMenu: true,
       customBorders: true
     });
 
     await selectContextSubmenuOption('Borders', 'Left');
-    deselectCell();
+    await deselectCell();
 
     /* eslint-disable no-prototype-builtins */
     expect(getCellMeta(0, 0).borders.hasOwnProperty('left')).toBe(true);
     expect(getCellMeta(0, 0).borders.top).toEqual(EMPTY);
     expect(getCellMeta(0, 0).borders.bottom).toEqual(EMPTY);
-    expect(getCellMeta(0, 0).borders.start).toEqual(DEFAULT_BORDER);
+    expect(getCellMeta(0, 0).borders.start).toEqual(CONTEXT_MENU_BORDER);
     expect(getCellMeta(0, 0).borders.end).toEqual(EMPTY);
     expect(countVisibleCustomBorders()).toBe(1);
     expect(countCustomBorders()).toBe(5);
@@ -1037,38 +1047,38 @@ describe('CustomBorders', () => {
 
   it('should draw right border from context menu options', async() => {
     handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+      data: createSpreadsheetData(4, 4),
       contextMenu: true,
       customBorders: true
     });
 
     await selectContextSubmenuOption('Borders', 'Right');
-    deselectCell();
+    await deselectCell();
 
     /* eslint-disable no-prototype-builtins */
     expect(getCellMeta(0, 0).borders.hasOwnProperty('right')).toBe(true); // TODO flaky test. sometimes I get this error on this line: 'Failed: Cannot read property 'hasOwnProperty' of undefined'
     expect(getCellMeta(0, 0).borders.top).toEqual(EMPTY);
     expect(getCellMeta(0, 0).borders.bottom).toEqual(EMPTY);
     expect(getCellMeta(0, 0).borders.start).toEqual(EMPTY);
-    expect(getCellMeta(0, 0).borders.end).toEqual(DEFAULT_BORDER);
+    expect(getCellMeta(0, 0).borders.end).toEqual(CONTEXT_MENU_BORDER);
     expect(countVisibleCustomBorders()).toBe(1);
     expect(countCustomBorders()).toBe(5);
   });
 
   it('should draw bottom border from context menu options', async() => {
     handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+      data: createSpreadsheetData(4, 4),
       contextMenu: true,
       customBorders: true
     });
 
     await selectContextSubmenuOption('Borders', 'Bottom');
-    deselectCell();
+    await deselectCell();
 
     /* eslint-disable no-prototype-builtins */
     expect(getCellMeta(0, 0).borders.hasOwnProperty('right')).toBe(true);
     expect(getCellMeta(0, 0).borders.top).toEqual(EMPTY);
-    expect(getCellMeta(0, 0).borders.bottom).toEqual(DEFAULT_BORDER);
+    expect(getCellMeta(0, 0).borders.bottom).toEqual(CONTEXT_MENU_BORDER);
     expect(getCellMeta(0, 0).borders.start).toEqual(EMPTY);
     expect(getCellMeta(0, 0).borders.end).toEqual(EMPTY);
     expect(countVisibleCustomBorders()).toBe(1);
@@ -1077,7 +1087,7 @@ describe('CustomBorders', () => {
 
   it('should remove all bottoms border from context menu options', async() => {
     handsontable({
-      data: Handsontable.helper.createSpreadsheetData(4, 4),
+      data: createSpreadsheetData(4, 4),
       contextMenu: true,
       customBorders: [
         {
@@ -1091,14 +1101,14 @@ describe('CustomBorders', () => {
     expect(countCustomBorders()).toBe(5);
 
     await selectContextSubmenuOption('Borders', 'Remove border');
-    deselectCell();
+    await deselectCell();
 
     expect(getCellMeta(0, 0).borders).toBeUndefined();
     expect(countVisibleCustomBorders()).toBe(0);
     expect(countCustomBorders()).toBe(0);
   });
 
-  it('should disable `Borders` context menu item when menu was triggered from corner header', () => {
+  it('should disable `Borders` context menu item when menu was triggered from corner header', async() => {
     handsontable({
       data: Handsontable.helper.createSpreadsheetObjectData(10, 5),
       rowHeaders: true,
@@ -1109,8 +1119,8 @@ describe('CustomBorders', () => {
 
     const corner = $('.ht_clone_top_inline_start_corner .htCore').find('thead').find('th').eq(0);
 
-    simulateClick(corner, 'RMB');
-    contextMenu();
+    await simulateClick(corner, 'RMB');
+    await contextMenu();
 
     expect($('.htContextMenu tbody td.htDisabled').text()).toBe([
       'Insert column left',
@@ -1127,41 +1137,57 @@ describe('CustomBorders', () => {
   describe('virtual rendering', () => {
     // based on tests in Core_count.spec.js
 
-    it('should render borders only for rendered rows', () => {
-      const data = Handsontable.helper.createSpreadsheetData(10, 2);
+    it('should render borders only for rendered rows', async() => {
+      const data = createSpreadsheetData(10, 2);
       const customBorders = generateCustomBordersForAllRows(data.length);
+      const containerHeight = containerHeightForRows(5, 0);
       const instance = handsontable({
         data,
         customBorders,
-        height: 100,
+        height: containerHeight,
         viewportRowRenderingOffset: 0
       });
 
-      expect(instance.countRenderedRows()).toEqual(5);
-      expect(countVisibleCustomBorders()).toEqual(5);
-      expect(countCustomBorders()).toEqual(10 * 5); // TODO I think this should be 5 * 5
+      const renderedRows = instance.countRenderedRows();
+
+      // Container was sized to fit 5 fully visible rows; rendered rows include a partial
+      // row below (see Core_count.spec.js), so the count is exactly `expectedVisibleRows + 1`.
+      expect(renderedRows).toBe(expectedVisibleRows(containerHeight, 0) + 1);
+      expect(countVisibleCustomBorders()).toEqual(renderedRows);
+      // Border DOM is virtualized: only the rendered rows carry border elements (5 divs each),
+      // not all 10 rows. This is the guarantee that lets large bordered grids stay cheap.
+      expect(countCustomBorders()).toEqual(renderedRows * 5);
     });
 
     it('should render borders only for rendered rows, after scrolling', async() => {
-      const data = Handsontable.helper.createSpreadsheetData(10, 2);
+      const data = createSpreadsheetData(10, 2);
       const customBorders = generateCustomBordersForAllRows(data.length);
+      const containerHeight = containerHeightForRows(5, 0);
       const instance = handsontable({
         data,
         customBorders,
-        height: 100,
+        height: containerHeight,
         viewportRowRenderingOffset: 0
       });
-      const mainHolder = instance.view._wt.wtTable.holder;
 
-      $(mainHolder).scrollTop(400);
-      await sleep(300);
-      expect(instance.countRenderedRows()).toEqual(5);
-      expect(countVisibleCustomBorders()).toEqual(5);
-      expect(countCustomBorders()).toEqual(10 * 5); // TODO I think this should be 5 * 5
+      await scrollViewportVertically(400);
+
+      const renderedRows = instance.countRenderedRows();
+      const expectedVisible = expectedVisibleRows(containerHeight, 0);
+
+      // Container was sized to fit `expectedVisible` fully visible rows. After scrolling, the
+      // count is `expectedVisible + 1` (partial row at bottom) and at most `expectedVisible + 2`
+      // when a partial row is also exposed at the top due to sub-pixel scroll offsets.
+      expect(renderedRows).toBeGreaterThanOrEqual(expectedVisible + 1);
+      expect(renderedRows).toBeLessThanOrEqual(expectedVisible + 2);
+      expect(countVisibleCustomBorders()).toEqual(renderedRows);
+      // Border DOM is virtualized and tracks the viewport: after scrolling, only the rendered rows
+      // carry border elements (5 divs each), so off-screen rows' border DOM is released.
+      expect(countCustomBorders()).toEqual(renderedRows * 5);
     });
 
-    it('should render borders only for rendered rows, including rows rendered because of viewportRowRenderingOffset', () => {
-      const data = Handsontable.helper.createSpreadsheetData(10, 2);
+    it('should render borders only for rendered rows, including rows rendered because of viewportRowRenderingOffset', async() => {
+      const data = createSpreadsheetData(10, 2);
       const customBorders = generateCustomBordersForAllRows(data.length);
       const instance = handsontable({
         data,
@@ -1177,7 +1203,7 @@ describe('CustomBorders', () => {
 
     it('should not render borders when the table is not rendered', async() => {
       spec().$container.remove();
-      const data = Handsontable.helper.createSpreadsheetData(10, 2);
+      const data = createSpreadsheetData(10, 2);
       const customBorders = generateCustomBordersForAllRows(data.length);
 
       handsontable({
@@ -1191,9 +1217,9 @@ describe('CustomBorders', () => {
   });
 
   // TODO: Should it work in this way? Probably some warn would be helpful.
-  it('should draw borders properly when they end beyond the table boundaries (drawing range)', () => {
+  it('should draw borders properly when they end beyond the table boundaries (drawing range)', async() => {
     handsontable({
-      data: Handsontable.helper.createSpreadsheetData(5, 5),
+      data: createSpreadsheetData(5, 5),
       rowHeaders: true,
       colHeaders: true,
       customBorders: [{

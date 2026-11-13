@@ -1,0 +1,590 @@
+---
+type: how-to
+title: Numeric cell type
+metaTitle: Numeric cell type | Handsontable DataGrid for JavaScript
+description: Display, format, sort, and filter numbers correctly by using the numeric cell type.
+permalink: /numeric-cell-type
+canonicalUrl: /numeric-cell-type
+react:
+  metaTitle: Numeric cell type | Handsontable DataGrid for React
+angular:
+  metaTitle: Numeric cell type | Handsontable DataGrid for Angular
+vue:
+  metaTitle: Numeric cell type | Handsontable DataGrid for Vue
+searchCategory: Guides
+category: Cell types
+menuTag: updated
+---
+Display, format, sort, and filter numbers correctly by using the numeric cell type.
+
+The numeric cell type formats numbers using Intl.NumberFormat, right-aligns values, and validates input, marking non-numeric values as invalid.
+
+[[toc]]
+
+## Overview
+
+The default cell type in Handsontable DataGrid is text. The data of a text cell is processed as a `string`
+type that corresponds to the value of the text editor's internal `<textarea>` element. However,
+there are many cases where you need cell values to be treated as a `number` type. The numeric cell
+type allows you to format displayed numbers nicely and sort them correctly.
+
+## Numeric cell type demo
+
+In the following demo, multiple columns use the numeric cell type with different formatting styles:
+- **Year**: Basic numeric formatting
+- **Price (USD)** and **Price (EUR)**: Currency formatting
+- **Distance**: Unit formatting (kilometers) with grouping
+- **Fuel**: Unit formatting (liters) with decimal precision
+- **Discount**: Percentage formatting
+- **Quantity**: Decimal formatting with thousands separators
+
+Use the locale selector above the table to see how different locales affect number formatting.
+
+::: only-for javascript
+
+::: example #example1 --html 1 --js 2 --ts 3
+
+@[code](@/content/guides/cell-types/numeric-cell-type/javascript/example1.html)
+@[code collapse={13-64,70-134}](@/content/guides/cell-types/numeric-cell-type/javascript/example1.js)
+@[code collapse={14-65,71-135}](@/content/guides/cell-types/numeric-cell-type/javascript/example1.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example1 :react --js 1 --ts 2
+
+@[code collapse={8-30,68-119,159-223}](@/content/guides/cell-types/numeric-cell-type/react/example1.jsx)
+@[code collapse={20-42,80-131,171-235}](@/content/guides/cell-types/numeric-cell-type/react/example1.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example1 :angular --ts 1 --html 2
+
+@[code collapse={58-133,144-208}](@/content/guides/cell-types/numeric-cell-type/angular/example1.ts)
+@[code](@/content/guides/cell-types/numeric-cell-type/angular/example1.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example1 :vue3
+
+@[code](@/content/guides/cell-types/numeric-cell-type/vue/example1.vue)
+
+:::
+
+:::
+
+## Use the numeric cell type
+
+To use the numeric cell type, set the [`type`](@/api/options.md#type) option to `'numeric'`:
+
+::: only-for javascript
+
+```js
+// set the numeric cell type for each cell of the entire grid
+type: 'numeric',
+
+// set the numeric cell type for each cell of a single column
+columns: [
+  {
+    type: 'numeric',
+  },
+]
+
+// set the numeric cell type for a single cell
+cell: [
+  {
+    row: 0,
+    col: 0,
+    type: 'numeric',
+  }
+],
+```
+
+:::
+
+::: only-for react
+
+```jsx
+// set the numeric cell type for each cell of the entire grid
+type={'numeric'},
+
+// set the numeric cell type for each cell of a single column
+columns={[{
+  type: 'numeric',
+}]}
+
+// set the numeric cell type for a single cell
+cell={[{
+  row: 0,
+  col: 0,
+  type: 'numeric',
+}]}
+```
+
+:::
+
+::: only-for vue
+
+```html
+<!-- set the numeric cell type for each cell of the entire grid -->
+<HotTable :settings="{ type: 'numeric' }" />
+
+<!-- set the numeric cell type for each cell of a single column -->
+<HotTable :settings="{ columns: [{ type: 'numeric' }] }" />
+
+<!-- set the numeric cell type for a single cell -->
+<HotTable :settings="{ cell: [{ row: 0, col: 0, type: 'numeric' }] }" />
+```
+
+:::
+
+::: only-for angular
+
+```ts
+// set the numeric cell type for each cell of the entire grid
+settings1 = {
+  type: "numeric",
+};
+
+// set the numeric cell type for each cell of a single column
+settings2 = {
+  columns: [
+    {
+      type: "numeric",
+    },
+  ],
+};
+
+// set the numeric cell type for a single cell
+settings3 = {
+  cell: [
+    {
+      row: 0,
+      col: 0,
+      type: "numeric",
+    },
+  ],
+};
+```
+
+:::
+
+Mind that Handsontable doesn't parse strings to numbers. In your data source, make sure to store
+numeric cell values as numbers, not as strings.
+
+All positive and negative integers whose magnitude is no greater than 253 (+/- 9007199254740991) are
+representable in the `Number` type, i.e., as a safe integer. Any calculations that are performed on
+bigger numbers won't be calculated precisely, due to JavaScript's limitations.
+
+## Format numbers
+
+To format the look of numeric values in [cell renderers](@/guides/cell-functions/cell-renderer/cell-renderer.md),
+use the [`numericFormat`](@/api/options.md#numericformat) option.
+
+Since Handsontable 17.0, the `numericFormat` option supports the native [`Intl.NumberFormat`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/NumberFormat) API, which provides better performance and broader browser support without external dependencies.
+
+### Using Intl.NumberFormat
+
+The `numericFormat` option accepts all properties of [`Intl.NumberFormatOptions`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/NumberFormat/NumberFormat). The locale is controlled separately via the [`locale`](@/api/options.md#locale) option.
+
+::: only-for javascript
+
+```js
+columns: [
+  {
+    type: 'numeric',
+    locale: 'en-US',
+    numericFormat: {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2
+    }
+  },
+  {
+    type: 'numeric',
+    locale: 'de-DE',
+    numericFormat: {
+      style: 'currency',
+      currency: 'EUR',
+      minimumFractionDigits: 2
+    }
+  }
+]
+```
+
+:::
+
+::: only-for react
+
+```jsx
+<HotTable
+  columns={[{
+    type: 'numeric',
+    locale: 'en-US',
+    numericFormat: {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2
+    }
+  }, {
+    type: 'numeric',
+    locale: 'de-DE',
+    numericFormat: {
+      style: 'currency',
+      currency: 'EUR',
+      minimumFractionDigits: 2
+    }
+  }]}
+/>
+```
+
+:::
+
+::: only-for vue
+
+```html
+<HotTable
+  :settings="{
+    columns: [{
+      type: 'numeric',
+      locale: 'en-US',
+      numericFormat: {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2
+      }
+    }, {
+      type: 'numeric',
+      locale: 'de-DE',
+      numericFormat: {
+        style: 'currency',
+        currency: 'EUR',
+        minimumFractionDigits: 2
+      }
+    }]
+  }"
+/>
+```
+
+:::
+
+::: only-for angular
+
+```ts
+settings = {
+  columns: [
+    {
+      type: 'numeric',
+      locale: 'en-US',
+      numericFormat: {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2
+      }
+    },
+    {
+      type: 'numeric',
+      locale: 'de-DE',
+      numericFormat: {
+        style: 'currency',
+        currency: 'EUR',
+        minimumFractionDigits: 2
+      }
+    }
+  ]
+};
+```
+
+:::
+
+**Common formatting styles:**
+
+- **Currency**: Use `style: 'currency'` with a `currency` property (e.g., `'USD'`, `'EUR'`, `'PLN'`)
+- **Decimal**: Use `style: 'decimal'` with `useGrouping: true` for thousands separators
+- **Percent**: Use `style: 'percent'` for percentage formatting
+- **Unit**: Use `style: 'unit'` with a `unit` property (e.g., `'kilometer'`, `'liter'`)
+
+To add thousands separators and a fixed number of decimal places, use `useGrouping` together with
+`minimumFractionDigits` and `maximumFractionDigits`:
+
+```js
+numericFormat: {
+  style: 'decimal',
+  useGrouping: true, // adds thousands separators, for example 1,000,000
+  minimumFractionDigits: 2, // always shows two decimal places
+  maximumFractionDigits: 2,
+}
+```
+
+**Available options:**
+
+**Style options:**
+
+| Property          | Possible values                                           | Description                                                    |
+| ----------------- | --------------------------------------------------------- | -------------------------------------------------------------- |
+| `style`           | `'decimal'` (default), `'currency'`, `'percent'`, `'unit'`| The formatting style to use                                    |
+| `currency`        | ISO 4217 currency codes (e.g., `'USD'`, `'EUR'`, `'PLN'`) | Required when `style` is `'currency'`                          |
+| `currencyDisplay` | `'symbol'` (default), `'narrowSymbol'`, `'code'`, `'name'`| How to display the currency                                    |
+| `currencySign`    | `'standard'` (default), `'accounting'`                    | Use parentheses for negative values in accounting format       |
+| `unit`            | Unit identifiers (e.g., `'kilometer'`, `'liter'`)         | Required when `style` is `'unit'`                              |
+| `unitDisplay`     | `'short'` (default), `'narrow'`, `'long'`                 | How to display the unit                                        |
+
+**Notation options:**
+
+| Property          | Possible values                                               | Description                                              |
+| ----------------- | ------------------------------------------------------------- | -------------------------------------------------------- |
+| `notation`        | `'standard'` (default), `'scientific'`, `'engineering'`, `'compact'` | The formatting notation                           |
+| `compactDisplay`  | `'short'` (default), `'long'`                                 | Display style for compact notation (e.g., `1.5M` vs `1.5 million`) |
+
+**Sign and grouping options:**
+
+| Property          | Possible values                                                     | Description                                        |
+| ----------------- | ------------------------------------------------------------------- | -------------------------------------------------- |
+| `signDisplay`     | `'auto'` (default), `'never'`, `'always'`, `'exceptZero'`, `'negative'` | When to display the sign                       |
+| `useGrouping`     | `true`, `false` (default), `'always'`, `'auto'`, `'min2'`           | Whether to use grouping separators (e.g., `1,000`) |
+
+**Digit options:**
+
+| Property                  | Possible values | Description                                                   |
+| ------------------------- | --------------- | ------------------------------------------------------------- |
+| `minimumIntegerDigits`    | `1` to `21`     | Minimum number of integer digits (pads with zeros)            |
+| `minimumFractionDigits`   | `0` to `100`    | Minimum number of fraction digits                             |
+| `maximumFractionDigits`   | `0` to `100`    | Maximum number of fraction digits                             |
+| `minimumSignificantDigits`| `1` to `21`     | Minimum number of significant digits                          |
+| `maximumSignificantDigits`| `1` to `21`     | Maximum number of significant digits                          |
+
+**Rounding options:**
+
+| Property              | Possible values                                                                                     | Description                          |
+| --------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `roundingMode`        | `'halfExpand'` (default), `'ceil'`, `'floor'`, `'expand'`, `'trunc'`, `'halfCeil'`, `'halfFloor'`, `'halfTrunc'`, `'halfEven'` | Rounding algorithm |
+| `roundingPriority`    | `'auto'` (default), `'morePrecision'`, `'lessPrecision'`                                            | Priority between fraction and significant digits |
+| `roundingIncrement`   | `1`, `2`, `5`, `10`, `20`, `25`, `50`, `100`, `200`, `250`, `500`, `1000`, `2000`, `2500`, `5000`    | Increment for rounding (e.g., nickel rounding) |
+| `trailingZeroDisplay` | `'auto'` (default), `'stripIfInteger'`                                                              | Whether to strip trailing zeros for integers |
+
+**Locale options:**
+
+| Property          | Possible values                                           | Description                                        |
+| ----------------- | --------------------------------------------------------- | -------------------------------------------------- |
+| `localeMatcher`   | `'best fit'` (default), `'lookup'`                        | Locale matching algorithm                          |
+| `numberingSystem` | `'latn'`, `'arab'`, `'hans'`, `'deva'`, `'thai'`, etc.    | Numbering system to use                            |
+
+For a complete reference, see the [`numericFormat` API documentation](@/api/options.md#numericformat) or [MDN: Intl.NumberFormat](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/NumberFormat/NumberFormat#options).
+
+### Numbers beyond the safe-integer limit
+
+JavaScript holds every number as a double, so an integer above `Number.MAX_SAFE_INTEGER`
+(`9007199254740991`) is rounded before Handsontable ever sees it. Written as a number,
+`9007199254740993` is already `9007199254740992` in your data.
+
+To display such a value exactly, provide it as a string:
+
+```js
+data: [['9007199254740993']],
+columns: [
+  {
+    type: 'numeric',
+    preserveNumericLiteral: true, // keeps the value exact after editing, too
+    numericFormat: {
+      style: 'decimal',
+      useGrouping: true,
+    },
+  }
+],
+```
+
+The cell renders `9,007,199,254,740,993`. Your
+[`numericFormat`](@/api/options.md#numericformat) still applies, and no digit is lost, because
+`Intl.NumberFormat` reads a string as an exact decimal instead of converting it to a number. The
+same value written as a number renders as `9,007,199,254,740,992`.
+
+A string in the source data renders exactly on its own. Set
+[`preserveNumericLiteral`](@/api/options.md#preservenumericliteral) to `true` as well, so the value
+is still a string after someone edits the cell -- without it, editing converts the entry to a
+number and the precision is lost at that point. See [Editor behavior](#editor-behavior).
+
+### Editor behavior
+
+Mind that the [`numericFormat`](@/api/options.md#numericformat) option doesn't change the way
+numbers are presented or parsed by the [cell editor](@/guides/cell-functions/cell-editor/cell-editor.md). When
+you edit a numeric cell:
+
+- Regardless of the [`numericFormat`](@/api/options.md#numericformat) configuration, the number
+  that's being edited displays its decimal separator as a period (`.`), and has no thousands
+  separator or currency symbol.<br>For example, during editing `$7,000.02`, the number displays as
+  `7000.02`.
+- You can enter a decimal separator either with a period (`.`), or with a comma (`,`).
+- For European locales where the decimal separator is a comma (e.g., `de-DE`, `fr-FR`, `es-ES`),
+  you can enter a dot-thousands grouped value such as `7.000` or `7.000,25`. Handsontable parses
+  these as `7000` and `7000.25` respectively. For other locales, the thousands separator is added
+  automatically after editing, based on your [`numericFormat`](@/api/options.md#numericformat)
+  configuration.
+- By default, entering `9.0` stores the number `9`, so the editor shows `9` the next time you open
+  it, and very large numbers lose precision. To keep the exact text you typed, set the
+  [`preserveNumericLiteral`](@/api/options.md#preservenumericliteral) option to `true` (see
+  [Preserve the typed literal](#preserve-the-typed-literal)). Then, only
+  when converting your entry to a JavaScript number would lose information -- a trailing decimal
+  zero such as `9.0`, or a value whose magnitude exceeds the safe-integer limit
+  (`9007199254740991`) -- Handsontable keeps the literal you typed, so the editor shows it exactly. The
+  cell still applies its number format, so `9.0` displays as `9` unless your
+  [`numericFormat`](@/api/options.md#numericformat) says otherwise. Only a value beyond the
+  safe-integer limit also renders exactly. See [Numbers beyond the safe-integer limit](#numbers-beyond-the-safe-integer-limit).
+  Values that convert without loss (such as `9.5`) are still stored as numbers, so sorting,
+  filtering, and formulas are unaffected. A preserved literal still behaves like a number in those
+  features: sorting and filter conditions compare it numerically, and the formulas engine parses it
+  as a number, so functions such as `SUM` still include the cell. One exception: the filter menu's
+  "Filter by value" checkbox list compares values strictly, so a preserved literal (`9.0`) and its
+  plain number (`9`) appear as two separate entries. This option is `false` by default.
+
+### Preserve the typed literal
+
+The following demo has two numeric columns with the same data. **Default** uses no extra options.
+**preserveNumericLiteral: true** sets the [`preserveNumericLiteral`](@/api/options.md#preservenumericliteral)
+option at the column level, so it applies to every cell in that column.
+
+To compare them:
+
+1. Type `1.50` in a cell of the **Default** column, and press <kbd>Enter</kbd>. Then, select the
+   cell again and press <kbd>F2</kbd>. The editor shows `1.5`, and the stored value is the number `1.5`.
+2. Type `1.50` in a cell of the **preserveNumericLiteral: true** column, and press
+   <kbd>Enter</kbd>. Then, select the cell again and press <kbd>F2</kbd>. The editor shows `1.50`, and the stored value is the
+   string `"1.50"`.
+3. Type `9.5` in either column. Both columns store the number `9.5`, because converting it to a
+   number loses nothing.
+
+Both cells render the same text, because the displayed value is formatted. The option changes the
+stored value, which you can see when you reopen the editor or call
+[`getDataAtCell()`](@/api/core.md#getdataatcell). The text below the grid shows the stored value of the
+last edited cell.
+
+::: only-for javascript
+
+::: example #example2 --html 1 --js 2 --ts 3
+
+@[code](@/content/guides/cell-types/numeric-cell-type/javascript/example2.html)
+@[code](@/content/guides/cell-types/numeric-cell-type/javascript/example2.js)
+@[code](@/content/guides/cell-types/numeric-cell-type/javascript/example2.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example2 :react --js 1 --ts 2
+
+@[code](@/content/guides/cell-types/numeric-cell-type/react/example2.jsx)
+@[code](@/content/guides/cell-types/numeric-cell-type/react/example2.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example2 :angular --ts 1 --html 2
+
+@[code](@/content/guides/cell-types/numeric-cell-type/angular/example2.ts)
+@[code](@/content/guides/cell-types/numeric-cell-type/angular/example2.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example2 :vue3
+
+@[code](@/content/guides/cell-types/numeric-cell-type/vue/example2.vue)
+
+:::
+
+:::
+
+## Validate numbers
+
+The numeric cell type includes a built-in validator. When a cell is validated, any value that is not a
+valid number is marked with the `htInvalid` CSS class, which renders as a red cell background in the
+default theme. Themes control the actual color.
+
+Validation runs after you edit a cell. To validate and mark values that are already in the data source
+(for example, after [`loadData()`](@/api/core.md#loaddata)), call
+[`validateCells()`](@/api/core.md#validatecells).
+
+Two options control how the validator treats values:
+
+- [`allowInvalid`](@/api/options.md#allowinvalid) (default `true`): invalid values are kept, saved to
+  the data source, and marked as invalid. Set `allowInvalid` to `false` to reject invalid input and
+  keep the [cell editor](@/guides/cell-functions/cell-editor/cell-editor.md) open until you enter a
+  valid number.
+- [`allowEmpty`](@/api/options.md#allowempty) (default `true`): empty cells pass validation. Set
+  `allowEmpty` to `false` to mark empty cells as invalid.
+
+## Result
+
+After configuring the numeric cell type, cells right-align their values and display them using the format you defined in `numericFormat`. Invalid (non-numeric) values are marked as invalid -- see [Validate numbers](#validate-numbers). The underlying data source stores the raw number.
+
+## Keyboard shortcuts
+
+The numeric cell editor is a text editor, so it uses the standard [edition keyboard shortcuts](@/guides/navigation/keyboard-shortcuts/keyboard-shortcuts.md#edition-keyboard-shortcuts). It has no numeric-specific key bindings. Type a period (`.`) or a comma (`,`) to enter a decimal separator -- see [Editor behavior](#editor-behavior).
+
+## Related articles
+
+**Related guides**
+
+<div class="boxes-list">
+
+- [Cell type](@/guides/cell-types/cell-type/cell-type.md)
+
+</div>
+
+**Configuration options**
+
+<div class="boxes-list">
+
+- [numericFormat](@/api/options.md#numericformat)
+- [locale](@/api/options.md#locale)
+- [type](@/api/options.md#type)
+- [valueFormatter](@/api/options.md#valueformatter)
+- [validator](@/api/options.md#validator)
+- [allowInvalid](@/api/options.md#allowinvalid)
+- [allowEmpty](@/api/options.md#allowempty)
+
+</div>
+
+**Core methods**
+
+<div class="boxes-list">
+
+- [getCellMeta()](@/api/core.md#getcellmeta)
+- [getCellMetaAtRow()](@/api/core.md#getcellmetaatrow)
+- [getCellsMeta()](@/api/core.md#getcellsmeta)
+- [getDataType()](@/api/core.md#getdatatype)
+- [validateCells()](@/api/core.md#validatecells)
+- [setCellMeta()](@/api/core.md#setcellmeta)
+- [setCellMetaObject()](@/api/core.md#setcellmetaobject)
+- [removeCellMeta()](@/api/core.md#removecellmeta)
+
+</div>
+
+**Hooks**
+
+<div class="boxes-list">
+
+- [afterGetCellMeta](@/api/hooks.md#aftergetcellmeta)
+- [afterSetCellMeta](@/api/hooks.md#aftersetcellmeta)
+- [beforeGetCellMeta](@/api/hooks.md#beforegetcellmeta)
+- [beforeSetCellMeta](@/api/hooks.md#beforesetcellmeta)
+
+</div>

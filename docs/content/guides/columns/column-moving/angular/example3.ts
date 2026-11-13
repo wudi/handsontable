@@ -1,0 +1,55 @@
+/* file: app.component.ts */
+import { Component } from '@angular/core';
+import { GridSettings, HotTableModule} from '@handsontable/angular-wrapper';
+
+@Component({
+  selector: 'app-example3',
+  template: `
+    <hot-table
+      [settings]="hotSettings!" [data]="hotData">
+    </hot-table>
+  `,
+  standalone: true,
+  imports: [HotTableModule],
+})
+export class AppComponent {
+
+  readonly hotData = [
+    ['SKU-4821', 'Stainless Steel Water Bottle', 'Harbor Goods'],
+    ['SKU-0093', 'Wireless Mouse', 'Alpine Supply Co.'],
+    ['SKU-1170', 'Ergonomic Office Chair', 'Cascade Distributors'],
+  ];
+
+  readonly hotSettings: GridSettings = {
+    colHeaders: ['SKU', 'Product', 'Supplier'],
+    rowHeaders: true,
+    manualColumnMove: true,
+    autoWrapRow: true,
+    autoWrapCol: true,
+    height: 'auto',
+  };
+}
+/* end-file */
+
+
+
+/* file: app.config.ts */
+import { ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
+import { registerAllModules } from 'handsontable/registry';
+import { HOT_GLOBAL_CONFIG, HotGlobalConfig } from '@handsontable/angular-wrapper';
+
+// register Handsontable's modules
+registerAllModules();
+
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideZoneChangeDetection({ eventCoalescing: true }),
+    {
+      provide: HOT_GLOBAL_CONFIG,
+      useValue: {
+        // license: 'your-license-key', // get a key at https://handsontable.com/pricing/
+      } as HotGlobalConfig,
+    },
+  ],
+};
+/* end-file */

@@ -1,0 +1,72 @@
+import type { HotInstance } from '../../../core/types';
+import * as C from '../../../i18n/constants';
+
+/**
+ * @param {HiddenRows} hiddenRowsPlugin The plugin instance.
+ * @returns {object}
+ */
+export default function hideRowItem(hiddenRowsPlugin: Record<string, Function>) {
+  return {
+    key: 'hidden_rows_hide',
+    name(this: HotInstance): string {
+      const selection = this.getSelectedActive();
+      let pluralForm = 0;
+
+      if (Array.isArray(selection)) {
+        const [fromRow, , toRow] = selection;
+
+        if (fromRow - toRow !== 0) {
+          pluralForm = 1;
+        }
+      }
+
+      return (this.getTranslatedPhrase(C.CONTEXTMENU_ITEMS_HIDE_ROW, pluralForm) as string);
+    },
+    callback(this: HotInstance) {
+      const selectedRange = this.getSelectedRangeActive();
+
+      if (!selectedRange) {
+        return;
+      }
+
+      const { from, to } = selectedRange;
+
+      if (from.row === null || to.row === null) {
+        return;
+      }
+
+      const start = Math.max(Math.min(from.row, to.row), 0);
+      const end = Math.max(from.row, to.row);
+      const rowsToHide = [];
+
+      for (let visualRow = start; visualRow <= end; visualRow += 1) {
+        rowsToHide.push(visualRow);
+      }
+
+      hiddenRowsPlugin.hideRows(rowsToHide);
+
+      const lastHiddenRow = rowsToHide[rowsToHide.length - 1];
+      const rowToSelect = this.rowIndexMapper.getNearestNotHiddenIndex(lastHiddenRow, 1, true);
+
+      if (rowToSelect !== null && Number.isInteger(rowToSelect) && rowToSelect >= 0) {
+        this.selectRows(rowToSelect);
+
+      } else {
+        this.deselectCell();
+      }
+
+      this.render();
+    },
+    disabled: false,
+    hidden(this: HotInstance) {
+      if (!(this.selection.isSelectedByRowHeader() || this.selection.isSelectedByCorner())) {
+        return true;
+      }
+
+      // Nothing to hide — no row is rendered. A corner select-all with every row already hidden is
+      // the reported case (DEV-164), but an empty or fully-trimmed grid is the same dead entry
+      // (`hideRows([])` hides nothing), so suppress the item whenever no row is visible.
+      return this.rowIndexMapper.getRenderableIndexesLength() === 0;
+    }
+  };
+}

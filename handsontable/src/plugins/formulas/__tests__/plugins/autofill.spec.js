@@ -1,10 +1,8 @@
 import HyperFormula from 'hyperformula';
 
 describe('Formulas', () => {
-  const id = 'testContainer';
-
   beforeEach(function() {
-    this.$container = $(`<div id="${id}"></div>`).appendTo('body');
+    this.$container = $('<div id="testContainer"></div>').appendTo('body');
   });
 
   afterEach(function() {
@@ -15,61 +13,53 @@ describe('Formulas', () => {
   });
 
   describe('Integration with Autofill', () => {
-    it('should allow dragging the fill handle outside of the table, adding new rows and performing autofill', async() => {
-      const hot = handsontable({
+    it('should not leak the escape apostrophe when the source range spans a trimmed row', async() => {
+      handsontable({
         data: [
-          ['test', 2, '=UPPER($A$1)', 4, 5, 6],
-          [1, 2, 3, 4, 5, 6],
-          [1, 2, 3, 4, 5, 6],
-          [1, 2, 3, 4, 5, 6]
+          ['0123456'],
+          ['0222222'],
+          ['0333333'],
+          [null],
+          [null],
+          [null],
         ],
+        columns: [{ type: 'text' }],
+        // Marked per PHYSICAL row rather than per column, so a meta read that resolves to the wrong
+        // row - or to no row at all - drops the marking instead of silently still finding it.
+        cell: [
+          { row: 0, col: 0, preserveTextValue: true },
+          { row: 1, col: 0, preserveTextValue: true },
+          { row: 2, col: 0, preserveTextValue: true },
+        ],
+        // Physical row 1 keeps its HyperFormula index but has no visual one, so the engine source
+        // range for visual rows 0-1 spans HF rows 0..2 and the fill loop walks the trimmed row.
+        trimRows: [1],
         formulas: {
           engine: HyperFormula,
           sheetName: 'Sheet1'
         },
-        fillHandle: true
+        fillHandle: true,
       });
 
-      selectCell(0, 2);
+      await selectRows(0, 1);
 
-      spec().$container.find('.wtBorder.current.corner').simulate('mousedown');
-      spec().$container.find('tr:last-child td:eq(2)').simulate('mouseover');
+      const lastRowCell = $(getCell(1, 0, true));
 
-      expect(hot.countRows()).toBe(4);
+      simulateFillHandleDragStart(lastRowCell);
+      simulateFillHandleDragMove(lastRowCell, { offsetY: 200 });
 
-      await sleep(300);
-      expect(hot.countRows()).toBe(5);
+      await waitForNextAnimationFrames(25);
 
-      spec().$container.find('tr:last-child td:eq(2)').simulate('mouseover');
+      simulateFillHandleDragFinish(lastRowCell, { offsetY: 200 });
 
-      await sleep(300);
-      expect(hot.countRows()).toBe(6);
-
-      spec().$container.find('tr:last-child td:eq(2)').simulate('mouseup');
-
-      await sleep(300);
-
-      expect(hot.getData()).toEqual([
-        ['test', 2, 'TEST', 4, 5, 6],
-        [1, 2, 'TEST', 4, 5, 6],
-        [1, 2, 'TEST', 4, 5, 6],
-        [1, 2, 'TEST', 4, 5, 6],
-        [null, null, 'TEST', null, null, null],
-        [null, null, null, null, null, null]
-      ]);
-
-      expect(hot.getSourceData()).toEqual([
-        ['test', 2, '=UPPER($A$1)', 4, 5, 6],
-        [1, 2, '=UPPER($A$1)', 4, 5, 6],
-        [1, 2, '=UPPER($A$1)', 4, 5, 6],
-        [1, 2, '=UPPER($A$1)', 4, 5, 6],
-        [null, null, '=UPPER($A$1)', null, null, null],
-        [null, null, null, null, null, null]
-      ]);
+      // The engine stores every preserved text value escaped. Whichever rows the fill ends up
+      // populating, none of them may carry the engine's escape apostrophe into the grid.
+      expect(getDataAtCol(0).filter(value => typeof value === 'string' && value.startsWith('\'')))
+        .toEqual([]);
     });
 
     it('should cooperate properly with trimmed rows (populating not trimmed elements)', async() => {
-      const hot = handsontable({
+      handsontable({
         data: [
           ['=B1+10', 1, 2, 3, 4, 5, 6],
           ['=B2+20', 7, 8, 9, 0, 1, 2],
@@ -82,59 +72,146 @@ describe('Formulas', () => {
           sheetName: 'Sheet1'
         },
         trimRows: [0, 1],
-        fillHandle: true
+        fillHandle: true,
+        width: 400,
+        height: 130,
+        rowHeaders: true,
+        colHeaders: true,
       });
 
-      selectRows(0);
+      await selectRows(0);
 
-      spec().$container.find('.wtBorder.current.corner').simulate('mousedown');
-      spec().$container.find('tr:last-child td:eq(0)').simulate('mouseover');
+      const lastRowCell = $(getCell(2, 0, true));
 
-      await sleep(300);
+      simulateFillHandleDragStart(lastRowCell);
+      simulateFillHandleDragMove(lastRowCell, { offsetY: 200 });
 
-      spec().$container.find('tr:last-child td:eq(0)').simulate('mouseup');
+      await waitForNextAnimationFrames(25);
 
-      expect(hot.getData()).toEqual([
+      simulateFillHandleDragFinish(lastRowCell, { offsetY: 200 });
+
+      // The drag past the last row inserts a row, and the fill reaches it (DEV-140) - it used to be
+      // left empty. On the taller themes that row lands below the visible part of this 130px grid;
+      // the pointer is below the whole table, so it still points at the row. The trimmed rows stay
+      // out of the fill.
+      expect(getData()).toEqual([
         [33, 3, 4, 5, 6, 7, 8],
         [33, 3, 4, 5, 6, 7, 8],
         [33, 3, 4, 5, 6, 7, 8],
-        [null, null, null, null, null, null, null],
+        [33, 3, 4, 5, 6, 7, 8],
       ]);
+      expect(getSourceDataAtRow(0)).toEqual(['=B1+10', 1, 2, 3, 4, 5, 6]);
+      expect(getSourceDataAtRow(1)).toEqual(['=B2+20', 7, 8, 9, 0, 1, 2]);
     });
 
-    xit('should cooperate properly with trimmed rows (populating two elements placed next to trimmed element)', async() => {
-      const hot = handsontable({
+    it('should not overwrite extra visible columns when dragging right across hidden columns', async() => {
+      handsontable({
         data: [
-          ['=B1+10', 1, 2, 3, 4, 5, 6],
-          ['=B2+20', 7, 8, 9, 0, 1, 2],
-          ['=B3+30', 3, 4, 5, 6, 7, 8],
-          ['=B4+40', 9, 0, 1, 2, 3, 4],
-          ['=B5+50', 5, 6, 7, 8, 9, 0],
+          ['=A1', null, null, null, null, null],
         ],
         formulas: {
           engine: HyperFormula,
           sheetName: 'Sheet1'
         },
-        trimRows: [1],
-        fillHandle: true
+        hiddenColumns: {
+          copyPasteEnabled: false,
+          columns: [1, 2],
+        },
       });
 
-      selectRows(0, 1);
+      await selectCell(0, 0);
 
-      spec().$container.find('.wtBorder.current.corner').simulate('mousedown');
-      spec().$container.find('tr:last-child td:eq(0)').simulate('mouseover');
+      simulateFillHandleDrag($(getCell(0, 3, true)));
 
-      await sleep(300);
+      expect(getSourceDataAtCell(0, 3)).toEqual('=D1');
+      expect(getSourceDataAtCell(0, 4)).toBe(null);
+      expect(getSourceDataAtCell(0, 5)).toBe(null);
+    });
 
-      spec().$container.find('tr:last-child td:eq(0)').simulate('mouseup');
+    it('should not overwrite extra visible rows when dragging down across hidden rows', async() => {
+      handsontable({
+        data: [
+          ['=A1'],
+          [null],
+          [null],
+          [null],
+          [null],
+        ],
+        formulas: {
+          engine: HyperFormula,
+          sheetName: 'Sheet1'
+        },
+        hiddenRows: {
+          copyPasteEnabled: false,
+          rows: [1, 2],
+        },
+      });
 
-      expect(hot.getData()).toEqual([
-        [11, 1, 2, 3, 4, 5, 6],
-        [33, 3, 4, 5, 6, 7, 8],
-        [11, 1, 2, 3, 4, 5, 6],
-        [33, 3, 4, 5, 6, 7, 8],
-        [null, null, null, null, null, null, null],
-      ]);
+      await selectCell(0, 0);
+
+      simulateFillHandleDrag($(getCell(3, 0, true)));
+
+      expect(getSourceDataAtCell(3, 0)).toEqual('=A4');
+      expect(getSourceDataAtCell(4, 0)).toBe(null);
+    });
+
+    it('should keep left-side order without spilling while dragging left across hidden columns', async() => {
+      handsontable({
+        data: [
+          [null, null, null, '=C1', '=D1', null],
+        ],
+        formulas: {
+          engine: HyperFormula,
+          sheetName: 'Sheet1'
+        },
+        hiddenColumns: {
+          copyPasteEnabled: false,
+          columns: [2],
+        },
+      });
+
+      await selectCell(0, 4, 0, 3);
+
+      simulateFillHandleDrag($(getCell(0, 0, true)));
+
+      expect(getSourceDataAtCell(0, 0)).toEqual('=#REF!');
+      expect(getSourceDataAtCell(0, 1)).toEqual('=A1');
+      expect(getSourceDataAtCell(0, 2)).toBe(null);
+      expect(getSourceDataAtCell(0, 3)).toEqual('=C1');
+      expect(getSourceDataAtCell(0, 4)).toEqual('=D1');
+      expect(getSourceDataAtCell(0, 5)).toBe(null);
+    });
+
+    it('should keep up-side order without spilling while dragging up across hidden rows', async() => {
+      handsontable({
+        data: [
+          [null],
+          [null],
+          [null],
+          ['=A3'],
+          ['=A4'],
+          [null],
+        ],
+        formulas: {
+          engine: HyperFormula,
+          sheetName: 'Sheet1'
+        },
+        hiddenRows: {
+          copyPasteEnabled: false,
+          rows: [2],
+        },
+      });
+
+      await selectCell(4, 0, 3, 0);
+
+      simulateFillHandleDrag($(getCell(0, 0, true)));
+
+      expect(getSourceDataAtCell(0, 0)).toEqual('=#REF!');
+      expect(getSourceDataAtCell(1, 0)).toEqual('=A1');
+      expect(getSourceDataAtCell(2, 0)).toBe(null);
+      expect(getSourceDataAtCell(3, 0)).toEqual('=A3');
+      expect(getSourceDataAtCell(4, 0)).toEqual('=A4');
+      expect(getSourceDataAtCell(5, 0)).toBe(null);
     });
   });
 });

@@ -18,7 +18,7 @@ describe('manualColumnResize (RTL)', () => {
 
   it('should resize (narrowing) selected columns', async() => {
     handsontable({
-      data: Handsontable.helper.createSpreadsheetData(10, 20),
+      data: createSpreadsheetData(10, 20),
       colHeaders: true,
       manualColumnResize: true
     });
@@ -40,19 +40,20 @@ describe('manualColumnResize (RTL)', () => {
     $resizer.simulate('mousemove', { clientX: spec().$container.find('tr:eq(0) th:eq(1)').offset().left + 29 });
     $resizer.simulate('mouseup');
 
-    await sleep(1000);
+    await waitForNextAnimationFrames(2);
 
     const $columnHeaders = spec().$container.find('thead tr:eq(0) th');
 
-    expect($columnHeaders.eq(1).width()).toBe(20);
-    expect($columnHeaders.eq(2).width()).toBe(21);
-    expect($columnHeaders.eq(3).width()).toBe(21);
+    expect($columnHeaders.eq(1).outerWidth()).toBe(20);
+    expect($columnHeaders.eq(2).outerWidth()).toBe(20);
+    expect($columnHeaders.eq(3).outerWidth()).toBe(20);
   });
 
   it('should resize (expanding) selected columns', async() => {
     handsontable({
-      data: Handsontable.helper.createSpreadsheetData(10, 20),
+      data: createSpreadsheetData(10, 20),
       colHeaders: true,
+      autoColumnSize: false,
       manualColumnResize: true
     });
 
@@ -73,13 +74,19 @@ describe('manualColumnResize (RTL)', () => {
     $resizer.simulate('mousemove', { clientX: spec().$container.find('tr:eq(0) th:eq(1)').offset().left - 150 });
     $resizer.simulate('mouseup');
 
-    await sleep(1000);
+    await waitForNextAnimationFrames(2);
 
     const $columnHeaders = spec().$container.find('thead tr:eq(0) th');
 
-    expect($columnHeaders.eq(1).width()).toBe(199);
-    expect($columnHeaders.eq(2).width()).toBe(200);
-    expect($columnHeaders.eq(3).width()).toBe(200);
+    expect($columnHeaders.eq(1).outerWidth()).toBe(
+      196,
+    );
+    expect($columnHeaders.eq(2).outerWidth()).toBe(
+      196,
+    );
+    expect($columnHeaders.eq(3).outerWidth()).toBe(
+      196,
+    );
   });
 
   describe('handle and guide', () => {
@@ -95,7 +102,8 @@ describe('manualColumnResize (RTL)', () => {
         $('html').attr('dir', 'ltr');
       });
 
-      it('should display the resize handle in the proper position and with a proper size', () => {
+      it(`should display the resize handle in the proper position and with
+ a proper size`, async() => {
         handsontable({
           layoutDirection,
           data: [
@@ -116,11 +124,11 @@ describe('manualColumnResize (RTL)', () => {
         const $handle = $('.manualColumnResizer');
 
         expect($handle.offset().left)
-          .toEqual($headerTH.offset().left + 1);
+          .toEqual($headerTH.offset().left - ($handle.outerWidth() / 2) + 1);
         expect($handle.height()).toEqual($headerTH.outerHeight());
       });
 
-      it('should display the resize handle in the proper z-index and be greater than top overlay z-index', () => {
+      it('should display the resize handle in the proper z-index and be greater than top overlay z-index', async() => {
         handsontable({
           layoutDirection,
           data: [
@@ -141,6 +149,30 @@ describe('manualColumnResize (RTL)', () => {
         const $handle = $('.manualColumnResizer');
 
         expect($handle.css('z-index')).toBeGreaterThan(getTopClone().css('z-index'));
+      });
+
+      it('should position the resize handle at the visible column header start edge after horizontal scroll with `preventOverflow: \'horizontal\'` (#10403)', async() => {
+        handsontable({
+          layoutDirection,
+          data: createSpreadsheetData(5, 20),
+          colHeaders: true,
+          manualColumnResize: true,
+          preventOverflow: 'horizontal',
+          width: 400,
+          height: 200,
+        });
+
+        await scrollViewportHorizontally(300);
+        await waitForNextAnimationFrames(2);
+
+        const $headerTH = getTopClone().find('thead tr:eq(0) th:eq(8)');
+
+        $headerTH.simulate('mouseover');
+
+        const $handle = $('.manualColumnResizer');
+
+        expect($handle.offset().left)
+          .toEqual($headerTH.offset().left - ($handle.outerWidth() / 2) + 1);
       });
     });
   });

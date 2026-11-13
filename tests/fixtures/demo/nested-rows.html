@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Handsontable e2e fixture - nested rows public API</title>
+  <link rel="stylesheet" href="/handsontable/styles/handsontable.min.css">
+  <script>
+    // Theme and bundle come from the ?theme=/?bundle= query params set by the
+    // Playwright projects, mapped through fixed allowlists to LITERALS so a
+    // crafted param can never be reflected into the document — no XSS. An
+    // ABSENT param keeps the default (main / plain UMD) so the fixture stays
+    // browsable by hand; an unknown value THROWS instead of falling back — a
+    // typo in the project config must be one red leg, never a silently
+    // mislabeled green one (nothing else asserts which file actually loaded).
+    const htParams = new URLSearchParams(location.search);
+
+    window.htTheme = ({ main: 'main', horizon: 'horizon', classic: 'classic' })[htParams.get('theme') ?? 'main'];
+    if (!window.htTheme) {
+      throw new Error('Unknown ?theme= value: ' + JSON.stringify(htParams.get('theme')));
+    }
+    // Written into <head> so the themed stylesheet is present before first render.
+    document.write('<link rel="stylesheet" href="/handsontable/styles/ht-theme-' + window.htTheme + '.min.css">');
+    // 1:1 with the Puppeteer legs (umd = handsontable.js, full-min =
+    // handsontable.full.min.js, the exact file `test:production` loads).
+    window.htBundle = ({ umd: 'handsontable.js', 'full-min': 'handsontable.full.min.js' })[htParams.get('bundle') ?? 'umd'];
+    if (!window.htBundle) {
+      throw new Error('Unknown ?bundle= value: ' + JSON.stringify(htParams.get('bundle')));
+    }
+  </script>
+  <style> body { font-family: sans-serif; margin: 1rem; } </style>
+  <script src="/tests/fixtures/demo/test-license-key.js"></script>
+</head>
+<body>
+  <!--
+    Fixture for the NestedRows public collapse/expand API (DEV-1023).
+
+    The tree is deliberately three levels deep, because the interesting cases only appear
+    with nesting: a parent collapsed inside another collapsed parent is TRIMMED, so it has
+    no visual index at all. That is why the hooks and `getCollapsedParents()` report
+    physical indexes while the methods take visual ones.
+
+    Physical layout of the seeded tree:
+      0  Root A            (parent, level 0)
+      1    A-1             (leaf,   level 1)
+      2    A-2             (parent, level 1)
+      3      A-2-a         (leaf,   level 2)
+      4      A-2-b         (leaf,   level 2)
+      5    A-3             (leaf,   level 1)
+      6  Root B            (parent, level 0)
+      7    B-1             (leaf,   level 1)
+      8    B-2             (leaf,   level 1)
+
+    Every collapse/expand hook appends to `window.hookLog`, so a spec can assert the exact
+    arguments and the exact firing order, and can prove a `before*` hook blocked an action
+    by the absence of its `after*` entry. `?block=` makes the matching `before*` hook return
+    false, which is the only way to test cancelling from a real page.
+  -->
+  <div id="grid" data-testid="grid"></div>
+
+  <script>
+    // The bundle under test, selected above from the sanitized allowlist. The
+    // closing tag is split so the HTML parser does not end THIS script block.
+    document.write('<scr' + 'ipt src="/handsontable/dist/' + window.htBundle + '"></scr' + 'ipt>');
+  </script>
+  <script>
+    const container = document.querySelector('[data-testid="grid"]');
+
+    container.className = `ht-theme-${window.htTheme}`;
+
+    // ?block=rowCollapse|rowExpand makes that before* hook veto, so the spec can drive
+    // cancellation without injecting code into the page.
+    const blocked = new URLSearchParams(location.search).get('block');
+
+    window.hookLog = [];
+
+    // `blocked` is null when the param is absent, so build the vetoed hook name only when set.
+    const blockedHook = blocked ? `before${blocked.charAt(0).toUpperCase()}${blocked.slice(1)}` : null;
+
+    const record = name => (...args) => {
+      window.hookLog.push({ name, args });
+
+      if (name === blockedHook) {
+        return false;
+      }
+    };
+
+    const testIdRenderer = function(instance, td, row, col, prop, value, cellProperties) {
+      Handsontable.renderers.TextRenderer.apply(this, arguments);
+      td.setAttribute('data-testid', `cell-${row}-${col}`);
+    };
+
+    window.hot = new Handsontable(container, {
+      data: [
+        {
+          name: 'Root A',
+          __children: [
+            { name: 'A-1' },
+            {
+              name: 'A-2',
+              __children: [{ name: 'A-2-a' }, { name: 'A-2-b' }],
+            },
+            { name: 'A-3' },
+          ],
+        },
+        {
+          name: 'Root B',
+          __children: [{ name: 'B-1' }, { name: 'B-2' }],
+        },
+      ],
+      columns: [{ data: 'name' }],
+      colHeaders: ['Name'],
+      rowHeaders: true,
+      nestedRows: true,
+      contextMenu: true,
+      navigableHeaders: true,
+      renderer: testIdRenderer,
+      height: 'auto',
+      licenseKey: window.htTestLicenseKey,
+      beforeRowCollapse: record('beforeRowCollapse'),
+      afterRowCollapse: record('afterRowCollapse'),
+      beforeRowExpand: record('beforeRowExpand'),
+      afterRowExpand: record('afterRowExpand'),
+    });
+  </script>
+</body>
+</html>

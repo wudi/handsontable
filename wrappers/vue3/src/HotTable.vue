@@ -1,16 +1,29 @@
 <template>
-  <div :id="id">
+  <div :id="id" style="height: 100%">
+    <!-- `hot-column` children render invisible comment anchors in source order.
+         Handsontable appends its own DOM to this container without clearing
+         pre-existing nodes, so the anchors survive; the parent reads their
+         document position to order the columns. -->
     <slot></slot>
   </div>
 </template>
 
 <script lang="ts">
-import { defineComponent, VNode, markRaw } from 'vue';
+// eslint-disable-next-line  @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import { defineComponent, VNode, markRaw, toRaw } from 'vue';
+// TODO: The line above is ts-ignored because rollup-plugin-typescript2 throws an error otherwise.
+// It's most probably caused by outdated rollup-plugin-vue which is no longer maintained.
+
 import Handsontable from 'handsontable/base';
 import {
   HOT_DESTROYED_WARNING,
+  generateContainerId,
+  getPassedHookKeys,
   prepareSettings,
   propFactory,
+  recordSettingBaselines,
+  SettingBaselines,
 } from './helpers';
 import {
   HotTableProps,
@@ -22,19 +35,48 @@ const HotTable = defineComponent({
   props: propFactory('HotTable'),
   provide() {
     return {
-      columnsCache: this.columnsCache
+      columnsCache: this.columnsCache,
+      refreshColumns: this.refreshColumns,
     };
   },
   watch: {
+    // Vue removes the attribute when `id` is cleared, so put the generated one back after the patch.
+    id: {
+      handler(id) {
+        if (!id) {
+          this.$el.id = this.getGeneratedId();
+        }
+      },
+      flush: 'post',
+    },
     $props: {
       handler(props) {
-        const settings = prepareSettings(props, this.hotInstance ? this.hotInstance.getSettings() : void 0);
+        const overriddenKeys: string[] = [];
+        const settings = prepareSettings(
+          props,
+          this.hotInstance ? this.hotInstance.getSettings() : undefined,
+          this.miscCache.hookKeys,
+          this.miscCache.baselines,
+          overriddenKeys
+        );
 
-        if (!this.hotInstance || settings === void 0) {
+        if (!this.hotInstance || settings === undefined) {
           return;
         }
 
-        if (settings.data) {
+        this.miscCache.hookKeys = getPassedHookKeys(props);
+
+        const hasData = settings.data !== undefined;
+        const incomingData = hasData ? toRaw(settings.data) : undefined;
+        const isNewData = hasData && incomingData !== this.miscCache.lastData.value;
+
+        // A new array replaces the grid's data: `updateSettings()` runs core's `updateData()`, which fits the
+        // index mappers to the new length and keeps their state, unless the same payload changes the column layout.
+        if (hasData && !isNewData && incomingData === null) {
+          // The prop was already cleared: sending `null` again would reset the grid on every later change.
+          delete settings.data;
+
+        } else if (settings.data && !isNewData) {
           if (
             this.hotInstance.isColumnModificationAllowed() ||
             (
@@ -50,6 +92,12 @@ const HotTable = defineComponent({
           }
         }
 
+        // Recorded before the update: core holds the array as soon as `updateSettings()` starts, so a hook that
+        // throws must not leave the old one here, or every later in-place edit would reload the data.
+        if (hasData) {
+          this.miscCache.lastData.value = incomingData;
+        }
+
         // If there are another options changed, update the HOT settings, render the table otherwise.
         if (Object.keys(settings).length) {
           this.hotInstance.updateSettings(settings);
@@ -59,6 +107,8 @@ const HotTable = defineComponent({
         }
 
         this.miscCache.currentSourceColumns = this.hotInstance.countSourceCols();
+
+        recordSettingBaselines(this.miscCache.baselines, props, this.hotInstance.getSettings(), overriddenKeys);
       },
       deep: true,
       immediate: true,
@@ -67,13 +117,21 @@ const HotTable = defineComponent({
   data() {
     return {
       /* eslint-disable vue/no-reserved-keys */
-      __hotInstance: null as Handsontable,
+      __hotInstance: null as Handsontable | null,
       /* eslint-enable vue/no-reserved-keys */
       miscCache: {
         currentSourceColumns: null,
+        generatedId: '',
+        hookKeys: [] as string[],
+        // Holds the grid's own values, so it must not be wrapped in a proxy: the compare is by identity.
+        baselines: markRaw({}) as SettingBaselines,
+        // The `data` array the grid was last given by the props, compared by identity to tell a new array
+        // from an in-place edit. Wrapped in a raw holder so Vue does not proxy the app's array.
+        lastData: markRaw({ value: undefined as unknown }),
       },
-      columnSettings: null as HotTableProps[],
+      columnSettings: null as HotTableProps[] | null,
       columnsCache: new Map<VNode, HotTableProps>(),
+      columnsRefreshScheduled: false,
       get hotInstance(): Handsontable | null {
         if (!this.__hotInstance || (this.__hotInstance && !this.__hotInstance.isDestroyed)) {
 
@@ -87,12 +145,25 @@ const HotTable = defineComponent({
           return null;
         }
       },
-      set hotInstance(hotInstance: Handsontable) {
+      set hotInstance(hotInstance: Handsontable | null) {
         this.__hotInstance = hotInstance;
       },
     };
   },
   methods: {
+    /**
+     * Get the id used when the `id` prop is not passed. It is created once per instance.
+     *
+     * @returns {string} The generated container id.
+     */
+    getGeneratedId(): string {
+      if (!this.miscCache.generatedId) {
+        this.miscCache.generatedId = generateContainerId();
+      }
+
+      return this.miscCache.generatedId;
+    },
+
     /**
      * Initialize Handsontable.
      */
@@ -102,9 +173,15 @@ const HotTable = defineComponent({
       newSettings.columns = this.columnSettings ? this.columnSettings : newSettings.columns;
 
       this.hotInstance = markRaw<Handsontable>(new Handsontable.Core(this.$el, newSettings));
+
+      // Recorded before `init()`, so a value the app sets in `afterInit` counts as an override of the prop.
+      recordSettingBaselines(this.miscCache.baselines, this.$props, this.hotInstance.getSettings());
+
       this.hotInstance.init();
 
       this.miscCache.currentSourceColumns = this.hotInstance.countSourceCols();
+      this.miscCache.hookKeys = getPassedHookKeys(this.$props);
+      this.miscCache.lastData.value = toRaw(newSettings.data);
     },
 
     matchHotMappersSize(): void {
@@ -163,17 +240,101 @@ const HotTable = defineComponent({
     /**
      * Get settings for the columns provided in the `hot-column` components.
      *
+     * The columns are ordered by the document position of each `hot-column`'s
+     * anchor node, not by the `columnsCache` insertion order. This keeps the
+     * order correct when columns are inserted in the middle, removed, or
+     * reordered, and when a `hot-column` is nested inside a wrapper component.
+     *
      * @returns {HotTableProps[] | undefined}
      */
     getColumnSettings(): HotTableProps[] | void {
-      const columnSettings: HotTableProps[] = Array.from(this.columnsCache.values());
+      const orderedColumns = Array.from(this.columnsCache.entries())
+        .sort(([columnA], [columnB]) => {
+          const anchorA = (columnA as { $el?: Node }).$el;
+          const anchorB = (columnB as { $el?: Node }).$el;
 
-      return columnSettings.length ? columnSettings : void 0;
+          if (!anchorA || !anchorB) {
+            return 0;
+          }
+
+          const position = anchorA.compareDocumentPosition(anchorB);
+
+          // eslint-disable-next-line no-bitwise
+          if (position & Node.DOCUMENT_POSITION_FOLLOWING) {
+            return -1;
+          }
+
+          // eslint-disable-next-line no-bitwise
+          if (position & Node.DOCUMENT_POSITION_PRECEDING) {
+            return 1;
+          }
+
+          return 0;
+        })
+        .map(([, columnSettings]) => columnSettings);
+
+      return orderedColumns.length ? orderedColumns : undefined;
+    },
+
+    /**
+     * Re-read the column settings declared by `hot-column` children and push them
+     * to the Handsontable instance. Called by children on mount, prop change, and
+     * unmount, and by the parent on reorder. Multiple notifications in the same
+     * tick are coalesced into a single `updateSettings` call.
+     */
+    refreshColumns(): void {
+      if (this.columnsRefreshScheduled) {
+        return;
+      }
+
+      this.columnsRefreshScheduled = true;
+
+      this.$nextTick(() => {
+        this.columnsRefreshScheduled = false;
+
+        if (!this.hotInstance) {
+          return;
+        }
+
+        const newColumnSettings = this.getColumnSettings();
+        const previousColumnSettings = this.columnSettings;
+
+        // Each `hot-column` rebuilds its settings object whenever its props change,
+        // so an unchanged column keeps the same object reference. Comparing the
+        // arrays by reference and order is cheaper than a deep compare and avoids
+        // an `updateSettings` call on unrelated re-renders (e.g. data-only updates).
+        const isUnchanged =
+          (!previousColumnSettings && !newColumnSettings) ||
+          (!!previousColumnSettings && !!newColumnSettings &&
+            previousColumnSettings.length === newColumnSettings.length &&
+            previousColumnSettings.every((settings, index) => settings === newColumnSettings[index]));
+
+        if (isUnchanged) {
+          return;
+        }
+
+        this.columnSettings = newColumnSettings || null;
+        this.hotInstance.updateSettings({ columns: newColumnSettings || undefined });
+      });
     },
   },
   mounted() {
+    // The auto-generated id is set here, on the client only, and not through a prop default or reactive
+    // data: an id created on the server never matches the browser's, which breaks hydration, and a
+    // reactive id would re-render every `HotTable` right after mounting.
+    if (!this.id) {
+      this.$el.id = this.getGeneratedId();
+    }
+
     this.columnSettings = this.getColumnSettings();
     this.hotInit();
+  },
+  updated() {
+    // Reordering keyed `hot-column` children reuses their instances and fires no
+    // child lifecycle hook, so the children cannot notify on their own. The slot
+    // vnodes do change, which re-renders `HotTable` - refresh from here to cover
+    // reorders (coalesced with any child-triggered refresh).
+    this.refreshColumns();
   },
   beforeUnmount() {
     if (this.hotInstance) {

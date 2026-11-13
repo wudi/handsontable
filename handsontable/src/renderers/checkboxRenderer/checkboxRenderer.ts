@@ -1,0 +1,741 @@
+import type { HotInstance } from '../../core/types';
+import type { CellProperties } from '../../settings';
+import EventManager from '../../eventManager';
+import {
+  empty,
+  addClass,
+  eventTargetEl,
+  setAttribute,
+  isHTMLElement,
+  getCellContentRoot,
+} from '../../helpers/dom/element';
+import { isEmpty, stringify } from '../../helpers/mixed';
+import { matchCheckboxTemplate } from '../../utils/checkboxColumn';
+import { EDITOR_EDIT_GROUP as SHORTCUTS_GROUP_EDITOR } from '../../shortcuts/contexts';
+import { Hooks } from '../../core/hooks';
+import { A11Y_CHECKBOX, A11Y_CHECKED, A11Y_LABEL } from '../../helpers/a11y';
+import { CHECKBOX_CHECKED, CHECKBOX_UNCHECKED } from '../../i18n/constants';
+import { BAD_VALUE_TEXT } from '../../helpers/constants';
+import { canAccessCellContent } from '../../shortcuts/guards';
+import { createIcon } from '../../themes/engine/icons';
+
+/**
+ * Tells which state the Space/Enter toggle reads a cell in: the template the value matches (the same
+ * case-insensitive match the renderer draws from, so a loaded `'TRUE'` toggles like `true`), or
+ * unchecked for an empty cell (`null` or `undefined`). A value that matches neither template is not
+ * toggled.
+ *
+ * @param {*} value The cell value.
+ * @param {object} meta The cell meta.
+ * @returns {string|null}
+ */
+function getToggleState(value: unknown, meta: CellProperties): 'checked' | 'unchecked' | null {
+  if (value === null || value === undefined) {
+    return 'unchecked';
+  }
+
+  return matchCheckboxTemplate(value, meta);
+}
+
+const isListeningKeyDownEvent = new WeakMap();
+const isCheckboxListenerAdded = new WeakMap<HotInstance, EventManager>();
+const BAD_VALUE_CLASS = 'htBadValue';
+const ATTR_ROW = 'data-row';
+const ATTR_COLUMN = 'data-col';
+const SHORTCUTS_GROUP = 'checkboxRenderer';
+
+export const RENDERER_TYPE: 'checkbox' = 'checkbox';
+
+Hooks.getSingleton().add('modifyAutoColumnSizeSeed',
+  function(this: HotInstance, _bundleSeed: unknown, cellMeta: unknown, cellValue: unknown) {
+    const { label, type, row, column, prop } = cellMeta as Record<string, unknown>;
+
+    if (type !== RENDERER_TYPE || !label) {
+      return;
+    }
+
+    const labelObj = label as Record<string, unknown>;
+    const { value: labelValue, property: labelProperty } = labelObj;
+    let labelText = cellValue;
+
+    if (labelValue) {
+      labelText = typeof labelValue === 'function' ?
+        labelValue(row, column, prop, cellValue) : labelValue;
+
+    } else if (labelProperty) {
+      const labelData = this.getDataAtRowProp(row as number, String(labelProperty));
+
+      labelText = labelData !== null ? labelData : cellValue;
+    }
+
+    return `${stringify(labelText).length}`;
+  });
+/**
+ * Checkbox renderer.
+ *
+ * @private
+ * @param {Core} hotInstance The Handsontable instance.
+ * @param {HTMLTableCellElement} TD The rendered cell element.
+ * @param {number} row The visual row index.
+ * @param {number} col The visual column index.
+ * @param {number|string} prop The column property (passed when datasource is an array of objects).
+ * @param {*} value The rendered value.
+ * @param {object} cellProperties The cell meta object (see {@link Core#getCellMeta}).
+ */
+export function checkboxRenderer(
+  hotInstance: HotInstance, TD: HTMLTableCellElement, row: number, col: number,
+  prop: string | number, value: unknown, cellProperties: CellProperties): void {
+  const { rootDocument } = hotInstance;
+  const ariaEnabled = hotInstance.getSettings().ariaTags;
+
+  registerEvents(hotInstance);
+
+  const input: HTMLInputElement = createInput(rootDocument);
+  // What the label branches place: the `span.htCheckboxRendererBox` positioning wrapper around the
+  // input and its tick, or the bare input for a `#bad-value#` cell. Resolved after
+  // `applyCheckedState()`, which is what decides the bad-value case.
+  let checkbox: HTMLElement = input;
+  let inputOrWrapper: HTMLElement = input;
+  const labelOptions = cellProperties.label as Record<string, unknown> | undefined;
+  let badValue = false;
+
+  if (typeof cellProperties.checkedTemplate === 'undefined') {
+    cellProperties.checkedTemplate = true;
+  }
+  if (typeof cellProperties.uncheckedTemplate === 'undefined') {
+    cellProperties.uncheckedTemplate = false;
+  }
+
+  // Written through the content root so an exact-height row's clipping wrapper survives the redraw.
+  const contentRoot = getCellContentRoot(TD);
+
+  empty(contentRoot); // TODO identify under what circumstances this line can be removed
+
+  applyCheckedState();
+
+  // The tick is a real element, not the input's own `::after` - an `<input>` can hold no
+  // children - so the input and the tick share a `span.htCheckboxRendererBox` wrapper, and every
+  // label arrangement below places that wrapper where 18.1 placed the bare input. The wrapper is
+  // a single atomic inline: two adjacent inline-blocks (input, then icon) are a soft-wrap
+  // opportunity in the `white-space: pre-wrap` cell, which dropped the tick onto a second line in
+  // a narrow column. Inside the wrapper the icon is absolutely positioned over the input
+  // (`_checkbox-renderer.scss`), so the wrapper is again the only child where 18.1 had the input
+  // alone, and the 18.1 `:first-child`/`:last-child` gap rules apply to it unchanged.
+  // `.ht-icon` carries `pointer-events: none` (`_icon.scss`), so a click still reaches the input
+  // underneath. Every render builds a fresh input and wrapper after `empty(contentRoot)`, so no
+  // duplicate-removal is needed.
+  //
+  // A `#bad-value#` cell keeps the 18.1 shape - the bare, hidden input and no tick: the input is
+  // `display: none` (`applyCheckedState()`), and a visible wrapper or tick would leave an empty
+  // box next to the bad-value text with nothing to represent.
+  if (!badValue) {
+    checkbox = createBox(rootDocument);
+    checkbox.appendChild(input);
+    checkbox.appendChild(createIcon(hotInstance, 'checkbox'));
+    inputOrWrapper = checkbox;
+  }
+
+  applyLabelOptions();
+
+  /**
+   * Determine and apply the checked state of the input element based on the cell value.
+   */
+  function applyCheckedState() {
+    // One matcher for the renderer, the value setter and the `checkbox` validator (DEV-355).
+    const state = matchCheckboxTemplate(value, cellProperties);
+
+    if (state === 'checked') {
+      input.checked = true;
+      // Reflect the checked state as the `checked` HTML attribute (via `defaultChecked`), not only as
+      // the IDL property. A custom renderer that chains this renderer and then rebuilds the cell with
+      // `TD.innerHTML += ...` re-serializes the cell; the IDL property is not serialized, so without the
+      // attribute the checkbox re-parses as unchecked on every render (handsontable/dev-handsontable#342).
+      // Only the checked branch sets it: `createInput()` returns a freshly cloned element on every
+      // render, so the attribute defaults to absent on the unchecked path with nothing to clear.
+      input.defaultChecked = true;
+
+    } else if (state === 'unchecked') {
+      input.checked = false;
+
+    } else if (isEmpty(value)) { // default value
+      addClass(input, 'noValue');
+
+    } else {
+      input.style.display = 'none';
+      addClass(input, BAD_VALUE_CLASS);
+      badValue = true;
+    }
+
+    setAttribute(input, [
+      [ATTR_ROW, row],
+      [ATTR_COLUMN, col],
+    ]);
+
+    // A cell with no editor cannot be toggled, so the box says so rather than silently ignoring
+    // clicks. The native attribute is what carries it: the browser blocks the click and the label
+    // click, keeps the box out of the tab order, and announces it as disabled - none of which a
+    // class alone would do. It also matches `input:disabled` for theming.
+    //
+    // `readOnlyStyling: false` withholds it, the same way it withholds the read-only look from a
+    // `readOnly` checkbox: the box then looks like an editable one, and the `click` and `change`
+    // listeners still refuse the toggle.
+    if (!isCheckboxToggleable(cellProperties) && cellProperties.readOnlyStyling !== false) {
+      input.disabled = true;
+    }
+
+    if (ariaEnabled) {
+      setAttribute(input, [
+        A11Y_LABEL(input.checked ?
+          hotInstance.getTranslatedPhrase(CHECKBOX_CHECKED) :
+          hotInstance.getTranslatedPhrase(CHECKBOX_UNCHECKED)
+        ),
+        A11Y_CHECKED(input.checked),
+        A11Y_CHECKBOX(),
+      ]);
+    }
+  }
+
+  /**
+   * Apply label options to the cell, creating and positioning the label element.
+   */
+  function applyLabelOptions() {
+    if (!badValue && labelOptions) {
+      let labelText = '';
+
+      if (labelOptions.value) {
+        const labelFn = labelOptions.value as (...args: unknown[]) => unknown;
+
+        labelText = typeof labelOptions.value === 'function' ?
+          String(labelFn(row, col, prop, value)) : String(labelOptions.value);
+
+      } else if (labelOptions.property) {
+        const labelValue = hotInstance.getDataAtRowProp(row, String(labelOptions.property));
+
+        labelText = labelValue !== null ? String(labelValue) : '';
+      }
+
+      const label = createLabel(rootDocument, labelText, labelOptions.separated !== true);
+
+      if (labelOptions.position === 'before') {
+        if (labelOptions.separated) {
+          contentRoot.appendChild(label);
+          contentRoot.appendChild(checkbox);
+
+        } else {
+          label.appendChild(checkbox);
+          inputOrWrapper = label;
+        }
+      } else if (!labelOptions.position || labelOptions.position === 'after') {
+        if (labelOptions.separated) {
+          contentRoot.appendChild(checkbox);
+          contentRoot.appendChild(label);
+
+        } else {
+          label.insertBefore(checkbox, label.firstChild);
+          inputOrWrapper = label;
+        }
+      }
+    }
+  }
+
+  if (!labelOptions || (labelOptions && !labelOptions.separated)) {
+    contentRoot.appendChild(inputOrWrapper);
+  }
+
+  if (badValue) {
+    contentRoot.appendChild(rootDocument.createTextNode(BAD_VALUE_TEXT));
+  }
+
+  if (!isListeningKeyDownEvent.has(hotInstance)) {
+    isListeningKeyDownEvent.set(hotInstance, true);
+    registerShortcuts();
+  }
+
+  /**
+   * Register shortcuts responsible for toggling checkbox state.
+   *
+   * @private
+   */
+  function registerShortcuts() {
+    const shortcutManager = hotInstance.getShortcutManager();
+    const gridContext = shortcutManager.getContext('grid');
+    // Every entry below writes a cell value, and each carries the shared guard on its own `runOnlyIf`:
+    // a per-shortcut `runOnlyIf` REPLACES a group-level one rather than being ANDed with it.
+    const config = {
+      group: SHORTCUTS_GROUP,
+      relativeToGroup: SHORTCUTS_GROUP_EDITOR,
+      position: 'before' as const,
+    };
+
+    gridContext?.addShortcuts([{
+      keys: [['space']],
+      callback: () => {
+        changeSelectedCheckboxesState();
+
+        return !areSelectedCheckboxCells(); // False blocks next action associated with the keyboard shortcut.
+      },
+      runOnlyIf: (): boolean => canAccessCellContent(hotInstance) && isCellContentSelected(),
+    }, {
+      keys: [['enter']],
+      callback: () => {
+        changeSelectedCheckboxesState();
+
+        return !areSelectedCheckboxCells(); // False blocks next action associated with the keyboard shortcut.
+      },
+      runOnlyIf: (): boolean => {
+        const range = hotInstance.getSelectedRangeActive();
+
+        return canAccessCellContent(hotInstance) && !!(hotInstance.getSettings().enterBeginsEditing &&
+          range?.highlight.isCell() &&
+          !hotInstance.selection.isMultiple());
+      },
+    }, {
+      keys: [['delete'], ['backspace']],
+      callback: () => {
+        // Read once: the answer decides both what the toggle writes and whether the key is consumed.
+        const hasCheckboxCells = areSelectedCheckboxCells();
+
+        changeSelectedCheckboxesState(true, hasCheckboxCells);
+
+        return !hasCheckboxCells; // False blocks next action associated with the keyboard shortcut.
+      },
+      runOnlyIf: (): boolean => canAccessCellContent(hotInstance) &&
+        !!(hotInstance.getSelectedRangeActive()?.highlight.isCell()),
+    }], config);
+  }
+
+  /**
+   * Whether the active selection layer holds cells the toggle can write. A layer made through a column
+   * or row header, or the corner, does, although `navigableHeaders` parks the focus on the header. A layer
+   * that is a lone header cell does not.
+   *
+   * @private
+   * @returns {boolean}
+   */
+  function isCellContentSelected(): boolean {
+    const range = hotInstance.getSelectedRangeActive();
+
+    return !!range && !range.isHeader();
+  }
+
+  /**
+   * Change checkbox checked property.
+   *
+   * @private
+   * @param {boolean} [uncheckCheckbox=false] The new "checked" state for the checkbox elements.
+   * @param {boolean} [consumesKey=false] Whether the shortcut consumes the key (the selection holds a
+   * checkbox cell), so the non-checkbox cells are cleared here rather than by `emptySelectedCells()`.
+   */
+  function changeSelectedCheckboxesState(uncheckCheckbox = false, consumesKey = false) {
+    type CellTemplates = { checkedTemplate: unknown; uncheckedTemplate: unknown };
+    type ChangeEntry = [number, number, unknown, CellTemplates?];
+
+    const selRange = hotInstance.getSelectedRange();
+    const changesPerSubSelection: number[] = [];
+    const nonCheckboxChanges = new Map<number, ChangeEntry[]>();
+    let changes: ChangeEntry[] = [];
+    let changeCounter = 0;
+
+    if (!selRange) {
+      return;
+    }
+
+    for (let key = 0; key < selRange.length; key++) {
+      const { row: startRow, col: startColumn } = selRange[key].getTopStartCorner();
+      const { row: endRow, col: endColumn } = selRange[key].getBottomEndCorner();
+
+      // A layer made of header cells alone holds no cell: its corners read as row or column 0, which
+      // would toggle the cell under the header.
+      if (startRow === null || startColumn === null || endRow === null || endColumn === null ||
+        selRange[key].isHeader()) {
+        continue;
+      }
+
+      for (let visualRow = startRow; visualRow <= endRow; visualRow += 1) {
+        for (let visualColumn = startColumn; visualColumn <= endColumn; visualColumn += 1) {
+          // The transient read keeps a toggle over a large selection (for example, a whole
+          // column) from permanently materializing one meta object per selected cell. The
+          // default-template writes below may land on a throwaway object - the render path
+          // re-applies the same defaults on every draw, and all reads in this loop happen on
+          // this same object.
+          const cachedCellProperties = hotInstance.getCellMetaTransient(visualRow, visualColumn);
+
+          /* eslint-disable no-continue */
+          if (cachedCellProperties.hidden) {
+            continue;
+          }
+
+          const templates = {
+            checkedTemplate: cachedCellProperties.checkedTemplate,
+            uncheckedTemplate: cachedCellProperties.uncheckedTemplate,
+          };
+
+          // TODO: In the future it'd be better if non-checkbox changes were handled by the non-checkbox
+          //  `delete` keypress logic.
+          /* eslint-disable no-continue */
+          if (cachedCellProperties.type !== 'checkbox') {
+            if (uncheckCheckbox === true && !cachedCellProperties.readOnly) {
+              if (nonCheckboxChanges.has(changesPerSubSelection.length)) {
+                nonCheckboxChanges.set(changesPerSubSelection.length, [
+                  ...nonCheckboxChanges.get(changesPerSubSelection.length)!,
+                  [visualRow, visualColumn, null]
+                ]);
+
+              } else {
+                nonCheckboxChanges.set(changesPerSubSelection.length, [[visualRow, visualColumn, null]]);
+              }
+            }
+
+            continue;
+          }
+
+          /* eslint-disable no-continue */
+          if (cachedCellProperties.readOnly === true || !isCheckboxToggleable(cachedCellProperties)) {
+            continue;
+          }
+
+          if (typeof cachedCellProperties.checkedTemplate === 'undefined') {
+            cachedCellProperties.checkedTemplate = true;
+          }
+          if (typeof cachedCellProperties.uncheckedTemplate === 'undefined') {
+            cachedCellProperties.uncheckedTemplate = false;
+          }
+
+          const dataAtCell = hotInstance.getDataAtCell(visualRow, visualColumn);
+
+          if (uncheckCheckbox === false) {
+            const toggleState = getToggleState(dataAtCell, cachedCellProperties);
+
+            if (toggleState === 'checked') {
+              changes.push([visualRow, visualColumn, cachedCellProperties.uncheckedTemplate, templates]);
+
+            } else if (toggleState === 'unchecked') {
+              changes.push([visualRow, visualColumn, cachedCellProperties.checkedTemplate, templates]);
+            }
+
+          } else {
+            changes.push([visualRow, visualColumn, cachedCellProperties.uncheckedTemplate, templates]);
+          }
+
+          changeCounter += 1;
+        }
+      }
+
+      changesPerSubSelection.push(changeCounter);
+      changeCounter = 0;
+    }
+
+    if (!changes.every(([, , cellValue]) => cellValue === changes[0][2])) {
+      changes = changes.map(
+        ([visualRow, visualColumn, , templates]) => [visualRow, visualColumn, templates?.checkedTemplate]
+      );
+    } else {
+      changes = changes.map(([visualRow, visualColumn, cellValue]) => [visualRow, visualColumn, cellValue]);
+    }
+
+    // The non-checkbox cells are cleared even when no checkbox changed, but only when the shortcut
+    // consumes the key (`consumesKey`, what its callback returns). `areSelectedCheckboxCells()` counts a
+    // checkbox with no editor, so the key is consumed for a selection that holds one, and nothing else
+    // would clear the text cells next to it. When the selection holds no such checkbox, the key falls
+    // through to `emptySelectedCells()`, which clears them itself; writing them here too would fire
+    // `afterChange` twice and record two undo steps.
+    if (changes.length > 0 || (nonCheckboxChanges.size > 0 && consumesKey)) {
+      // TODO: This is workaround for handsontable/dev-handsontable#1747 not being a breaking change.
+      // Technically, the changes don't need to be split into chunks when sent to `setDataAtCell`.
+      const changesChunks: ChangeEntry[][] = [];
+
+      changesPerSubSelection.forEach((changesCount, sectionCount) => {
+        let changesChunk = changes.splice(0, changesCount);
+
+        if (nonCheckboxChanges.size && nonCheckboxChanges.has(sectionCount)) {
+          const nonCheckboxChunk = nonCheckboxChanges.get(sectionCount) ?? [];
+
+          changesChunk = [
+            ...changesChunk,
+            ...nonCheckboxChunk
+          ];
+        }
+
+        changesChunks.push(changesChunk);
+      });
+
+      if (uncheckCheckbox) {
+        const allChanges: ChangeEntry[] = [];
+
+        changesChunks.forEach((changesChunk) => {
+          changesChunk.forEach((change) => {
+            allChanges.push(change);
+          });
+        });
+
+        if (allChanges.length > 0) {
+          hotInstance.setDataAtCell(allChanges);
+        }
+
+      } else {
+        changesChunks.forEach((changesChunk) => {
+          if (changesChunk.length > 0) {
+            hotInstance.setDataAtCell(changesChunk);
+          }
+        });
+      }
+    }
+  }
+
+  /**
+   * Check whether all selected cells are with checkbox type.
+   *
+   * @returns {boolean}
+   * @private
+   */
+  function areSelectedCheckboxCells() {
+    const selRange = hotInstance.getSelectedRange();
+
+    if (!selRange) {
+      return;
+    }
+
+    for (let key = 0; key < selRange.length; key++) {
+      const topLeft = selRange[key].getTopStartCorner();
+      const bottomRight = selRange[key].getBottomEndCorner();
+
+      if (topLeft.row === null || topLeft.col === null || bottomRight.row === null || bottomRight.col === null ||
+        selRange[key].isHeader()) {
+        continue;
+      }
+
+      for (let visualRow = topLeft.row; visualRow <= bottomRight.row; visualRow++) {
+        for (let visualColumn = topLeft.col; visualColumn <= bottomRight.col; visualColumn++) {
+          const cellMeta = hotInstance.getCellMetaTransient(visualRow, visualColumn);
+
+          // A checkbox with no editor still counts: the shortcut must consume the key for it, or
+          // Delete and Backspace would fall through to `emptySelectedCells()` and write `null` into
+          // a cell that `changeSelectedCheckboxesState()` deliberately leaves alone.
+          /* eslint-disable no-continue */
+          if (cellMeta.readOnly) {
+            continue;
+          }
+
+          // The meta answers for a cell that is not rendered, where `getCell()` returns `null` - a
+          // checkbox column scrolled out of view must still consume the key.
+          if (cellMeta.type === 'checkbox') {
+            return true;
+          }
+
+          const cell = hotInstance.getCell(visualRow, visualColumn);
+
+          if (isHTMLElement(cell)) {
+            const checkboxes = cell.querySelectorAll('input[type=checkbox]');
+
+            if (checkboxes.length > 0) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+}
+
+checkboxRenderer.RENDERER_TYPE = RENDERER_TYPE;
+
+/**
+ * Register checkbox listeners.
+ *
+ * @param {Core} instance The Handsontable instance.
+ * @returns {EventManager}
+ */
+function registerEvents(instance: HotInstance) {
+  let eventManager = isCheckboxListenerAdded.get(instance);
+
+  if (!eventManager) {
+    const { rootElement } = instance;
+
+    eventManager = new EventManager(instance);
+
+    eventManager.addEventListener(rootElement, 'click', (event: Event) => onClick(event, instance));
+    eventManager.addEventListener(rootElement, 'mouseup', (event: Event) => onMouseUp(event, instance));
+    eventManager.addEventListener(rootElement, 'change', (event: Event) => onChange(event, instance));
+
+    isCheckboxListenerAdded.set(instance, eventManager);
+  }
+
+  return eventManager;
+}
+
+/**
+ * Checks whether a checkbox cell can be toggled by the user.
+ *
+ * A checkbox has no separate editing gesture: clicking the box, or pressing space over it, IS the
+ * edit. So a cell that names NO editor must not toggle, or `editor: false` would have no effect at
+ * all on a checkbox column. `readOnly` is answered by the caller's own checks and is deliberately
+ * left alone here.
+ *
+ * The meta is read directly rather than through `Core#getCellEditor()`, which would resolve the
+ * value against the editor registry. Two reasons, and the second is the load-bearing one: this runs
+ * for every checkbox cell on every draw, and `getEditor()` THROWS on a name it does not know - so
+ * resolving here would turn a misconfigured editor name into a render-time failure that takes the
+ * whole grid down, where today it surfaces only when the user tries to edit. The two falsy values
+ * below are exactly what `getCellEditor()` passes through unresolved; `undefined` means "not set"
+ * and keeps the default editor.
+ *
+ * @param {object} cellProperties The cell meta object (see {@link Core#getCellMeta}).
+ * @returns {boolean}
+ */
+function isCheckboxToggleable(cellProperties: CellProperties): boolean {
+  return cellProperties.editor !== false && cellProperties.editor !== null;
+}
+
+/**
+ * Create input element.
+ *
+ * @param {Document} rootDocument The document owner.
+ * @returns {HTMLInputElement}
+ */
+function createInput(rootDocument: Document): HTMLInputElement {
+  const input = rootDocument.createElement('input');
+
+  input.className = 'htCheckboxRendererInput';
+  input.type = 'checkbox';
+  input.setAttribute('tabindex', '-1');
+
+  return input.cloneNode(false) as HTMLInputElement;
+}
+
+/**
+ * Create the positioning wrapper that holds the checkbox input and its tick icon.
+ *
+ * @param {Document} rootDocument The document owner.
+ * @returns {HTMLElement}
+ */
+function createBox(rootDocument: Document): HTMLElement {
+  const box = rootDocument.createElement('span');
+
+  box.className = 'htCheckboxRendererBox';
+
+  return box;
+}
+
+/**
+ * Create label element.
+ *
+ * @param {Document} rootDocument The document owner.
+ * @param {string} text The label text.
+ * @param {boolean} fullWidth Determines whether label should have full width.
+ * @returns {HTMLElement}
+ */
+function createLabel(rootDocument: Document, text: string, fullWidth: boolean): HTMLElement {
+  const label = rootDocument.createElement('label');
+
+  label.className = `htCheckboxRendererLabel ${fullWidth ? 'fullWidth' : ''}`;
+
+  const textNode = rootDocument.createTextNode(text);
+
+  if (fullWidth) {
+    const span = rootDocument.createElement('span');
+
+    span.className = 'htCheckboxRendererLabelText';
+    span.appendChild(textNode);
+    label.appendChild(span);
+  } else {
+    label.appendChild(textNode);
+  }
+
+  return label.cloneNode(true) as HTMLElement;
+}
+
+/**
+ * `mouseup` callback.
+ *
+ * @private
+ * @param {Event} event `mouseup` event.
+ * @param {Core} instance The Handsontable instance.
+ */
+function onMouseUp(event: Event, instance: HotInstance) {
+  const target = eventTargetEl(event)!;
+
+  if (!isCheckboxInput(target)) {
+    return;
+  }
+
+  if (!target.hasAttribute(ATTR_ROW) || !target.hasAttribute(ATTR_COLUMN)) {
+    return;
+  }
+
+  setTimeout(instance.listen, 10);
+}
+
+/**
+ * `click` callback.
+ *
+ * @private
+ * @param {MouseEvent} event `click` event.
+ * @param {Core} instance The Handsontable instance.
+ */
+function onClick(event: Event, instance: HotInstance) {
+  const target = eventTargetEl(event)!;
+
+  if (!isCheckboxInput(target)) {
+    return;
+  }
+
+  if (!target.hasAttribute(ATTR_ROW) || !target.hasAttribute(ATTR_COLUMN)) {
+    return;
+  }
+
+  const row = Number.parseInt(target.getAttribute(ATTR_ROW)!, 10);
+  const col = Number.parseInt(target.getAttribute(ATTR_COLUMN)!, 10);
+  const cellProperties = instance.getCellMetaTransient(row, col);
+
+  if (cellProperties.readOnly || !isCheckboxToggleable(cellProperties)) {
+    event.preventDefault();
+  }
+}
+
+/**
+ * `change` callback.
+ *
+ * @param {Event} event `change` event.
+ * @param {Core} instance The Handsontable instance.
+ */
+function onChange(event: Event, instance: HotInstance) {
+  const target = eventTargetEl<HTMLInputElement>(event)!;
+
+  if (!isCheckboxInput(target)) {
+    return;
+  }
+
+  if (!target.hasAttribute(ATTR_ROW) || !target.hasAttribute(ATTR_COLUMN)) {
+    return;
+  }
+
+  const row = Number.parseInt(target.getAttribute(ATTR_ROW)!, 10);
+  const col = Number.parseInt(target.getAttribute(ATTR_COLUMN)!, 10);
+  const cellProperties = instance.getCellMetaTransient(row, col);
+
+  if (!cellProperties.readOnly && isCheckboxToggleable(cellProperties)) {
+    let newCheckboxValue = null;
+
+    if (target.checked) {
+      newCheckboxValue = cellProperties.uncheckedTemplate === undefined ? true : cellProperties.checkedTemplate;
+    } else {
+      newCheckboxValue = cellProperties.uncheckedTemplate === undefined ? false : cellProperties.uncheckedTemplate;
+    }
+
+    instance.setDataAtCell(row, col, newCheckboxValue);
+  }
+}
+
+/**
+ * Check if the provided element is the checkbox input.
+ *
+ * @private
+ * @param {HTMLElement} element The element in question.
+ * @returns {boolean}
+ */
+function isCheckboxInput(element: HTMLElement) {
+  return element.tagName === 'INPUT' && element.getAttribute('type') === 'checkbox';
+}

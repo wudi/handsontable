@@ -58,7 +58,8 @@ describe('cellTypes', () => {
     });
 
     const onAfterValidate = jasmine.createSpy('onAfterValidate');
-    const hot = handsontable({
+
+    handsontable({
       data: [
         [1, 6, 10],
       ],
@@ -68,25 +69,25 @@ describe('cellTypes', () => {
       afterValidate: onAfterValidate
     });
 
-    hot.setDataAtCell(1, 0, 10);
-
-    await sleep(100);
+    await setDataAtCell(1, 0, 10);
+    await waitForNextAnimationFrames(2);
 
     expect(onAfterValidate).toHaveBeenCalledWith(true, 10, 1, 0);
     expect(getCell(1, 0).innerHTML).toBe('--10--');
 
-    selectCell(0, 0);
-    keyDownUp('enter');
+    await selectCell(0, 0);
+    await keyDownUp('enter');
+
     document.activeElement.value = 'hello';
     destroyEditor();
 
-    await sleep(100);
+    await waitForNextAnimationFrames(2);
 
     expect(onAfterValidate).toHaveBeenCalledWith(false, '**hello**', 0, 0, 'edit');
     expect(getCell(0, 0).innerHTML).toBe('--**hello**--');
   });
 
-  it('should retrieve predefined cell types by its names', () => {
+  it('should retrieve predefined cell types by its names', async() => {
     const { editors, renderers, validators } = Handsontable;
 
     expect(getCellType('autocomplete').editor).toBe(editors.AutocompleteEditor);
@@ -102,12 +103,17 @@ describe('cellTypes', () => {
     expect(getCellType('date').validator).toBe(validators.DateValidator);
 
     expect(getCellType('dropdown').editor).toBe(editors.DropdownEditor);
-    expect(getCellType('dropdown').renderer).toBe(renderers.AutocompleteRenderer);
-    expect(getCellType('dropdown').validator).toBe(validators.AutocompleteValidator);
+    expect(getCellType('dropdown').renderer).toBe(renderers.DropdownRenderer);
+    expect(getCellType('dropdown').validator).toBe(validators.DropdownValidator);
 
     expect(getCellType('handsontable').editor).toBe(editors.HandsontableEditor);
     expect(getCellType('handsontable').renderer).toBe(renderers.HandsontableRenderer);
     expect(getCellType('handsontable').validator).not.toBeDefined();
+
+    expect(getCellType('multiSelect')).toBe(getCellType('multiselect'));
+    expect(getEditor('multiSelect')).toBe(getEditor('multiselect'));
+    expect(getRenderer('multiSelect')).toBe(getRenderer('multiselect'));
+    expect(getValidator('multiSelect')).toBe(getValidator('multiselect'));
 
     expect(getCellType('numeric').editor).toBe(editors.NumericEditor);
     expect(getCellType('numeric').renderer).toBe(renderers.NumericRenderer);
@@ -118,6 +124,7 @@ describe('cellTypes', () => {
     expect(getCellType('password').renderer).toBe(renderers.PasswordRenderer);
     expect(getCellType('password').validator).not.toBeDefined();
     expect(getCellType('password').copyable).toBe(false);
+    expect(getCellType('password').valueFormatter).toBe(renderers.PasswordRenderer.valueFormatter);
 
     expect(getCellType('select').editor).toBe(editors.SelectEditor);
     expect(getCellType('select').renderer).toBe(renderers.SelectRenderer);
@@ -132,7 +139,7 @@ describe('cellTypes', () => {
     expect(getCellType('time').validator).toBe(validators.TimeValidator);
   });
 
-  it('should register custom cell type into renderers, editors and validators', () => {
+  it('should register custom cell type into renderers, editors and validators', async() => {
     class MyEditor {}
     function myRenderer() {}
     function myValidator() {}
@@ -148,7 +155,7 @@ describe('cellTypes', () => {
     expect(getValidator('myCellType')).toBe(myValidator);
   });
 
-  it('should overwrite cell types under the same name', () => {
+  it('should overwrite cell types under the same name', async() => {
     class MyEditor {}
     function myRenderer() {}
     function myValidator() {}
@@ -176,7 +183,7 @@ describe('cellTypes', () => {
     expect(getValidator('myCellType')).toBe(myValidator2);
   });
 
-  it('should retrieve custom cell type by its names', () => {
+  it('should retrieve custom cell type by its names', async() => {
     class MyEditor {}
     function myRenderer() {}
     function myValidator() {}

@@ -6,7 +6,7 @@ describe('exportFile CSV type', () => {
    * @param y
    */
   function data(x, y) {
-    return Handsontable.helper.createSpreadsheetData(x, y);
+    return createSpreadsheetData(x, y);
   }
 
   /**
@@ -29,7 +29,7 @@ describe('exportFile CSV type', () => {
     }
   });
 
-  it('should export table when data source is defined as array of arrays', () => {
+  it('should export table when data source is defined as array of arrays', async() => {
     handsontable({
       data: [[1, 'Foo"s', 'He\nis\nvery\nkind'], [2, 'Bar"s', 'He\nis\nvery\nconfident']],
     });
@@ -39,7 +39,7 @@ describe('exportFile CSV type', () => {
     expect(csv).toBe('\ufeff1,"Foo""s","He\nis\nvery\nkind"\r\n2,"Bar""s","He\nis\nvery\nconfident"');
   });
 
-  it('should export table when data source is defined as array of objects', () => {
+  it('should export table when data source is defined as array of objects', async() => {
     handsontable({
       data: [
         {
@@ -65,7 +65,7 @@ describe('exportFile CSV type', () => {
     expect(csv).toBe('\ufeff1,"Foo""s","He\nis\nvery\nkind"\r\n2,"Bar""s","He\nis\nvery\nconfident"');
   });
 
-  it('should returns CSV type formatter object', () => {
+  it('should return CSV type formatter object', async() => {
     handsontable();
     const type = getPlugin('exportFile')._createTypeFormatter('csv');
 
@@ -73,7 +73,7 @@ describe('exportFile CSV type', () => {
   });
 
   describe('export options', () => {
-    it('should have prepared default options', () => {
+    it('should have prepared default options', async() => {
       handsontable();
       const csv = getPlugin('exportFile')._createTypeFormatter('csv');
 
@@ -82,11 +82,12 @@ describe('exportFile CSV type', () => {
       expect(csv.options.bom).toBe(true);
       expect(csv.options.columnDelimiter).toBe(',');
       expect(csv.options.rowDelimiter).toBe('\r\n');
+      expect(csv.options.sanitizeValues).toBe(false);
     });
   });
 
   describe('`export` method', () => {
-    it('should returns string with corrected lines count', () => {
+    it('should return string with corrected lines count', async() => {
       handsontable({
         data: data(10, 10),
         height: 396,
@@ -100,7 +101,7 @@ describe('exportFile CSV type', () => {
     });
 
     // BOM
-    it('should export with default BOM', () => {
+    it('should export with default BOM', async() => {
       handsontable({
         data: data(2, 2),
         height: 396,
@@ -113,7 +114,7 @@ describe('exportFile CSV type', () => {
       expect('\ufeffA1,B1\r\nA2,B2').toBe(csv);
     });
 
-    it('should export without any BOM', () => {
+    it('should export without any BOM', async() => {
       handsontable({
         data: data(2, 2),
         height: 396,
@@ -127,7 +128,7 @@ describe('exportFile CSV type', () => {
     });
 
     // columnDelimiter
-    it('should export with comma as the default columnDelimiter', () => {
+    it('should export with comma as the default columnDelimiter', async() => {
       handsontable({
         data: data(2, 2),
         height: 396,
@@ -140,7 +141,7 @@ describe('exportFile CSV type', () => {
       expect('\ufeffA1,B1\r\nA2,B2').toBe(csv);
     });
 
-    it('should export regarding to columnDelimiter option', () => {
+    it('should export regarding to columnDelimiter option', async() => {
       handsontable({
         data: data(2, 2),
         height: 396,
@@ -154,7 +155,7 @@ describe('exportFile CSV type', () => {
     });
 
     // rowDelimiter
-    it('should export with CRLF as the default rowDelimiter', () => {
+    it('should export with CRLF as the default rowDelimiter', async() => {
       handsontable({
         data: data(2, 2),
         height: 396,
@@ -167,7 +168,7 @@ describe('exportFile CSV type', () => {
       expect('\ufeffA1,B1\r\nA2,B2').toBe(csv);
     });
 
-    it('should export regarding to rowDelimiter option', () => {
+    it('should export regarding to rowDelimiter option', async() => {
       handsontable({
         data: data(2, 2),
         height: 396,
@@ -180,8 +181,8 @@ describe('exportFile CSV type', () => {
       expect('\ufeffA1,B1\nA2,B2').toBe(csv);
     });
 
-    // columnHeaders
-    it('should export with `false` as the default columnHeaders', () => {
+    // colHeaders
+    it('should export with `false` as the default colHeaders', async() => {
       handsontable({
         data: data(2, 2),
         height: 396,
@@ -194,7 +195,7 @@ describe('exportFile CSV type', () => {
       expect('\ufeffA1,B1\r\nA2,B2').toBe(csv);
     });
 
-    it('should export regarding to columnHeaders option', () => {
+    it('should export regarding to colHeaders option', async() => {
       handsontable({
         data: data(2, 2),
         height: 396,
@@ -202,13 +203,13 @@ describe('exportFile CSV type', () => {
         rowHeaders: true
       });
 
-      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { columnHeaders: true }).export();
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { colHeaders: true }).export();
 
       expect('\ufeff"A","B"\r\nA1,B1\r\nA2,B2').toBe(csv);
     });
 
     // rowHeaders
-    it('should export with `false` as the default rowHeaders', () => {
+    it('should export with `false` as the default rowHeaders', async() => {
       handsontable({
         data: data(2, 2),
         height: 396,
@@ -221,7 +222,7 @@ describe('exportFile CSV type', () => {
       expect('\ufeffA1,B1\r\nA2,B2').toBe(csv);
     });
 
-    it('should export regarding to rowHeaders option', () => {
+    it('should export regarding to rowHeaders option', async() => {
       handsontable({
         data: data(2, 2),
         height: 396,
@@ -235,7 +236,7 @@ describe('exportFile CSV type', () => {
     });
 
     // exportHiddenRows
-    it('should export with `false` as the default exportHiddenRows', () => {
+    it('should export with `false` as the default exportHiddenRows', async() => {
       handsontable({
         data: data(5, 2),
         height: 396,
@@ -252,7 +253,7 @@ describe('exportFile CSV type', () => {
       expect('\ufeffA1,B1\r\nA4,B4').toBe(csv);
     });
 
-    it('should export regarding to exportHiddenRows option', () => {
+    it('should export regarding to exportHiddenRows option', async() => {
       handsontable({
         data: data(5, 2),
         height: 396,
@@ -269,8 +270,25 @@ describe('exportFile CSV type', () => {
       expect('\ufeffA1,B1\r\nA2,B2\r\nA3,B3\r\nA4,B4\r\nA5,B5').toBe(csv);
     });
 
+    it('should omit hidden rows when exportHiddenRows is "hide" (not supported for CSV)', async() => {
+      handsontable({
+        data: data(5, 2),
+        height: 396,
+        colHeaders: true,
+        rowHeaders: true,
+        hiddenRows: {
+          indicators: true,
+          rows: [1, 2, 4],
+        },
+      });
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { exportHiddenRows: 'hide' }).export();
+
+      expect('\ufeffA1,B1\r\nA4,B4').toBe(csv);
+    });
+
     // exportHiddenColumns
-    it('should export with `false` as the default exportHiddenColumns', () => {
+    it('should export with `false` as the default exportHiddenColumns', async() => {
       handsontable({
         data: data(2, 5),
         height: 396,
@@ -287,7 +305,7 @@ describe('exportFile CSV type', () => {
       expect('\ufeffA1,D1\r\nA2,D2').toBe(csv);
     });
 
-    it('should export regarding to exportHiddenColumns option', () => {
+    it('should export regarding to exportHiddenColumns option', async() => {
       handsontable({
         data: data(2, 5),
         height: 396,
@@ -304,8 +322,25 @@ describe('exportFile CSV type', () => {
       expect('\ufeffA1,B1,C1,D1,E1\r\nA2,B2,C2,D2,E2').toBe(csv);
     });
 
+    it('should omit hidden columns when exportHiddenColumns is "hide" (not supported for CSV)', async() => {
+      handsontable({
+        data: data(2, 5),
+        height: 396,
+        colHeaders: true,
+        rowHeaders: true,
+        hiddenColumns: {
+          indicators: true,
+          columns: [1, 2, 4],
+        },
+      });
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { exportHiddenColumns: 'hide' }).export();
+
+      expect('\ufeffA1,D1\r\nA2,D2').toBe(csv);
+    });
+
     // range
-    it('should export all data by default', () => {
+    it('should export all data by default', async() => {
       handsontable({
         data: data(5, 5),
         height: 396,
@@ -318,7 +353,7 @@ describe('exportFile CSV type', () => {
       expect('\ufeffA1,B1,C1,D1,E1\r\nA2,B2,C2,D2,E2\r\nA3,B3,C3,D3,E3\r\nA4,B4,C4,D4,E4\r\nA5,B5,C5,D5,E5').toBe(csv);
     });
 
-    it('should export specified range from the middle of table', () => {
+    it('should export specified range from the middle of table', async() => {
       handsontable({
         data: data(5, 5),
         height: 396,
@@ -331,7 +366,7 @@ describe('exportFile CSV type', () => {
       expect('\ufeffB2,C2\r\nB3,C3\r\nB4,C4').toBe(csv);
     });
 
-    it('should export only specified row', () => {
+    it('should export only specified row', async() => {
       handsontable({
         data: data(5, 5),
         height: 396,
@@ -344,7 +379,7 @@ describe('exportFile CSV type', () => {
       expect('\ufeffA2,B2,C2').toBe(csv);
     });
 
-    it('should export only specified column', () => {
+    it('should export only specified column', async() => {
       handsontable({
         data: data(5, 5),
         height: 396,
@@ -357,7 +392,7 @@ describe('exportFile CSV type', () => {
       expect('\ufeffB1\r\nB2\r\nB3\r\nB4\r\nB5').toBe(csv);
     });
 
-    it('should export only existing data if "range" has coordinates defined out of scope', () => {
+    it('should export only existing data if "range" has coordinates defined out of scope', async() => {
       handsontable({
         data: data(5, 5),
         height: 396,
@@ -372,7 +407,7 @@ describe('exportFile CSV type', () => {
   });
 
   describe('`_escapeCell` method', () => {
-    it('should not escape value if it is not necessary', () => {
+    it('should not escape value if it is not necessary', async() => {
       handsontable();
       const csv = getPlugin('exportFile')._createTypeFormatter('csv');
 
@@ -383,28 +418,28 @@ describe('exportFile CSV type', () => {
       expect(csv._escapeCell({})).toBe('[object Object]');
     });
 
-    it('should escape value if it includes Carriage Return (CR)', () => {
+    it('should escape value if it includes Carriage Return (CR)', async() => {
       handsontable();
       const csv = getPlugin('exportFile')._createTypeFormatter('csv');
 
       expect(csv._escapeCell('1234\r22')).toBe('"1234\r22"');
     });
 
-    it('should escape value if it includes Double Quote (")', () => {
+    it('should escape value if it includes Double Quote (")', async() => {
       handsontable();
       const csv = getPlugin('exportFile')._createTypeFormatter('csv');
 
       expect(csv._escapeCell('123"42')).toBe('"123""42"');
     });
 
-    it('should escape value if it includes Line Feed (LF)', () => {
+    it('should escape value if it includes Line Feed (LF)', async() => {
       handsontable();
       const csv = getPlugin('exportFile')._createTypeFormatter('csv');
 
       expect(csv._escapeCell('123\n4')).toBe('"123\n4"');
     });
 
-    it('should escape value if it includes char defined in `columnDelimiter` option', () => {
+    it('should escape value if it includes char defined in `columnDelimiter` option', async() => {
       handsontable();
       let csv = getPlugin('exportFile')._createTypeFormatter('csv', { columnDelimiter: ',' });
 
@@ -413,6 +448,624 @@ describe('exportFile CSV type', () => {
       csv = getPlugin('exportFile')._createTypeFormatter('csv', { columnDelimiter: ';' });
 
       expect(csv._escapeCell('12;4')).toBe('"12;4"');
+    });
+
+    describe('when `sanitizeValues` option is', () => {
+      it('set to `true`, should sanitize strings starting with =', async() => {
+        handsontable({
+          data: [[42, '=A1+B1', '=A2+B2']],
+        });
+
+        const csv = getPlugin('exportFile')._createTypeFormatter('csv', { sanitizeValues: true }).export();
+
+        expect(csv).toBe('\ufeff"42","\'=A1+B1","\'=A2+B2"');
+      });
+
+      it('set to `true`, should sanitize strings starting with +', async() => {
+        handsontable({
+          data: [['+abc', '+42']],
+        });
+
+        const csv = getPlugin('exportFile')._createTypeFormatter('csv', { sanitizeValues: true }).export();
+
+        expect(csv).toBe('\ufeff"\'+abc","\'+42"');
+      });
+
+      it('set to `true`, should sanitize strings starting with -', async() => {
+        handsontable({
+          data: [['-abc', '-42']],
+        });
+
+        const csv = getPlugin('exportFile')._createTypeFormatter('csv', { sanitizeValues: true }).export();
+
+        expect(csv).toBe('\ufeff"\'-abc","\'-42"');
+      });
+
+      it('set to `true`, should sanitize strings starting with @', async() => {
+        handsontable({
+          data: [['@abc', '@42']],
+        });
+
+        const csv = getPlugin('exportFile')._createTypeFormatter('csv', { sanitizeValues: true }).export();
+
+        expect(csv).toBe('\ufeff"\'@abc","\'@42"');
+      });
+
+      it('set to `true`, should sanitize strings starting with TAB (0x09)', async() => {
+        handsontable({
+          data: [['\tabc', '\t42']],
+        });
+
+        const csv = getPlugin('exportFile')._createTypeFormatter('csv', { sanitizeValues: true }).export();
+
+        expect(csv).toBe('\ufeff"\'\tabc","\'\t42"');
+      });
+
+      it('set to `true`, should sanitize strings starting with carriage return (0x0D)', async() => {
+        handsontable({
+          data: [['\rabc', '\r42']],
+        });
+
+        const csv = getPlugin('exportFile')._createTypeFormatter('csv', { sanitizeValues: true }).export();
+
+        expect(csv).toBe('\ufeff"\'\rabc","\'\r42"');
+      });
+
+      it('set to `true`, should sanitize column headers', async() => {
+        handsontable({
+          data: [['1', '2']],
+          colHeaders: ['====', '++++'],
+        });
+
+        const csv = getPlugin('exportFile')
+          ._createTypeFormatter('csv', { sanitizeValues: true, colHeaders: true })
+          .export();
+
+        expect(csv).toBe('\ufeff"\'====","\'++++"\r\n"1","2"');
+      });
+
+      it('set to `true`, should sanitize row headers', async() => {
+        handsontable({
+          data: [['1']],
+          rowHeaders: ['==='],
+        });
+
+        const csv = getPlugin('exportFile')
+          ._createTypeFormatter('csv', { sanitizeValues: true, rowHeaders: true })
+          .export();
+
+        expect(csv).toBe('\ufeff"\'===","1"');
+      });
+
+      it('set to a regex, should sanitize all values that match the regex', async() => {
+        handsontable({
+          data: [[42, '=A1+B1', '=WEBSERVICE("https://handsontable.com")']],
+        });
+
+        const sanitizeRegex = /WEBSERVICE/;
+
+        const csv = getPlugin('exportFile')._createTypeFormatter('csv', { sanitizeValues: sanitizeRegex }).export();
+
+        expect(csv).toBe('\ufeff"42","=A1+B1","\'=WEBSERVICE(""https://handsontable.com"")"');
+      });
+
+      it('set to a function, should sanitize values using the function', async() => {
+        handsontable({
+          data: [[42, '=A1+B1', 'abba', 'abfooba']],
+        });
+
+        const sanitizeFoo = jasmine.createSpy('sanitizeFoo').and.callFake((value) => {
+          if (value.includes('foo')) {
+            return 'BAR';
+          }
+
+          return value;
+        });
+
+        const csv = getPlugin('exportFile')._createTypeFormatter('csv', { sanitizeValues: sanitizeFoo }).export();
+
+        expect(sanitizeFoo).toHaveBeenCalledTimes(4);
+        expect(csv).toBe('\ufeff"42","=A1+B1","abba","BAR"');
+      });
+
+      it('not provided, should not sanitize values', async() => {
+        handsontable({
+          data: [['=A1+B1', '=A2+B2']],
+        });
+
+        const csv = getPlugin('exportFile')._createTypeFormatter('csv').export();
+
+        expect(csv).toBe('\ufeff=A1+B1,=A2+B2');
+      });
+    });
+  });
+
+  describe('`textExtractor` option', () => {
+    it('should export markup in column headers as-is when the option is not set', async() => {
+      handsontable({
+        data: [[1, 2]],
+        colHeaders: ['<b>Bold</b>', 'Plain'],
+      });
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { colHeaders: true }).export();
+
+      expect(csv).toBe('\ufeff"<b>Bold</b>","Plain"\r\n1,2');
+    });
+
+    it('should export column headers as displayed text when set to `true`', async() => {
+      handsontable({
+        data: [[1, 2]],
+        colHeaders: ['<b>Bold</b>', '<span style="color:red">Red</span>'],
+        textExtractor: true,
+      });
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { colHeaders: true }).export();
+
+      expect(csv).toBe('\ufeff"Bold","Red"\r\n1,2');
+    });
+
+    it('should export a column title defined in `columns` as displayed text', async() => {
+      handsontable({
+        data: [[1, 2]],
+        colHeaders: true,
+        columns: [{ title: '<i>Italic</i>' }, { title: 'Plain' }],
+        textExtractor: true,
+      });
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { colHeaders: true }).export();
+
+      expect(csv).toBe('\ufeff"Italic","Plain"\r\n1,2');
+    });
+
+    it('should export row headers as displayed text', async() => {
+      handsontable({
+        data: [[1, 2]],
+        rowHeaders: ['<b>R1</b>'],
+        textExtractor: true,
+      });
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { rowHeaders: true }).export();
+
+      expect(csv).toBe('\ufeffR1,1,2');
+    });
+
+    it('should export nested headers as displayed text', async() => {
+      handsontable({
+        data: [[1, 2]],
+        colHeaders: true,
+        nestedHeaders: [
+          ['<b>Group</b>'],
+          ['<i>A</i>', 'B'],
+        ],
+        textExtractor: true,
+      });
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { colHeaders: true }).export();
+
+      // The top layer is shorter than the leaf layer, so its line ends on an empty cell.
+      expect(csv).toBe('\ufeff"Group",\r\n"A","B"\r\n1,2');
+    });
+
+    it('should export a spanning nested header as displayed text in every column it covers', async() => {
+      handsontable({
+        data: [[1, 2]],
+        colHeaders: true,
+        nestedHeaders: [
+          [{ label: '<b>Group</b>', colspan: 2 }],
+          ['<i>A</i>', 'B'],
+        ],
+        textExtractor: true,
+      });
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { colHeaders: true }).export();
+
+      expect(csv).toBe('\ufeff"Group","Group"\r\n"A","B"\r\n1,2');
+    });
+
+    it('should decode entities so a header reads in the file as it does on screen', async() => {
+      handsontable({
+        data: [[1]],
+        colHeaders: ['Tom &amp; Jerry'],
+        textExtractor: true,
+      });
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { colHeaders: true }).export();
+
+      expect(csv).toBe('\ufeff"Tom & Jerry"\r\n1');
+    });
+
+    it('should leave cell data untouched, because a cell exports its value and not its markup', async() => {
+      // A value such as `a<b` is data, never a display string. Parsing it as HTML would destroy it.
+      handsontable({
+        data: [['a<b', 'x <br 5']],
+        colHeaders: ['<b>H</b>', 'H2'],
+        textExtractor: true,
+      });
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { colHeaders: true }).export();
+
+      expect(csv).toBe('\ufeff"H","H2"\r\na<b,x <br 5');
+    });
+
+    it('should export exactly what the grid renders for a header that is not markup', async() => {
+      // `fastInnerHTML` writes a header as literal text unless it matches `HTML_CHARACTERS`, so
+      // `A<B` shows those three characters. Parsing it here would send `A` to the file.
+      handsontable({
+        data: [[1]],
+        colHeaders: ['A<B'],
+        textExtractor: true,
+      });
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { colHeaders: true }).export();
+      const rendered = spec().$container.find('thead th:eq(0)').text();
+
+      expect(rendered).toBe('A<B');
+      expect(csv).toBe('﻿"A<B"\r\n1');
+    });
+
+    it('should keep a numeric header a number', async() => {
+      handsontable({
+        data: [[1]],
+        colHeaders: [2024],
+        textExtractor: true,
+      });
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { colHeaders: true }).export();
+
+      expect(csv).toBe('\ufeff"2024"\r\n1');
+    });
+
+    it('should use a configured extractor function and pass it the consumer surface', async() => {
+      const textExtractor = jasmine.createSpy('textExtractor').and.returnValue('replaced');
+
+      handsontable({
+        data: [[1]],
+        colHeaders: ['<b>Bold</b>'],
+        textExtractor,
+      });
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { colHeaders: true }).export();
+
+      expect(csv).toBe('\ufeff"replaced"\r\n1');
+      expect(textExtractor).toHaveBeenCalledWith('<b>Bold</b>', 'ExportFile.columnHeader');
+    });
+
+    it('should run a configured sanitizer before extracting, so removed content stays out of the file', async() => {
+      // Removes the element through the DOM, the way a real allowlist sanitizer does. A regular
+      // expression would be the wrong shape for the stand-in as well as for production: it misses
+      // `<SCRIPT>` and any tag carrying attributes.
+      const removeScripts = (content) => {
+        const template = document.createElement('template');
+
+        template.innerHTML = content;
+        template.content.querySelectorAll('script').forEach(element => element.remove());
+
+        return template.innerHTML;
+      };
+
+      handsontable({
+        data: [[1]],
+        colHeaders: ['<script>alert()</script>Total'],
+        sanitizer: removeScripts,
+        textExtractor: true,
+      });
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { colHeaders: true }).export();
+
+      expect(csv).toBe('\ufeff"Total"\r\n1');
+    });
+  });
+
+  describe('nestedHeaders', () => {
+    // DEV-3033: the CSV export used to write only the bottom header layer, so `2024 → Q1 | Q2`
+    // exported as `Q1,Q2` with no year. XLSX and `copyPaste` already write every layer; CSV now
+    // writes one header line per layer, a group label repeated across every column it spans.
+    const nestedHeaders = [
+      [{ label: '2024', colspan: 2 }, { label: '2025', colspan: 2 }],
+      ['Q1', 'Q2', 'Q1', 'Q2'],
+    ];
+    // A four-column group, so a hidden column can sit strictly inside a span rather than on
+    // its edge. Only that position exercised the span-width bug in the data provider.
+    const wideNestedHeaders = [
+      [{ label: '2024', colspan: 4 }, { label: '2025', colspan: 2 }],
+      ['Q1', 'Q2', 'Q3', 'Q4', 'H1', 'H2'],
+    ];
+
+    it('should write one header line per layer, repeating a group label across its colspan', async() => {
+      handsontable({
+        data: [[1, 2, 3, 4]],
+        colHeaders: true,
+        nestedHeaders,
+      });
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { colHeaders: true }).export();
+
+      expect(csv).toBe('\ufeff"2024","2024","2025","2025"\r\n"Q1","Q2","Q1","Q2"\r\n1,2,3,4');
+    });
+
+    it('should write no header line at all when `colHeaders` is off, even with nested headers', async() => {
+      handsontable({
+        data: [[1, 2, 3, 4]],
+        colHeaders: true,
+        nestedHeaders,
+      });
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv').export();
+
+      expect(csv).toBe('\ufeff1,2,3,4');
+    });
+
+    it('should prefix every header line with the corner cell when row headers are exported', async() => {
+      handsontable({
+        data: [[1, 2, 3, 4]],
+        colHeaders: true,
+        rowHeaders: true,
+        nestedHeaders,
+      });
+
+      const csv = getPlugin('exportFile')
+        ._createTypeFormatter('csv', { colHeaders: true, rowHeaders: true })
+        .export();
+
+      expect(csv).toBe('\ufeff,"2024","2024","2025","2025"\r\n,"Q1","Q2","Q1","Q2"\r\n1,1,2,3,4');
+    });
+
+    it('should shrink a group to its visible columns when a hidden column sits inside it', async() => {
+      handsontable({
+        data: [[1, 2, 3, 4, 5, 6]],
+        colHeaders: true,
+        nestedHeaders: wideNestedHeaders,
+        hiddenColumns: {
+          columns: [1],
+        },
+      });
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { colHeaders: true }).export();
+
+      expect(csv).toBe('\ufeff"2024","2024","2024","2025","2025"\r\n"Q1","Q3","Q4","H1","H2"\r\n1,3,4,5,6');
+    });
+
+    it('should shrink a group to its visible columns when its first or last column is hidden', async() => {
+      handsontable({
+        data: [[1, 2, 3, 4, 5, 6]],
+        colHeaders: true,
+        nestedHeaders: wideNestedHeaders,
+        hiddenColumns: {
+          columns: [0, 3],
+        },
+      });
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { colHeaders: true }).export();
+
+      expect(csv).toBe('\ufeff"2024","2024","2025","2025"\r\n"Q2","Q3","H1","H2"\r\n2,3,5,6');
+    });
+
+    it('should drop a group whose every column is hidden', async() => {
+      handsontable({
+        data: [[1, 2, 3, 4, 5, 6]],
+        colHeaders: true,
+        nestedHeaders: wideNestedHeaders,
+        hiddenColumns: {
+          columns: [0, 1, 2, 3],
+        },
+      });
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { colHeaders: true }).export();
+
+      expect(csv).toBe('\ufeff"2025","2025"\r\n"H1","H2"\r\n5,6');
+    });
+
+    it('should keep the full group when hidden columns are exported', async() => {
+      handsontable({
+        data: [[1, 2, 3, 4, 5, 6]],
+        colHeaders: true,
+        nestedHeaders: wideNestedHeaders,
+        hiddenColumns: {
+          columns: [1],
+        },
+      });
+
+      const csv = getPlugin('exportFile')
+        ._createTypeFormatter('csv', { colHeaders: true, exportHiddenColumns: true })
+        .export();
+
+      expect(csv).toBe(
+        '\ufeff"2024","2024","2024","2024","2025","2025"\r\n"Q1","Q2","Q3","Q4","H1","H2"\r\n1,2,3,4,5,6'
+      );
+    });
+
+    it('should leave the parent cell empty for a range that starts inside a group', async() => {
+      // Same shape as the XLSX export: a column whose group root lies before the range gets an
+      // empty parent label, so the header lines keep the column count of the data lines.
+      handsontable({
+        data: [[1, 2, 3, 4]],
+        colHeaders: true,
+        nestedHeaders,
+      });
+
+      const csv = getPlugin('exportFile')
+        ._createTypeFormatter('csv', { colHeaders: true, range: [0, 1, 0, 2] })
+        .export();
+
+      expect(csv).toBe('\ufeff,"2025"\r\n"Q2","Q1"\r\n2,3');
+    });
+
+    it('should write the group label for a range that starts on the group\'s first visible column', async() => {
+      // With the group's first column hidden, the grid draws the group from its first visible
+      // column on, so a range starting there covers the group's visible start, not its middle.
+      handsontable({
+        data: [[1, 2, 3, 4, 5, 6]],
+        colHeaders: true,
+        nestedHeaders: wideNestedHeaders,
+        hiddenColumns: {
+          columns: [0],
+        },
+      });
+
+      const csv = getPlugin('exportFile')
+        ._createTypeFormatter('csv', { colHeaders: true, range: [0, 1, 0, 3] })
+        .export();
+
+      expect(csv).toBe('﻿"2024","2024","2024"\r\n"Q2","Q3","Q4"\r\n2,3,4');
+    });
+
+    it('should leave the parent cell empty for a range that starts past the group\'s first visible column', async() => {
+      handsontable({
+        data: [[1, 2, 3, 4, 5, 6]],
+        colHeaders: true,
+        nestedHeaders: wideNestedHeaders,
+        hiddenColumns: {
+          columns: [0],
+        },
+      });
+
+      const csv = getPlugin('exportFile')
+        ._createTypeFormatter('csv', { colHeaders: true, range: [0, 2, 0, 3] })
+        .export();
+
+      expect(csv).toBe('﻿,\r\n"Q3","Q4"\r\n3,4');
+    });
+
+    it('should leave the parent cell empty past a hidden group root when hidden columns are exported', async() => {
+      // Exporting hidden columns keeps the group root on its original column, so a range starting
+      // after it starts inside the group.
+      handsontable({
+        data: [[1, 2, 3, 4, 5, 6]],
+        colHeaders: true,
+        nestedHeaders: wideNestedHeaders,
+        hiddenColumns: {
+          columns: [0],
+        },
+      });
+
+      const csv = getPlugin('exportFile')
+        ._createTypeFormatter('csv', { colHeaders: true, exportHiddenColumns: true, range: [0, 1, 0, 3] })
+        .export();
+
+      expect(csv).toBe('﻿,,\r\n"Q2","Q3","Q4"\r\n2,3,4');
+    });
+
+    it('should end a group at the range end when a hidden column sits inside it', async() => {
+      handsontable({
+        data: [[1, 2, 3, 4, 5, 6]],
+        colHeaders: true,
+        nestedHeaders: wideNestedHeaders,
+        hiddenColumns: {
+          columns: [1],
+        },
+      });
+
+      const csv = getPlugin('exportFile')
+        ._createTypeFormatter('csv', { colHeaders: true, range: [0, 0, 0, 2] })
+        .export();
+
+      expect(csv).toBe('\ufeff"2024","2024"\r\n"Q1","Q3"\r\n1,3');
+    });
+
+    it('should sanitize a group label on every header line it is written to', async() => {
+      // Each header layer is a line a spreadsheet reads, so a group label is as much an injection
+      // surface as a cell value.
+      handsontable({
+        data: [[1, 2]],
+        colHeaders: true,
+        nestedHeaders: [
+          [{ label: '=HYPERLINK("http://example.com")', colspan: 2 }],
+          ['A', '+B'],
+        ],
+      });
+
+      const csv = getPlugin('exportFile')
+        ._createTypeFormatter('csv', { colHeaders: true, sanitizeValues: true })
+        .export();
+
+      expect(csv).toBe(
+        '\ufeff"\'=HYPERLINK(""http://example.com"")","\'=HYPERLINK(""http://example.com"")"\r\n' +
+        '"A","\'+B"\r\n"1","2"'
+      );
+    });
+
+    it('should honor a custom column delimiter on every header line', async() => {
+      handsontable({
+        data: [[1, 2, 3, 4]],
+        colHeaders: true,
+        nestedHeaders,
+      });
+
+      const csv = getPlugin('exportFile')
+        ._createTypeFormatter('csv', { colHeaders: true, columnDelimiter: ';' })
+        .export();
+
+      expect(csv).toBe('\ufeff"2024";"2024";"2025";"2025"\r\n"Q1";"Q2";"Q1";"Q2"\r\n1;2;3;4');
+    });
+
+    it('should pass every header layer through the `modifyColumnHeaderValue` hook', async() => {
+      // The flat CSV header line read labels through `getColHeader()`, which runs the hook, and the
+      // grid renders nested headers the same way. The nested lines must not fall back to the raw
+      // labels, or a header translated through the hook is exported untranslated.
+      handsontable({
+        data: [[1, 2, 3, 4]],
+        colHeaders: true,
+        nestedHeaders,
+        modifyColumnHeaderValue: (value, column, level) => (level === 0 ? `FY ${value}` : `${value} (USD)`),
+      });
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { colHeaders: true }).export();
+
+      expect(csv).toBe(
+        '﻿"FY 2024","FY 2024","FY 2025","FY 2025"\r\n' +
+        '"Q1 (USD)","Q2 (USD)","Q1 (USD)","Q2 (USD)"\r\n1,2,3,4'
+      );
+    });
+
+    it('should keep the parent cell empty for a range that starts inside a group when the hook is set', async() => {
+      handsontable({
+        data: [[1, 2, 3, 4]],
+        colHeaders: true,
+        nestedHeaders,
+        modifyColumnHeaderValue: (value, column, level) => (level === 0 ? `FY ${value}` : `${value} (USD)`),
+      });
+
+      const csv = getPlugin('exportFile')
+        ._createTypeFormatter('csv', { colHeaders: true, range: [0, 1, 0, 2] })
+        .export();
+
+      expect(csv).toBe('﻿,"FY 2025"\r\n"Q2 (USD)","Q1 (USD)"\r\n2,3');
+    });
+
+    it('should pass the header layers through the hook when hidden columns are exported', async() => {
+      handsontable({
+        data: [[1, 2, 3, 4, 5, 6]],
+        colHeaders: true,
+        nestedHeaders: wideNestedHeaders,
+        hiddenColumns: {
+          columns: [0],
+        },
+        modifyColumnHeaderValue: (value, column, level) => (level === 0 ? `FY ${value}` : `${value} (USD)`),
+      });
+
+      const csv = getPlugin('exportFile')
+        ._createTypeFormatter('csv', { colHeaders: true, exportHiddenColumns: true })
+        .export();
+
+      expect(csv).toBe(
+        '﻿"FY 2024","FY 2024","FY 2024","FY 2024","FY 2025","FY 2025"\r\n' +
+        '"Q1 (USD)","Q2 (USD)","Q3 (USD)","Q4 (USD)","H1 (USD)","H2 (USD)"\r\n1,2,3,4,5,6'
+      );
+    });
+
+    it('should fall back to the single bottom-layer line when a runtime-disabled plugin reports no layers', async() => {
+      handsontable({
+        data: [[1, 2, 3, 4]],
+        colHeaders: true,
+        nestedHeaders,
+      });
+
+      getPlugin('nestedHeaders').disablePlugin();
+      await render();
+
+      const csv = getPlugin('exportFile')._createTypeFormatter('csv', { colHeaders: true }).export();
+
+      expect(csv).toBe('\ufeff"A","B","C","D"\r\n1,2,3,4');
     });
   });
 });

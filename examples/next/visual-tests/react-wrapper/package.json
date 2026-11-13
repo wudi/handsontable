@@ -1,0 +1,12 @@
+{
+  "name": "examples-react",
+  "version": "0.0.0",
+  "private": true,
+  "workspaces": [
+    "*"
+  ],
+  "overrides": {
+    "postcss": "^8.5.23",
+    "uuid@<11.1.1": "^11.1.1"
+  }
+}

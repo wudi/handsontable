@@ -1,10 +1,72 @@
+const { BROWSERS_LIST } = require('../browser-targets');
+
+// The `no-restricted-syntax` bans every source file shares. A const, because an override that adds
+// a ban for one directory REPLACES the rule options for those files, so it has to spread this list.
+const RESTRICTED_SYNTAX = [
+  'error',
+  'ForInStatement',
+  'LabeledStatement',
+  'WithStatement',
+  {
+    selector: "CallExpression[callee.property.name='toLocaleLowerCase'], CallExpression[callee.property.name='toLocaleUpperCase']",
+    message: 'Do not call String.prototype.toLocaleLowerCase/toLocaleUpperCase directly. Use localeLowerCase() from helpers/string — it avoids the slow Intl path for non-tailoring locales and is locale-correct. See handsontable/.ai/CONVENTIONS.md.',
+  },
+  // ES-version compliance with the library's declared build target (../browser-targets.js:
+  // Chrome >= 130, Edge >= 130, Firefox >= 132, Safari >= 18.2, iOS >= 18.2). swc lowers
+  // *syntax* only — it never injects core-js polyfills — so any instance/static method newer
+  // than the oldest targeted engine throws `X is not a function` on a supported browser. The
+  // API floor is also pinned as `lib` in ./tsconfig.json (kept in sync with
+  // ../browser-targets.js by ES_TARGET), which catches prototype methods this rule would miss;
+  // both must be pruned together whenever the floors move. `compat/compat` cannot see these: it
+  // does not resolve prototype methods on non-literal receivers, which is how `toSorted` and
+  // `Array#at` shipped in 18.0.0.
+  //
+  // `with` is the only method this repo's own core-js-compat data.json places above the floor,
+  // and it is above on two engines at once: `Array#with` is Firefox 140 against our Firefox 132,
+  // and `TypedArray#with` is Safari/iOS 26.0 against our 18.2. The selector cannot tell the two
+  // receivers apart, so the message names both — a developer who hits this on a typed array and
+  // reads only the Firefox number would conclude the rule misfired and add a disable. Their
+  // ES2023 siblings toSorted/toSpliced/toReversed sit inside the floor and are allowed.
+  // Test files are exempt (no-restricted-syntax is off for them).
+  {
+    selector: "CallExpression[callee.property.name='with']",
+    message: 'Array#with needs Firefox 140+ and TypedArray#with needs Safari/iOS 26+, both above the ../browser-targets.js baseline (Firefox >= 132, Safari >= 18.2, iOS >= 18.2). Use arr.slice() plus an index assignment instead.',
+  },
+  // The dist/ bundles must not depend on being decoded as UTF-8 (DEV-111, handsontable/AGENTS.md,
+  // Build). The SWC minifier's `asciiOnly` escapes every string and untagged template, but it
+  // cannot escape a tagged template without changing the tag's `strings.raw`, and the non-minified
+  // bundles are not minified at all, so a raw non-ASCII identifier there stops the file from parsing.
+  {
+    selector: 'TaggedTemplateExpression > TemplateLiteral > TemplateElement[value.raw=/[^\\x00-\\x7F]/]',
+    message: 'A tagged template must not contain a raw non-ASCII character: the minifier cannot escape it, so pages that are not UTF-8 decode it wrongly. For a tag that reads the cooked strings (toSingleLine), write it as a \\u escape; String.raw keeps an escape as literal text, so keep its text ASCII.',
+  },
+  {
+    selector: 'Identifier[name=/[^\\x00-\\x7F]/]',
+    message: 'A non-ASCII identifier (or unquoted object key) makes the non-minified bundles fail to parse on pages that are not UTF-8. Use an ASCII name, or a quoted key written with a \\u escape.',
+  },
+];
+
 module.exports = {
   extends: ['../.eslintrc.js'],
   parser: '@babel/eslint-parser',
   plugins: [
     'handsontable',
+    'compat',
   ],
+  settings: {
+    'import/resolver': {
+      node: {
+        extensions: ['.js', '.jsx', '.ts', '.tsx', '.mjs'],
+      },
+    },
+    browsers: BROWSERS_LIST,
+    lintAllEsApis: true,
+  },
   rules: {
+    'compat/compat': 'error',
+    'handsontable/no-native-error-throw': 'error',
+    'handsontable/require-tracked-hook-in-enable': 'error',
+    'no-restricted-syntax': RESTRICTED_SYNTAX,
     'handsontable/restricted-module-imports': [
       'error',
       '**/cellTypes',
@@ -22,16 +84,186 @@ module.exports = {
     ],
   },
   overrides: [
+    // The renderers reset a cell element between rows. A bare `removeAttribute('style')` leaves an
+    // empty `style=""` behind in Chromium when the inline style was written and never read back (the
+    // attribute is synchronized lazily); `removeInlineStyle()` from helpers/dom/element reads it
+    // first. jsdom does not reproduce the trap, so no unit test can pin it — this rule does.
+    {
+      files: ['src/3rdparty/walkontable/src/render/**/*.ts'],
+      rules: {
+        'no-restricted-syntax': [
+          ...RESTRICTED_SYNTAX,
+          {
+            selector: "CallExpression[callee.property.name='removeAttribute'][arguments.0.value='style']",
+            message: 'Do not call removeAttribute(\'style\') in a renderer: Chromium leaves an empty '
+              + 'style="" behind when the inline style was never read back. '
+              + 'Use removeInlineStyle() from helpers/dom/element.',
+          },
+        ],
+      },
+    },
+    // TypeScript source files — use @typescript-eslint/parser so all rules
+    // (max-len, no-native-error-throw, restricted-module-imports, …) apply to .ts.
+    // Type-aware rules are active via projectService, which resolves the correct tsconfig
+    // per file (including walkontable, *.types.ts, __tests__/**) without needing a tsconfig.eslint.json.
+    {
+      files: ['**/*.ts'],
+      parser: '@typescript-eslint/parser',
+      parserOptions: {
+        sourceType: 'module',
+        ecmaVersion: 2022,
+        projectService: true,
+        tsconfigRootDir: __dirname,
+      },
+      plugins: ['@typescript-eslint'],
+      rules: {
+        // Disable rules handled more accurately by tsc
+        'no-undef': 'off',
+        'no-unused-vars': 'off',
+        'no-shadow': 'off',
+        'no-redeclare': 'off',
+        'no-dupe-class-members': 'off',
+        // All import/* rules are off: tsc validates TypeScript imports;
+        // eslint-import-resolver-typescript is not installed, so the plugin
+        // cannot resolve TS path aliases or `import type` patterns.
+        'import/extensions': 'off',
+        'import/no-unresolved': 'off',
+        'import/first': 'off',
+        'import/order': 'off',
+        'import/no-duplicates': 'off',
+        'import/no-self-import': 'off',
+        'import/named': 'off',
+        'import/no-named-default': 'off',
+        'import/no-named-as-default': 'off',
+        'import/no-named-as-default-member': 'off',
+        'import/newline-after-import': 'off',
+        // JSDoc: TypeScript types replace JSDoc type annotations
+        'jsdoc/require-param': 'off',
+        'jsdoc/require-param-type': 'off',
+        'jsdoc/check-param-names': 'off',
+        'jsdoc/require-returns': 'off',
+        'jsdoc/require-returns-type': 'off',
+        'jsdoc/valid-types': 'off',
+        // TypeScript hoists class/type declarations — the plain ESLint rule
+        // incorrectly flags forward references in TS; use @typescript-eslint version instead
+        'no-use-before-define': 'off',
+        // jsdoc v46 require-returns-check is stricter about mixed-return paths in TS;
+        // TypeScript enforces return types via its own type checker
+        'jsdoc/require-returns-check': 'off',
+        // export { X as default } is valid in TS re-export patterns
+        'no-restricted-exports': 'off',
+        // Cross-package relative imports are used in walkontable/SheetClip submodules
+        'import/no-relative-packages': 'off',
+        // ban-types was removed in @typescript-eslint v8; suppress any residual reports
+        '@typescript-eslint/ban-types': 'off',
+        // @typescript-eslint rules — type-aware linting via projectService
+        '@typescript-eslint/no-explicit-any': 'error',
+        '@typescript-eslint/consistent-type-imports': ['error', { disallowTypeAnnotations: false }],
+        '@typescript-eslint/no-unsafe-assignment': 'error',
+        '@typescript-eslint/no-unsafe-return': 'error',
+        '@typescript-eslint/no-floating-promises': 'error',
+        '@typescript-eslint/no-misused-promises': 'error',
+        // Test rules: only apply to .spec.js / .unit.js, not .ts source
+        'handsontable/require-async-in-it': 'off',
+        'handsontable/require-await': 'off',
+      },
+    },
+    // Walkontable: every layout-forcing DOM read must go through the GeometryReader proxy, so a
+    // caching adapter can memoize measurements per draw without touching call sites. The proxy
+    // adapter/interface (domMeasure/**) are exempt — they are the one place raw reads are correct.
+    {
+      files: ['src/3rdparty/walkontable/src/**/*.ts'],
+      excludedFiles: [
+        'src/3rdparty/walkontable/src/domMeasure/**', // the proxy adapter/interface itself
+        '*.unit.ts',
+        '*.spec.ts',
+        '*.types.ts',
+        '*.d.ts',
+      ],
+      rules: {
+        'handsontable/no-direct-dom-geometry-read': 'error',
+      },
+    },
+    // Source files and build scripts must document classes, methods, functions, and fields
+    // so the Typedoc API reference and guides render complete descriptions. Test/type files are
+    // excluded (require-jsdoc is already off for *.unit.js / *.spec.js elsewhere in this config).
+    {
+      files: [
+        'src/**/*.ts',
+        'scripts/**/*.mjs',
+      ],
+      excludedFiles: [
+        'src/3rdparty/walkontable/test/**', // walkontable test helpers — exempt
+        'src/**/__tests__/**',
+        'src/**/test/**',
+        '*.unit.ts',
+        '*.spec.ts',
+        '*.types.ts',
+        '*.d.ts',
+      ],
+      rules: {
+        'jsdoc/require-jsdoc': ['error', {
+          require: {
+            FunctionDeclaration: true,
+            MethodDefinition: true,
+            ClassDeclaration: true,
+          },
+          contexts: ['PropertyDefinition'], // class fields
+        }],
+      },
+    },
+    {
+      files: ['scripts/**'],
+      rules: {
+        'handsontable/no-native-error-throw': 'off',
+        'import/no-relative-packages': 'off',
+      }
+    },
+    // The custom ESLint rules' own RuleTester tests run as ESM under `node --test`
+    // (`npm run test:eslint-rules`; CI's `Lint / core` job), so a relative import must carry the
+    // extension Node's ESM resolver requires — the same form the root config uses for
+    // `scripts/**` and `evals/**`. Per-extension values are plain 'always' | 'never' strings:
+    // eslint-plugin-import compares them with `===`, so an array value would be silently ignored
+    // and the override would enforce nothing (the root config carried that broken form until the
+    // review of the change that added this override caught it).
+    {
+      files: ['.config/plugin/eslint/__tests__/*.mjs'],
+      rules: {
+        'import/extensions': [
+          'error',
+          'never',
+          {
+            pattern: {
+              js: 'always',
+              mjs: 'always',
+            },
+            ignorePackages: true,
+          }
+        ],
+      }
+    },
     {
       files: [
         'test/**',
         'src/3rdparty/walkontable/test/**',
         '*.unit.js',
+        '*.unit.ts',
         '*.spec.js',
         'src/plugins/**/__tests__/helpers/**',
+        'src/editors/**/__tests__/helpers/**',
+        'src/**/__tests__/**',
       ],
       rules: {
+        'handsontable/no-native-error-throw': 'off',
+        'compat/compat': 'off',
+        'no-restricted-syntax': 'off',
+        'no-await-in-loop': 'off',
+        'no-promise-executor-return': 'off',
         'import/extensions': 'off',
+        'import/no-relative-packages': 'off',
+        // spec/unit helpers use fire-and-forget promises by design
+        '@typescript-eslint/no-floating-promises': 'off',
+        '@typescript-eslint/no-misused-promises': 'off',
         'import/no-unresolved': [
           'error',
           { ignore: ['handsontable', 'walkontable'] }
@@ -43,19 +275,209 @@ module.exports = {
         ],
         'no-undef': 'off',
         'handsontable/restricted-module-imports': 'off',
+        'handsontable/require-async-in-it': 'error',
+        'brace-style': ['error', '1tbs', { allowSingleLine: true }],
       }
     },
+    // Every Jasmine spec and every Jest unit test, in both languages. The `*.unit.ts` files sat
+    // outside this override until review found `src/helpers/__tests__/function.unit.ts` carrying
+    // eleven sleep() calls the rule never saw.
     {
-      files: ['*.unit.js', '*.spec.js'],
+      files: ['*.unit.js', '*.unit.ts', '*.spec.js'],
       rules: {
         'no-undef': 'off',
-        'jsdoc/require-description-complete-sentence': 'off',
         'jsdoc/require-jsdoc': 'off',
         'jsdoc/require-param-description': 'off',
         'jsdoc/require-param-type': 'off',
         'jsdoc/require-returns': 'off',
         'handsontable/restricted-module-imports': 'off',
+        'handsontable/require-async-in-it': 'error',
+        // Determinism guards for the frozen Jasmine suite and the Jest unit tests. WARN, not
+        // error: the existing sleep()/setTimeout(fn, <ms>)/waitForNextAnimationFrames()/
+        // it.flaky() debt must surface without red-walling CI. The condition-based replacement
+        // is the `waitUntil()` spec global (test/helpers/common.js). Escalation to
+        // error happens in the flip-to-blocking task once the debt is burned down.
+        // New E2E belongs in Playwright (tests/e2e).
+        // A NEW occurrence on a line a branch adds is already blocked: the
+        // diff-scoped ratchet (.github/scripts/lint-ratchet.mjs, pre-push + CI
+        // lint) fails on these three warn rules wherever they hit an added line.
+        // Keep its RATCHETED_RULES list in step with the levels here.
+        'handsontable/no-fixed-sleep-in-spec': 'warn',
+        'handsontable/no-new-it-flaky': 'warn',
+        // Anti-gaming (green-for-the-sake-of-green) guards. Focus is ERROR — a
+        // committed .only/fit silently drops the suite and there are 0 today.
+        // Skip is WARN — the 10 existing skips (2026-09-23) must not red-wall.
+        // A NEW skip on a line a branch adds is blocked by the same diff-scoped
+        // ratchet as the sleep rules above (exit 1 at pre-push, red in the CI
+        // lint job).
+        'handsontable/no-focused-test': 'error',
+        'handsontable/no-skipped-test': 'warn',
+        // A test with no assertion is hollow coverage. WARN — heuristic (a test may
+        // assert only through a custom helper), so it surfaces rather than blocks.
+        'handsontable/require-assertion-in-test': 'warn',
+        'brace-style': ['error', '1tbs', { allowSingleLine: true }],
       }
+    },
+    {
+      files: ['*.unit.js', '*.unit.ts'],
+      rules: {
+        'handsontable/require-async-in-it': 'off',
+        'handsontable/require-await': 'off',
+        'brace-style': ['error', '1tbs', { allowSingleLine: true }],
+      }
+    },
+    // Files the E2E bundle loads: every spec, and every file under a plugin's or an editor's
+    // `helpers/` folder (`test/helpers/index.js` puts their exports on `window`). The ESM/CJS E2E
+    // build aliases `handsontable` to the single file `dist/handsontable.js`, so a subpath import
+    // cannot resolve there. Those jobs run on trunk only, so nothing else catches it on a PR.
+    {
+      files: [
+        '*.spec.js',
+        'src/plugins/**/helpers/**/*.js',
+        'src/editors/**/helpers/**/*.js',
+      ],
+      rules: {
+        'no-restricted-imports': ['error', {
+          patterns: [{
+            group: ['handsontable/*'],
+            message: 'The E2E bundle loads this file, and its ESM/CJS build cannot resolve a "handsontable/..." '
+              + 'subpath. Use a relative path, or move a helper used only by unit tests out of `helpers/`.',
+          }],
+        }],
+      }
+    },
+    // The shared menu library lives in `src/utils/menu/`. A plugin that builds a menu imports it from
+    // there, never from the ContextMenu plugin's folder, which only holds that plugin. The plugin's
+    // public entry (`../contextMenu`) stays importable for its types.
+    {
+      files: ['src/plugins/**/*.ts'],
+      excludedFiles: ['src/plugins/contextMenu/**'],
+      rules: {
+        'no-restricted-imports': ['error', {
+          patterns: [{
+            group: ['**/contextMenu/*'],
+            message: 'Import the menu library from `utils/menu/` instead of reaching into the ContextMenu '
+              + 'plugin\'s folder.',
+          }],
+        }],
+      }
+    },
+    // TypeScript type-test files — intentionally use `document`, `new X()`, and
+    // expression-only statements to verify type inference without side effects.
+    {
+      files: ['*.types.ts'],
+      rules: {
+        'no-restricted-globals': 'off', // document/window needed to create HoT instances
+        'no-unused-expressions': 'off', // expression-only type assertions are the pattern
+        'no-new': 'off', // new Handsontable() for constructor type checks
+        'new-cap': 'off',
+        'compat/compat': 'off',
+        'no-return-assign': 'off',
+        camelcase: 'off',
+        'default-case': 'off',
+        'handsontable/restricted-module-imports': 'off',
+        'jsdoc/require-param-description': 'off',
+        'brace-style': ['error', '1tbs', { allowSingleLine: true }],
+        // type-test files intentionally write unsafe/expression-only patterns
+        '@typescript-eslint/no-unsafe-assignment': 'off',
+        '@typescript-eslint/no-unsafe-return': 'off',
+        '@typescript-eslint/no-floating-promises': 'off',
+        '@typescript-eslint/no-explicit-any': 'off',
+      }
+    },
+    {
+      files: ['*.spec.js'],
+      rules: {
+        'handsontable/require-await': [
+          'error',
+          // Handsontable API-related helpers
+          'alter',
+          'clear',
+          'deselectCell',
+          'emptySelectedCells',
+          'listen',
+          'loadData',
+          'populateFromArray',
+          'refreshDimensions',
+          'render',
+          'scrollToFocusedCell',
+          'scrollViewportTo',
+          'selectAll',
+          'selectCell',
+          'selectColumns',
+          'selectRows',
+          'setDataAtCell',
+          'setDataAtRowProp',
+          'spliceCellsMeta',
+          'spliceCol',
+          'spliceRow',
+          'suspendExecution',
+          'suspendRender',
+          'unlisten',
+          'updateData',
+          'updateSettings',
+          'useTheme',
+          'validateCell',
+          'validateCells',
+          'validateColumns',
+          'validateRows',
+          // Handsontable test helpers
+          'scrollViewportVertically',
+          'scrollViewportHorizontally',
+          'scrollWindowTo',
+          'scrollWindowBy',
+          'contextMenu',
+          'selectContextMenuOption',
+          'openContextSubmenuOption',
+          'selectContextSubmenuOption',
+          'dropdownMenu',
+          'selectDropdownMenuOption',
+          'openDropdownSubmenuOption',
+          'openDropdownByConditionMenu',
+          'selectDropdownByConditionMenuOption',
+          'resizeColumn',
+          'resizeRow',
+          'moveSecondDisplayedRowBeforeFirstRow',
+          'moveFirstDisplayedRowAfterSecondRow',
+          'swapDisplayedColumns',
+          // common test helpers
+          'simulateTouch',
+          'triggerTouchEvent',
+          'mouseDown',
+          'mouseOver',
+          'mouseUp',
+          'mouseClick',
+          'contextMenuEvent',
+          'simulateClick',
+          'mouseDoubleClick',
+          'mouseRightDown',
+          'mouseRightUp',
+          'keyDownUp',
+          'keyDown',
+          'keyUp',
+        ],
+      }
+    },
+    // src/**/__tests__/**/*.ts and **/*.types.ts are excluded from tsconfig.json and are not
+    // imported by any included file, so projectService cannot find them. Disable projectService
+    // and all type-aware rules for these files — non-type-aware rules still run.
+    {
+      files: [
+        'src/**/__tests__/**/*.ts',
+        'src/3rdparty/walkontable/test/unit/**/*.ts',
+        'src/3rdparty/SheetClip/test/**/*.ts',
+        '**/*.types.ts',
+        '**/*.d.ts',
+      ],
+      parserOptions: {
+        projectService: false,
+      },
+      rules: {
+        '@typescript-eslint/no-unsafe-assignment': 'off',
+        '@typescript-eslint/no-unsafe-return': 'off',
+        '@typescript-eslint/no-floating-promises': 'off',
+        '@typescript-eslint/no-misused-promises': 'off',
+      },
     },
   ],
 };

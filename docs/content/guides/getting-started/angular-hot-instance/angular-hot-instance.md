@@ -1,0 +1,72 @@
+---
+type: how-to
+title: Instance access
+metaTitle: Instance access | Handsontable DataGrid for JavaScript
+description: Reference a Handsontable instance from within an Angular component, to programmatically perform actions.
+permalink: /instance-access
+canonicalUrl: /instance-access
+tags:
+  - referring
+  - referencing
+  - instance
+angular:
+  metaTitle: Instance access | Handsontable DataGrid for Angular
+searchCategory: Guides
+onlyFor: angular
+category: Getting started
+menuTag: updated
+---
+Use @ViewChild to get a reference to the Handsontable instance from your Angular component, then call API methods programmatically.
+
+[[toc]]
+
+## Use Handsontable's API
+
+You can programmatically change the internal state of Handsontable DataGrid beyond what's possible with props. To do this, call the API methods of the relevant Handsontable instance associated with your instance of the [`HotTableComponent`](@/guides/getting-started/installation/installation.md#use-the-hottable-component). Access to the Handsontable instance can be obtained as early as in the `ngAfterViewInit()` lifecycle hook by using the `@ViewChild` decorator, which holds a reference to the wrapper component.
+
+The following example implements the [`HotTableComponent`](@/guides/getting-started/installation/installation.md#use-the-hottable-component) showing how to reference the Handsontable instance from the wrapper component.
+
+::: example #example1 :angular --ts 1 --html 2
+
+@[code](@/content/guides/getting-started/angular-hot-instance/angular/example1.ts)
+@[code](@/content/guides/getting-started/angular-hot-instance/angular/example1.html)
+
+:::
+
+## Call the API outside Angular's zone
+
+An API call can add DOM event listeners, for example when [`updateSettings()`](@/api/core.md#updatesettings) changes how the grid scrolls. A listener added inside Angular's zone runs change detection each time its event fires. To keep those events out of change detection, call the API through `NgZone.runOutsideAngular()`:
+
+```ts
+import { Component, NgZone, ViewChild, inject } from '@angular/core';
+import { GridSettings, HotTableComponent, HotTableModule } from '@handsontable/angular-wrapper';
+
+@Component({
+  standalone: true,
+  imports: [HotTableModule],
+  selector: 'app-example',
+  template: `
+    <button (click)="enablePagination()">Enable pagination</button>
+    <hot-table [settings]="gridSettings"></hot-table>
+  `,
+})
+export class AppComponent {
+  @ViewChild(HotTableComponent, { static: false }) readonly hotTable!: HotTableComponent;
+
+  private readonly ngZone = inject(NgZone);
+
+  readonly gridSettings: GridSettings = { height: 300 };
+
+  enablePagination() {
+    this.ngZone.runOutsideAngular(() => {
+      this.hotTable.hotInstance?.updateSettings({ pagination: true });
+    });
+  }
+}
+```
+
+Settings passed through the `[settings]` input already run outside Angular's zone.
+
+## Result
+
+Your Angular component now holds a reference to the Handsontable instance through `@ViewChild`. You can call any Handsontable API method on that instance from within the component's lifecycle hooks or event handlers.

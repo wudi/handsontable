@@ -1,0 +1,160 @@
+import Handsontable, { RemoveIndexSignature, OmitHooks } from 'handsontable/base';
+import React, {
+  ComponentType,
+  CSSProperties,
+  Dispatch,
+  DispatchWithoutAction,
+  ReactNode,
+} from 'react';
+
+/**
+ * Type of the identifier under which the cached components are stored.
+ */
+export type ScopeIdentifier = 'global' | number;
+
+/**
+ * Interface for the props of the component-based renderers.
+ */
+export interface HotRendererProps {
+  instance: Handsontable.Core,
+  TD: HTMLTableCellElement,
+  row: number,
+  col: number,
+  prop: string | number,
+  value: any,
+  cellProperties: Handsontable.CellProperties
+}
+
+/**
+ * Interface for component-based editor overridden hooks object.
+ */
+export interface HotEditorHooks {
+  /**
+   * Called when the editor opens.
+   *
+   * @param {Event} [event] The DOM event that opened the editor. It is `undefined` when you call `beginEditing()`.
+   */
+  onOpen?(event?: Event): void
+  onClose?: () => void
+  onPrepare?: (
+    row: number,
+    column: number,
+    prop: string | number,
+    TD: HTMLTableCellElement,
+    originalValue: any,
+    cellProperties: Handsontable.CellProperties
+  ) => void
+  onFocus?: () => void
+}
+
+/**
+ * Interface for custom component-based editor API exposed by useHotEditor
+ */
+export interface UseHotEditorImpl<T> {
+  value?: T
+  setValue: Dispatch<T>
+  isOpen: boolean
+  finishEditing: DispatchWithoutAction
+  row?: number
+  col?: number
+}
+
+/**
+ * Helper type to expose Handsontable settings as props with native renderers/editors separated from
+ * the component-based render prop.
+ *
+ * `RemoveIndexSignature` (imported from the core package) strips the `[key: string]: any` index
+ * signature that `GridSettings` carries. Without it, `Omit` widens `keyof T` to `string` and
+ * collapses to a bare index signature, dropping every named option — which is why `HotTableProps`/
+ * `HotColumnProps` had no option names to autocomplete. It is defined in core (and imported here
+ * rather than redefined) because this package's declaration compiler predates the `as` key-remapping
+ * the helper relies on.
+ *
+ * The trailing `& { [key: string]: any }` keeps the escape hatch that the raw settings types carry:
+ * cell-type and plugin options that are not declared on `GridSettings` (e.g. `correctFormat`,
+ * `datePickerConfig`) stay assignable. The named options above keep their real types regardless — the
+ * same pattern as `React.CSSProperties`, which autocompletes known properties yet still accepts
+ * arbitrary custom ones. Dropping this hatch would type-check-break existing configs that pass such
+ * options.
+ */
+type ReplaceRenderersEditors<T> = Omit<RemoveIndexSignature<T>, 'renderer' | 'editor'> & {
+  hotRenderer?: T extends { renderer?: infer R } ? R : never,
+  renderer?: ComponentType<HotRendererProps>,
+  /**
+   * The Handsontable-native editor: a registered editor name, an editor class, or a boolean.
+   *
+   * Set it to `false` to disable editing. Setting it to `true` — or to any other falsy value, such as
+   * `null` — is treated as if the prop were not provided, so the cell keeps the editor its column
+   * type or the grid supplies.
+   *
+   * A component passed to `editor` outranks this prop. A native editor named here outranks
+   * `editor={false}`.
+   */
+  hotEditor?: T extends { editor?: infer E } ? E : never,
+  /**
+   * The component-based editor, rendered through a React portal.
+   *
+   * Set it to `false` to disable editing. Setting it to `true` — or to any other falsy value, such as
+   * `null` — is treated as if the prop were not provided, so the cell keeps the editor its column
+   * type or the grid supplies.
+   *
+   * A component passed here wins over `hotEditor`. A bare `editor={false}` does not: an editor named
+   * in `hotEditor` still applies.
+   *
+   * A Handsontable editor class or editor name belongs in `hotEditor`. When one is passed here, it
+   * is used as `hotEditor`, and the console shows a one-time warning. A name with no registered
+   * editor is ignored after the warning.
+   */
+  editor?: ComponentType | boolean,
+} & { [key: string]: any }
+
+/**
+ * Column props are the grid options (with the index signature stripped so the named options survive
+ * `Omit`) plus the column-specific `data` type. `data` is taken from `ColumnSettings` — an explicit
+ * member that resolves even though `ColumnSettings` itself carries the broad index signature — so the
+ * column form (`string | number | getter/setter`) overrides the grid's whole-table `data` type.
+ *
+ * Hook callbacks (`afterChange`, `beforeKeyDown`, ...) are left out because hooks run from the
+ * grid-level settings only, so `<HotColumn>` must not suggest them. `OmitHooks` comes from core for
+ * the same reason as `RemoveIndexSignature`. A hook passed to a column still type-checks through the
+ * `[key: string]: any` hatch on `ReplaceRenderersEditors`; it just is not suggested.
+ */
+type ColumnGridSettings = Omit<OmitHooks<RemoveIndexSignature<Handsontable.GridSettings>>, 'data'> & {
+  data?: Handsontable.ColumnSettings['data'],
+}
+
+/**
+ * Interface for the `prop` of the HotTable component - extending the default Handsontable settings with additional,
+ * component-related properties.
+ *
+ * The props are built from `SettingsUpdate`, the settings `updateSettings()` takes, so a hook prop may be
+ * `null`, which removes its callback (`afterChange={isTracking ? logChange : null}`).
+ */
+export interface HotTableProps extends ReplaceRenderersEditors<Handsontable.SettingsUpdate> {
+  id?: string,
+  className?: string,
+  style?: CSSProperties,
+  children?: ReactNode
+}
+
+/**
+ * Properties related to the HotColumn architecture.
+ */
+export interface HotColumnProps extends ReplaceRenderersEditors<ColumnGridSettings> {
+  children?: ReactNode;
+}
+
+/**
+ * Type of interface exposed to parent components by HotTable instance via React ref
+ */
+export interface HotTableRef {
+  /**
+   * Reference to the main Handsontable DOM element.
+   */
+  hotElementRef: HTMLElement
+
+  /**
+   * Reference to the Handsontable instance.
+   */
+  hotInstance: Handsontable | null
+}

@@ -13,16 +13,16 @@ describe('manualColumnMove', () => {
   });
 
   describe('selection', () => {
-    it('should be shown properly when moving multiple columns from the left to the right', () => {
+    it('should be shown properly when moving multiple columns from the left to the right', async() => {
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+        data: createSpreadsheetData(10, 10),
         colHeaders: true,
         manualColumnMove: true
       });
 
       const $columnHeader = spec().$container.find('thead tr:eq(0) th:eq(4)');
 
-      selectColumns(0, 2);
+      await selectColumns(0, 2);
 
       spec().$container.find('thead tr:eq(0) th:eq(2)').simulate('mousedown');
       spec().$container.find('thead tr:eq(0) th:eq(2)').simulate('mouseup');
@@ -37,16 +37,16 @@ describe('manualColumnMove', () => {
       expect(getSelected()).toEqual([[-1, 1, 9, 3]]);
     });
 
-    it('should be shown properly when moving multiple columns from the right to the left', () => {
+    it('should be shown properly when moving multiple columns from the right to the left', async() => {
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+        data: createSpreadsheetData(10, 10),
         colHeaders: true,
         manualColumnMove: true
       });
 
       const $columnHeader = spec().$container.find('thead tr:eq(0) th:eq(1)');
 
-      selectColumns(3, 5);
+      await selectColumns(3, 5);
 
       spec().$container.find('thead tr:eq(0) th:eq(3)').simulate('mousedown');
       spec().$container.find('thead tr:eq(0) th:eq(3)').simulate('mouseup');
@@ -61,18 +61,17 @@ describe('manualColumnMove', () => {
       expect(getSelected()).toEqual([[-1, 1, 9, 3]]);
     });
 
-    // The `ManualColumnMove` plugin doesn't cooperate with the `UndoRedo` plugin.
     describe('should be shown properly after undo action', () => {
-      xit('when moving multiple columns from the left to the right', () => {
-        const hot = handsontable({
-          data: Handsontable.helper.createSpreadsheetData(10, 10),
+      it('when moving multiple columns from the left to the right', async() => {
+        handsontable({
+          data: createSpreadsheetData(10, 10),
           colHeaders: true,
           manualColumnMove: true
         });
 
         const $columnHeader = spec().$container.find('thead tr:eq(0) th:eq(4)');
 
-        selectColumns(0, 2);
+        await selectColumns(0, 2);
 
         spec().$container.find('thead tr:eq(0) th:eq(2)').simulate('mousedown');
         spec().$container.find('thead tr:eq(0) th:eq(2)').simulate('mouseup');
@@ -84,21 +83,21 @@ describe('manualColumnMove', () => {
         });
         $columnHeader.simulate('mouseup');
 
-        hot.undo();
+        getPlugin('undoRedo').undo();
 
-        expect(getSelected()).toEqual([[0, 0, 9, 2]]);
+        expect(getSelected()).toEqual([[-1, 0, 9, 2]]);
       });
 
-      xit('when moving multiple columns from the right to the left', () => {
-        const hot = handsontable({
-          data: Handsontable.helper.createSpreadsheetData(10, 10),
+      it('when moving multiple columns from the right to the left', async() => {
+        handsontable({
+          data: createSpreadsheetData(10, 10),
           colHeaders: true,
           manualColumnMove: true
         });
 
         const $columnHeader = spec().$container.find('thead tr:eq(0) th:eq(1)');
 
-        selectColumns(3, 5);
+        await selectColumns(3, 5);
 
         spec().$container.find('thead tr:eq(0) th:eq(3)').simulate('mousedown');
         spec().$container.find('thead tr:eq(0) th:eq(3)').simulate('mouseup');
@@ -110,23 +109,23 @@ describe('manualColumnMove', () => {
         });
         $columnHeader.simulate('mouseup');
 
-        hot.undo();
+        getPlugin('undoRedo').undo();
 
-        expect(getSelected()).toEqual([[0, 3, 9, 5]]);
+        expect(getSelected()).toEqual([[-1, 3, 9, 5]]);
       });
     });
 
     describe('should be shown properly after redo action', () => {
-      xit('when moving multiple columns from the left to the right', () => {
-        const hot = handsontable({
-          data: Handsontable.helper.createSpreadsheetData(10, 10),
+      it('when moving multiple columns from the left to the right', async() => {
+        handsontable({
+          data: createSpreadsheetData(10, 10),
           colHeaders: true,
           manualColumnMove: true
         });
 
         const $columnHeader = spec().$container.find('thead tr:eq(0) th:eq(4)');
 
-        selectColumns(0, 2);
+        await selectColumns(0, 2);
 
         spec().$container.find('thead tr:eq(0) th:eq(2)').simulate('mousedown');
         spec().$container.find('thead tr:eq(0) th:eq(2)').simulate('mouseup');
@@ -138,22 +137,22 @@ describe('manualColumnMove', () => {
         });
         $columnHeader.simulate('mouseup');
 
-        hot.undo();
-        hot.redo();
+        getPlugin('undoRedo').undo();
+        getPlugin('undoRedo').redo();
 
-        expect(getSelected()).toEqual([[0, 1, 9, 3]]);
+        expect(getSelected()).toEqual([[-1, 1, 9, 3]]);
       });
 
-      xit('when moving multiple columns from the right to the left', () => {
-        const hot = handsontable({
-          data: Handsontable.helper.createSpreadsheetData(10, 10),
+      it('when moving multiple columns from the right to the left', async() => {
+        handsontable({
+          data: createSpreadsheetData(10, 10),
           colHeaders: true,
           manualColumnMove: true
         });
 
         const $columnHeader = spec().$container.find('thead tr:eq(0) th:eq(1)');
 
-        selectColumns(3, 5);
+        await selectColumns(3, 5);
 
         spec().$container.find('thead tr:eq(0) th:eq(3)').simulate('mousedown');
         spec().$container.find('thead tr:eq(0) th:eq(3)').simulate('mouseup');
@@ -165,10 +164,10 @@ describe('manualColumnMove', () => {
         });
         $columnHeader.simulate('mouseup');
 
-        hot.undo();
-        hot.redo();
+        getPlugin('undoRedo').undo();
+        getPlugin('undoRedo').redo();
 
-        expect(getSelected()).toEqual([[0, 1, 9, 3]]);
+        expect(getSelected()).toEqual([[-1, 1, 9, 3]]);
       });
     });
   });

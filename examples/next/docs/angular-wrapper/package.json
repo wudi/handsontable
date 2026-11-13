@@ -1,0 +1,15 @@
+{
+  "name": "examples-angular-wrapper",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "postinstall": "cd ../../.. && npm run link-packages -- --f angular-wrapper --examples-version next"
+  },
+  "workspaces": [
+    "*"
+  ],
+  "overrides": {
+    "webpack-dev-middleware@8": "^8.3.0",
+    "vite": "^8.3.5"
+  }
+}

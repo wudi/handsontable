@@ -1,0 +1,412 @@
+---
+type: how-to
+title: Layout direction
+metaTitle: Layout direction | Handsontable DataGrid for JavaScript
+description: Set the layout direction for right-to-left languages. Automatically inherit your HTML file's "dir" property, or set the layout direction manually.
+permalink: /layout-direction
+canonicalUrl: /layout-direction
+tags:
+  - rtl
+  - right-to-left
+  - arabic
+  - hebrew
+  - persian
+  - farsi
+  - internationalization
+  - localization
+  - L10n
+  - i18n
+react:
+  metaTitle: Layout direction | Handsontable DataGrid for React
+angular:
+  metaTitle: Layout direction | Handsontable DataGrid for Angular
+vue:
+  metaTitle: Layout direction | Handsontable DataGrid for Vue
+searchCategory: Guides
+category: Internationalization
+menuTag: updated
+---
+Set the layout direction for right-to-left languages. Automatically inherit your HTML file's `dir` property, or set the layout direction manually.
+
+[[toc]]
+
+## Overview
+
+To properly display Handsontable DataGrid's UI and data in LTR languages (such as English, Chinese, or Russian) and RTL languages (such as Arabic, Persian, or Hebrew), configure your grid's layout direction.
+
+By default, Handsontable's layout direction is set automatically, based on on the value of your HTML document's `dir` attribute.
+
+You can:
+- [Set the layout direction automatically](#set-the-layout-direction-automatically)
+- [Set the layout direction to RTL](#set-the-layout-direction-to-rtl)
+- [Set the layout direction to LTR](#set-the-layout-direction-to-ltr)
+
+### RTL support
+
+If your app uses an RTL language, we recommend [setting Handsontable's layout direction to RTL](#set-the-layout-direction-to-rtl).
+
+The layout direction also changes keyboard navigation. Keys such as <kbd>**Tab**</kbd> and <kbd>**Home**</kbd> follow the reading direction of your grid. For details, see [Keyboard navigation in RTL mode](#keyboard-navigation-in-rtl-mode).
+
+For Arabic, use Handsontable's built-in [Arabic translation](@/guides/internationalization/language/language.md#list-of-available-languages). For any other RTL language, [add your own translation](@/guides/internationalization/language/language.md#create-custom-languages).
+
+#### RTL demo
+
+To try out Handsontable's RTL support, check out the demo below:
+
+::: only-for javascript
+
+::: example #example1 :hot-lang --js 1 --ts 2
+
+@[code](@/content/guides/internationalization/layout-direction/javascript/example1.js)
+@[code](@/content/guides/internationalization/layout-direction/javascript/example1.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example1 :react-languages  --js 1 --ts 2
+
+@[code](@/content/guides/internationalization/layout-direction/react/example1.jsx)
+@[code](@/content/guides/internationalization/layout-direction/react/example1.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example1 :angular-languages --ts 1 --html 2
+
+@[code](@/content/guides/internationalization/layout-direction/angular/example1.ts)
+@[code](@/content/guides/internationalization/layout-direction/angular/example1.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example1 :vue3-languages
+
+@[code](@/content/guides/internationalization/layout-direction/vue/example1.vue)
+
+:::
+
+:::
+
+### Elements affected by layout direction
+
+Setting a different layout direction affects the behavior of the following areas of Handsontable:
+
+| Element                                                                                                            | LTR layout direction                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | RTL layout direction                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Starting edge                                                                                                      | The left-hand edge is treated as the starting edge of the grid.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | The right-hand edge is treated as the starting edge of the grid.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Ending edge                                                                                                        | The right-hand edge is treated as the ending edge of the grid.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | The left-hand edge is treated as the ending edge of the grid.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Order of columns on the screen                                                                                     | Cell rendering flows from the left-hand side of the screen to right-hand side.<br><br>Cell (0, 0) is rendered in the grid's top-left corner.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Cell rendering flows from the right-hand side of the screen to left-hand side.<br><br>Cell (0, 0) is rendered in the grid's top-right corner.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Text direction in cells                                                                                            | All cells inherit the LTR direction from the container element.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | All cells inherit the RTL direction from the container element.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Position of row headers                                                                                            | Row headers are rendered on the left-hand edge of the grid.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Row headers are rendered on the right-hand edge of the grid.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Position of [frozen columns](@/guides/columns/column-freezing/column-freezing.md)                                                  | Columns are frozen at the left-hand edge of the grid with [`fixedColumnsStart`](@/api/options.md#fixedcolumnsstart), and at the right-hand edge with [`fixedColumnsEnd`](@/api/options.md#fixedcolumnsend).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Columns are frozen at the right-hand edge of the grid with `fixedColumnsStart`, and at the left-hand edge with `fixedColumnsEnd`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Position of the [fill handle](@/api/options.md#fillHandle)                                                         | The fill handle displays in the bottom-right corner of the selection border.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | The fill handle displays in the bottom-left corner of the selection border.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Position of the [selection](@/guides/cell-features/selection/selection.md) handles, on mobile devices                        | On mobile devices, the selection handles display in the top-left and bottom-right corners of the selection border.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | On mobile devices, the selection handles display in the top-right and bottom-left corners of the selection border.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| [Custom borders](@/guides/cell-features/formatting-cells/formatting-cells.md#custom-cell-borders)                                   | In the [`customBorders`](@/api/options.md#customborders) option:<br><br>- The left-hand border is treated as the starting border.<br>- The right-hand border is treated as the ending border.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | In the [`customBorders`](@/api/options.md#customborders) option:<br><br>- The right-hand border is treated as the starting border.<br>- The left-hand border is treated as the ending border.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| [Context menu](@/guides/accessories-and-menus/context-menu/context-menu.md) and [column menus](@/guides/accessories-and-menus/column-menu/column-menu.md) | Menus' layout direction is left-to-right.<br><br>Submenus expand to the right.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Menus' layout direction is right-to-left.<br><br>Submenus expand to the left.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| [Keyboard navigation](@/guides/navigation/keyboard-shortcuts/keyboard-shortcuts.md)                                        | <kbd>**Tab**</kbd> moves one cell to the right.<br><br><kbd>**Shift**</kbd>+<kbd>**Tab**</kbd> moves one cell to the left.<br><br><kbd>**Home**</kbd> moves to the leftmost non-frozen cell of the current row.<br><br><kbd>**Ctrl**</kbd>/<kbd>**Cmd**</kbd>+<kbd>**Home**</kbd> moves to the top-left non-frozen cell of the grid.<br><br><kbd>**Shift**</kbd>+<kbd>**Home**</kbd> extends the selection to the leftmost non-frozen cell of the current row.<br><br><kbd>**End**</kbd> moves to the rightmost non-frozen cell of the current row.<br><br><kbd>**Ctrl**</kbd>/<kbd>**Cmd**</kbd>+<kbd>**End**</kbd> moves to the bottom-right non-frozen cell of the grid.<br><br><kbd>**Shift**</kbd>+<kbd>**End**</kbd> extends the selection to the rightmost non-frozen cell of the current row. | <kbd>**Tab**</kbd> moves one cell to the left.<br><br><kbd>**Shift**</kbd>+<kbd>**Tab**</kbd> moves one cell to the right.<br><br><kbd>**Home**</kbd> moves to the rightmost non-frozen cell of the current row.<br><br><kbd>**Ctrl**</kbd>/<kbd>**Cmd**</kbd>+<kbd>**Home**</kbd> moves to the top-right non-frozen cell of the grid.<br><br><kbd>**Shift**</kbd>+<kbd>**Home**</kbd> extends the selection to the rightmost non-frozen cell of the current row.<br><br><kbd>**End**</kbd> moves to the leftmost non-frozen cell of the current row.<br><br><kbd>**Ctrl**</kbd>/<kbd>**Cmd**</kbd>+<kbd>**End**</kbd> moves to the bottom-left non-frozen cell of the grid.<br><br><kbd>**Shift**</kbd>+<kbd>**End**</kbd> extends the selection to the leftmost non-frozen cell of the current row. |
+
+The list above is not exhaustive. Setting a different layout direction might affect other areas of Handsontable as well.
+
+### Keyboard navigation in RTL mode
+
+In RTL mode, Handsontable moves the selection along the reading direction of the grid. The keys follow the logical start and end of a row, not fixed screen sides. In RTL mode, column 0 is rendered on the right-hand side, so the logical start of a row is on the right.
+
+| Key                                                                  | LTR layout direction                                                      | RTL layout direction                                                      |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| <kbd>**Tab**</kbd>                                                   | Moves to the next column, one cell to the right.                          | Moves to the next column, one cell to the left.                           |
+| <kbd>**Shift**</kbd>+<kbd>**Tab**</kbd>                              | Moves to the previous column, one cell to the left.                       | Moves to the previous column, one cell to the right.                      |
+| <kbd>**Home**</kbd>                                                  | Moves to the first non-frozen cell of the current row, at the left-hand side.      | Moves to the first non-frozen cell of the current row, at the right-hand side.     |
+| <kbd>**End**</kbd>                                                   | Moves to the last non-frozen cell of the current row, at the right-hand side.      | Moves to the last non-frozen cell of the current row, at the left-hand side.       |
+| <kbd>**Ctrl**</kbd>/<kbd>**Cmd**</kbd>+<kbd>**Home**</kbd>           | Moves to the top-left non-frozen cell of the grid.                                   | Moves to the top-right non-frozen cell of the grid.                                  |
+| <kbd>**Ctrl**</kbd>/<kbd>**Cmd**</kbd>+<kbd>**End**</kbd>            | Moves to the bottom-right non-frozen cell of the grid.                               | Moves to the bottom-left non-frozen cell of the grid.                                |
+| <kbd>**Shift**</kbd>+<kbd>**Home**</kbd> / <kbd>**Shift**</kbd>+<kbd>**End**</kbd> | Extends the selection to the first / last non-frozen cell of the current row, at the left-hand / right-hand side. | Extends the selection to the first / last non-frozen cell of the current row, at the right-hand / left-hand side. |
+
+With the default [`tabMoves`](@/api/options.md#tabmoves) value of `{ row: 0, col: 1 }`, <kbd>**Tab**</kbd> moves to the next column in both directions.
+
+The arrow keys always move the selection in the direction they point on the screen.
+
+<kbd>**Delete**</kbd> and <kbd>**Backspace**</kbd> are not affected by the layout direction. In a cell editor, <kbd>**Delete**</kbd> removes the next character and <kbd>**Backspace**</kbd> removes the previous one, in typing order.
+
+::: tip
+
+This behavior is intentional. The key bindings stay the same; only the screen direction follows the layout.
+
+For all default shortcuts, see the [keyboard shortcuts](@/guides/navigation/keyboard-shortcuts/keyboard-shortcuts.md) guide.
+
+:::
+
+## Set the layout direction
+
+You can set the layout direction only at Handsontable's initialization. Any change of the [`layoutDirection`](@/api/options.md#layoutdirection) option after the initialization (e.g. using the [`updateSettings()`](@/api/core.md#updatesettings) method) throws an error, even when you didn't set the option at initialization.
+
+### Set the layout direction automatically
+
+You can set Handsontable's layout direction automatically,
+based on on the value of your HTML document's `dir` attribute.
+This is the default setting.
+
+At Handsontable's initialization,
+add [`layoutDirection`](@/api/options.md#layoutdirection) as a top-level grid option,
+and set it to `'inherit'`. As this is the default setting, you can also skip setting the `layoutDirection` option altogether.
+
+In the example below, the RTL layout direction is inherited from a `dir` attribute up in the DOM tree:
+
+::: only-for javascript
+
+::: example #example2 --html 1 --js 2 --ts 3
+
+@[code](@/content/guides/internationalization/layout-direction/javascript/example2.html)
+@[code](@/content/guides/internationalization/layout-direction/javascript/example2.js)
+@[code](@/content/guides/internationalization/layout-direction/javascript/example2.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example2 :react --js 1 --ts 2
+
+@[code](@/content/guides/internationalization/layout-direction/react/example2.jsx)
+@[code](@/content/guides/internationalization/layout-direction/react/example2.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example2 :angular --ts 1 --html 2
+
+@[code](@/content/guides/internationalization/layout-direction/angular/example2.ts)
+@[code](@/content/guides/internationalization/layout-direction/angular/example2.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example2 :vue3
+
+@[code](@/content/guides/internationalization/layout-direction/vue/example2.vue)
+
+:::
+
+:::
+
+### Set the layout direction to RTL
+
+You can render Handsontable from the right to the left, regardless of your HTML document's `dir` attribute.
+
+At Handsontable's initialization, add [`layoutDirection`](@/api/options.md#layoutdirection) as a top-level grid option,
+and set it to `'rtl'`:
+
+::: only-for javascript
+
+::: example #example3 --js 1 --ts 2
+
+@[code](@/content/guides/internationalization/layout-direction/javascript/example3.js)
+@[code](@/content/guides/internationalization/layout-direction/javascript/example3.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example3 :react --js 1 --ts 2
+
+@[code](@/content/guides/internationalization/layout-direction/react/example3.jsx)
+@[code](@/content/guides/internationalization/layout-direction/react/example3.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example3 :angular --ts 1 --html 2
+
+@[code](@/content/guides/internationalization/layout-direction/angular/example3.ts)
+@[code](@/content/guides/internationalization/layout-direction/angular/example3.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example3 :vue3
+
+@[code](@/content/guides/internationalization/layout-direction/vue/example3.vue)
+
+:::
+
+:::
+
+### Set the layout direction to LTR
+
+You can render Handsontable from the left to the right, regardless of your HTML document's `dir` attribute.
+
+At Handsontable's initialization, add [`layoutDirection`](@/api/options.md#layoutdirection) as a top-level grid option,
+and set it to `'ltr'`:
+
+::: only-for javascript
+
+::: example #example4 --js 1 --ts 2
+
+@[code](@/content/guides/internationalization/layout-direction/javascript/example4.js)
+@[code](@/content/guides/internationalization/layout-direction/javascript/example4.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example4 :react --js 1 --ts 2
+
+@[code](@/content/guides/internationalization/layout-direction/react/example4.jsx)
+@[code](@/content/guides/internationalization/layout-direction/react/example4.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example4 :angular --ts 1 --html 2
+
+@[code](@/content/guides/internationalization/layout-direction/angular/example4.ts)
+@[code](@/content/guides/internationalization/layout-direction/angular/example4.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example4 :vue3
+
+@[code](@/content/guides/internationalization/layout-direction/vue/example4.vue)
+
+:::
+
+:::
+
+## Set the horizontal text alignment
+
+You can apply different horizontal [text alignment](@/guides/cell-features/text-alignment/text-alignment.md) settings, overwriting the horizontal text alignment resulting from your grid's layout direction.
+
+In the example below, some columns are explicitly aligned to the left, center, or right:
+
+::: only-for javascript
+
+::: example #example5 --js 1 --ts 2
+
+@[code](@/content/guides/internationalization/layout-direction/javascript/example5.js)
+@[code](@/content/guides/internationalization/layout-direction/javascript/example5.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example5 :react --js 1 --ts 2
+
+@[code](@/content/guides/internationalization/layout-direction/react/example5.jsx)
+@[code](@/content/guides/internationalization/layout-direction/react/example5.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example5 :angular --ts 1 --html 2
+
+@[code](@/content/guides/internationalization/layout-direction/angular/example5.ts)
+@[code](@/content/guides/internationalization/layout-direction/angular/example5.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example5 :vue3
+
+@[code](@/content/guides/internationalization/layout-direction/vue/example5.vue)
+
+:::
+
+:::
+
+You can apply the horizontal text alignment settings to:
+- [The entire grid](@/guides/configuration/configuration-options/configuration-options.md#set-grid-options), by setting [`className`](@/api/options.md#classname) on the global level
+- [Individual columns](@/guides/configuration/configuration-options/configuration-options.md#set-column-options), by setting [`className`](@/api/options.md#classname) on the column level
+- [Individual rows](@/guides/configuration/configuration-options/configuration-options.md#set-row-options), by setting [`className`](@/api/options.md#classname) using the [`cells`](@/api/options.md#cells) option's callback
+- [Individual cells](@/guides/configuration/configuration-options/configuration-options.md#set-cell-options), by setting [`className`](@/api/options.md#classname) on the cell level
+- [Individual grid elements, based on any logic you implement](@/guides/configuration/configuration-options/configuration-options.md#implement-custom-logic), by setting [`className`](@/api/options.md#classname) using the [`cells`](@/api/options.md#cells) option's callback
+
+## Related articles
+
+**Related guides**
+
+<div class="boxes-list">
+
+- [Language](@/guides/internationalization/language/language.md)
+- [Locale](@/guides/internationalization/locale/locale.md)
+- [IME support](@/guides/internationalization/ime-support/ime-support.md)
+- [Keyboard shortcuts](@/guides/navigation/keyboard-shortcuts/keyboard-shortcuts.md)
+
+</div>
+
+**Related blog articles**
+
+<div class="boxes-list gray">
+
+- [Handsontable 12.0.0: RTL support, and a new keyboard shortcuts API](https://handsontable.com/blog/handsontable-12.0.0-data-grid-rtl-support-and-a-new-keyboard-shortcuts-api)
+
+</div>
+
+**Configuration options**
+
+<div class="boxes-list">
+
+- [language](@/api/options.md#language)
+- [layoutDirection](@/api/options.md#layoutdirection)
+- [locale](@/api/options.md#locale)
+
+</div>
+
+**Core methods**
+
+<div class="boxes-list">
+
+- [getDirectionFactor()](@/api/core.md#getdirectionfactor)
+- [getTranslatedPhrase()](@/api/core.md#gettranslatedphrase)
+- [isLtr()](@/api/core.md#isltr)
+- [isRtl()](@/api/core.md#isrtl)
+
+</div>
+
+**Hooks**
+
+<div class="boxes-list">
+
+- [afterLanguageChange](@/api/hooks.md#afterlanguagechange)
+- [beforeLanguageChange](@/api/hooks.md#beforelanguagechange)
+
+</div>

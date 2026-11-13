@@ -19,11 +19,11 @@ describe('DropdownMenu keyboard shortcut', () => {
         height: 100
       });
 
-      dropdownMenu();
-      keyDownUp('arrowdown');
-      keyDownUp('arrowright');
+      await dropdownMenu();
+      await keyDownUp('arrowdown');
+      await keyDownUp('arrowright');
 
-      await sleep(300);
+      await waitForNextAnimationFrames(2);
 
       expect(getPlugin('dropdownMenu').menu.hotSubMenus.alignment.hotMenu.getSelected()).toEqual([
         [0, 0, 0, 0]

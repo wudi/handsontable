@@ -1,134 +1,262 @@
 <div align="center">
+  <br><br>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/handsontable/handsontable/blob/develop/resources/handsontable-logo-white.svg?raw=true"/>
+    <source media="(prefers-color-scheme: light)" srcset="https://github.com/handsontable/handsontable/blob/develop/resources/handsontable-logo-black.svg?raw=true"/>
+    <img width="360" alt="Logo of Handsontable DataGrid" src="https://github.com/handsontable/handsontable/blob/develop/resources/handsontable-logo-black.svg?raw=true"/>
+  </picture>
+  <br><br>
+  <h3>The official <img src="https://raw.githubusercontent.com/handsontable/handsontable/develop/resources/icons/vue-icon.svg" width="16" height="16"> Vue 3 wrapper for Handsontable DataGrid.
+    <br>
+    <a href="https://handsontable.com/docs/vue-data-grid" target="_blank">JavaScript component</a> with a spreadsheet-like look and feel.</h3>
 
-<a href="https://handsontable.com" rel="nofollow"><img src="https://raw.githubusercontent.com/handsontable/handsontable/develop/resources/handsontable-logo-blue.svg" alt="Handsontable - data grid for Vue 3" width="300"></a>
+  <p>With its spreadsheet-like editing features, it’s perfect for building data-rich internal apps. It allows users to enter, edit, validate, and process data from various sources. Common use cases include resource planning software (ERP), inventory management systems, digital platforms, and data modeling applications.</p>
 
-# Data Grid for Vue 3<img src="https://raw.githubusercontent.com/handsontable/handsontable/develop/resources/icons/vue-icon.svg" width="22" height="22">
+<a href="https://handsontable.com">Website</a> &nbsp;&nbsp;—&nbsp;&nbsp; <a href="https://handsontable.com/docs/vue-data-grid">Documentation</a> &nbsp;&nbsp;—&nbsp;&nbsp; <a href="https://handsontable.com/docs/vue-data-grid/themes">Themes</a> &nbsp;&nbsp;—&nbsp;&nbsp; <a href="https://handsontable.com/docs/vue-data-grid/api">API</a> &nbsp;&nbsp;—&nbsp;&nbsp; <a href="https://forum.handsontable.com/">Community</a>
 
-Handsontable's wrapper for Vue 3 combines data grid features with spreadsheet-like UX. <br>
-It provides data binding, data validation, filtering, sorting, and CRUD operations.
+  <br>
 
-[![npm](https://img.shields.io/npm/dt/@handsontable/vue3.svg)](https://npmjs.com/package/@handsontable/vue3)
-[![npm](https://img.shields.io/npm/dm/@handsontable/vue3.svg)](https://npmjs.com/package/@handsontable/vue3)
+[![NPM version](https://img.shields.io/npm/v/@handsontable/vue3?style=for-the-badge)](https://npmjs.com/package/@handsontable/vue3)
+[![Total downloads](https://img.shields.io/npm/dt/handsontable.svg?style=for-the-badge)](https://npmjs.com/package/@handsontable/vue3)
+[![Monthly downloads](https://img.shields.io/npm/dm/handsontable.svg?style=for-the-badge)](https://npmjs.com/package/@handsontable/vue3)
+[![Contributors](https://img.shields.io/github/contributors/handsontable/handsontable?style=for-the-badge)](https://github.com/handsontable/handsontable/graphs/contributors)
+<br>
 [![CI status](https://github.com/handsontable/handsontable/actions/workflows/test.yml/badge.svg?branch=master)](https://github.com/handsontable/handsontable/actions/workflows/test.yml?query=branch%3Amaster)
-[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fhandsontable%2Fhandsontable.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fhandsontable%2Fhandsontable?ref=badge_shield)
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=handsontable_handsontable&metric=alert_status)](https://sonarcloud.io/dashboard?id=handsontable_handsontable)
+[![Quality gate status](https://sonarcloud.io/api/project_badges/measure?project=handsontable_handsontable&metric=alert_status)](https://sonarcloud.io/dashboard?id=handsontable_handsontable)
+[![FOSSA status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fhandsontable%2Fhandsontable.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fhandsontable%2Fhandsontable?ref=badge_shield)
 
----
+  <br>
 
-<a href="https://handsontable.com/demo"><img src="https://raw.githubusercontent.com/handsontable/handsontable/develop/resources/handsontable-github-preview.png" alt="Handsontable data grid for Vue 3" width="805"/></a>
-
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/handsontable/handsontable/blob/develop/resources/handsontable-preview-dark-theme.png?raw=true"/>
+    <source media="(prefers-color-scheme: light)" srcset="https://github.com/handsontable/handsontable/blob/develop/resources/handsontable-preview-light-theme.png?raw=true"/>
+    <img width="780" alt="Vue data grid preview" src="https://github.com/handsontable/handsontable/blob/develop/resources/handsontable-preview-light-theme.png?raw=true"/>
+  </picture>
 </div>
 
-## Features
+## ✨ Key Features
 
-The most popular features of Handsontable for Vue 3:
+&nbsp;&nbsp;✅&nbsp; [Built-in themes](https://handsontable.com/docs/vue-data-grid/themes/) <br>
+&nbsp;&nbsp;✅&nbsp; [Flexible API](https://handsontable.com/docs/vue-data-grid/api/) <br>
+&nbsp;&nbsp;✅&nbsp; [Virtualization](https://handsontable.com/docs/vue-data-grid/row-virtualization/) <br>
+&nbsp;&nbsp;✅&nbsp; [IME support](https://handsontable.com/docs/vue-data-grid/ime-support/) <br>
+&nbsp;&nbsp;✅&nbsp; [Internationalization](https://handsontable.com/docs/vue-data-grid/language/) <br>
+&nbsp;&nbsp;✅&nbsp; [RTL support](https://handsontable.com/docs/vue-data-grid/layout-direction/) <br>
+&nbsp;&nbsp;✅&nbsp; [Accessibility](https://handsontable.com/docs/vue-data-grid/accessibility/) ([targets WCAG 2.2 AA](https://handsontable.com/docs/vue-data-grid/accessibility-conformance-report/)) <br>
+&nbsp;&nbsp;✅&nbsp; [Keyboard shortcuts](https://handsontable.com/docs/vue-data-grid/keyboard-shortcuts/) <br>
+&nbsp;&nbsp;✅&nbsp; [Sorting data](https://handsontable.com/docs/vue-data-grid/rows-sorting/) <br>
+&nbsp;&nbsp;✅&nbsp; [Filtering data](https://handsontable.com/docs/vue-data-grid/column-filter/) <br>
+&nbsp;&nbsp;✅&nbsp; [400 built-in formulas](https://handsontable.com/docs/vue-data-grid/formula-calculation/) <br>
+&nbsp;&nbsp;✅&nbsp; [Configurable selection](https://handsontable.com/docs/vue-data-grid/selection/) <br>
+&nbsp;&nbsp;✅&nbsp; [Data validation](https://handsontable.com/docs/vue-data-grid/cell-validator/) <br>
+&nbsp;&nbsp;✅&nbsp; [Conditional formatting](https://handsontable.com/docs/vue-data-grid/conditional-formatting/) <br>
+&nbsp;&nbsp;✅&nbsp; [Merged cells](https://handsontable.com/docs/vue-data-grid/merge-cells/) <br>
+&nbsp;&nbsp;✅&nbsp; [Pinned/frozen columns](https://handsontable.com/docs/vue-data-grid/column-freezing/) <br>
+&nbsp;&nbsp;✅&nbsp; [Hiding columns](https://handsontable.com/docs/vue-data-grid/column-hiding/) <br>
+&nbsp;&nbsp;✅&nbsp; [Right-click context menu](https://handsontable.com/docs/vue-data-grid/context-menu/) <br>
+&nbsp;&nbsp;✅&nbsp; [Row pagination](https://handsontable.com/docs/vue-data-grid/rows-pagination/) <br>
+&nbsp;&nbsp;✅&nbsp; [Server-side data](https://handsontable.com/docs/vue-data-grid/server-side-data/) <br>
+&nbsp;&nbsp;✅&nbsp; [Notifications](https://handsontable.com/docs/vue-data-grid/notification/) <br>
+&nbsp;&nbsp;✅&nbsp; [Export to Excel](https://handsontable.com/docs/vue-data-grid/export-to-excel/) <br>
+&nbsp;&nbsp;✅&nbsp; [Date and time editing](https://handsontable.com/docs/vue-data-grid/cell-type/) <br>
+&nbsp;&nbsp;✅&nbsp; [Shadow DOM / Web Components support](https://handsontable.com/docs/vue-data-grid/shadow-dom/) <br>
 
-&nbsp;&nbsp;✓&nbsp; Multiple column sorting <br>
-&nbsp;&nbsp;✓&nbsp; Non-contiguous selection <br>
-&nbsp;&nbsp;✓&nbsp; Filtering data <br>
-&nbsp;&nbsp;✓&nbsp; Export to file <br>
-&nbsp;&nbsp;✓&nbsp; Validating data <br>
-&nbsp;&nbsp;✓&nbsp; Conditional formatting <br>
-&nbsp;&nbsp;✓&nbsp; Merging cells <br>
-&nbsp;&nbsp;✓&nbsp; Freezing rows/columns <br>
-&nbsp;&nbsp;✓&nbsp; Moving rows/columns <br>
-&nbsp;&nbsp;✓&nbsp; Resizing rows/columns <br>
-&nbsp;&nbsp;✓&nbsp; Hiding rows/columns <br>
-&nbsp;&nbsp;✓&nbsp; Context menu <br>
-&nbsp;&nbsp;✓&nbsp; Comments <br>
+<div id="installation">
 
-## Documentation
+## 🪄 Installation
+Below is the installation guide for the Handsontable with Vue 3 wrapper. If you're using another framework, please refer to its dedicated wrapper for specific installation instructions.
 
-- [Developer guides](https://handsontable.com/docs/vue3-installation/)
-- [API Reference](https://handsontable.com/docs/api/core/)
-- [Changelog](https://handsontable.com/docs/release-notes/)
-- [Demo](https://handsontable.com/demo)
+- <img src="https://raw.githubusercontent.com/handsontable/handsontable/develop/resources/icons/javascript-icon.svg" width="12" height="12" alt="JavaScript logo"> <a href="https://github.com/handsontable/handsontable"> JavaScript</a>
+- <img src="https://raw.githubusercontent.com/handsontable/handsontable/develop/resources/icons/react-icon.svg" width="12" height="12" alt="React logo"> <a href="https://github.com/handsontable/handsontable/tree/master/wrappers/react-wrapper"> React</a>
+- <img src="https://raw.githubusercontent.com/handsontable/handsontable/develop/resources/icons/angular-icon.svg" width="12" height="12" alt="Angular logo"> <a href="https://github.com/handsontable/handsontable/tree/master/wrappers/angular-wrapper"> Angular</a>
+---
 
-<div id="installation"></div>
 
-## Get Started
-### Install with npm
-
-Run the following command in your terminal
-```
+```bash
 npm install handsontable @handsontable/vue3
 ```
 
-You can load it directly from [jsDelivr](https:jsdelivr.com/package/npm/@handsontable/vue3) as well.
+You can load it directly from [jsDelivr](https://www.jsdelivr.com/package/npm/@handsontable/vue3) as well.
 ```html
 <script src="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@handsontable/vue3/dist/vue-handsontable.min.js"></script>
-
-<link href="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.css" rel="stylesheet">
 ```
 
 The component will be available as `Handsontable.vue.HotTable`.
 
 ### Usage
 
-Use this data grid as you would any other component in your application. [Options](https://handsontable.com/docs/api/options/) can be set as `HotTable` props.
-
-**Styles**
-```css
-@import '~handsontable/dist/handsontable.full.css';
-```
+Use this data grid as you would any other component in your application. [Options](https://handsontable.com/docs/vue-data-grid/api/options/) can be set as `HotTable` props.
 
 **Vue 3 Component**
 ```vue
 <template>
-  <hot-table :data="data" :rowHeaders="true" :colHeaders="true"></hot-table>
+  <!-- license-key="your-license-key" (get a key at https://handsontable.com/pricing/) -->
+  <hot-table
+    :data="data"
+    :row-headers=true
+    :col-headers=true
+    :navigable-headers=true
+    :tab-navigation=true
+    :multi-column-sorting=true
+    header-class-name="htLeft"
+  >
+    <hot-column title="Company" data="company" width=100></hot-column>
+    <hot-column title="Country" data="country" width=170 type="dropdown" :source="['United Kingdom', 'Japan', 'United States']"></hot-column>
+    <hot-column title="Rating" data="rating" width=100 type="numeric"></hot-column>
+  </hot-table>
 </template>
 
 <script>
   import { defineComponent } from 'vue';
-  import { HotTable } from '@handsontable/vue3';
+  import { HotTable, HotColumn } from '@handsontable/vue3';
   import { registerAllModules } from 'handsontable/registry';
 
   // register Handsontable's modules
   registerAllModules();
 
-  export default defineComponent({
+  const ExampleComponent = defineComponent({
     data() {
       return {
         data: [
-          ['', 'Ford', 'Volvo', 'Toyota', 'Honda'],
-          ['2016', 10, 11, 12, 13],
-          ['2017', 20, 11, 14, 13],
-          ['2018', 30, 15, 12, 13]
-        ],
+          { company: 'Tagcat', country: 'United Kingdom', rating: 4.4 },
+          { company: 'Zoomzone', country: 'Japan', rating: 4.5 },
+          { company: 'Meeveo', country: 'United States', rating: 4.6 },
+        ]
       };
     },
     components: {
       HotTable,
+      HotColumn,
     }
   });
-</script>
 
-<style src="handsontable/dist/handsontable.full.css"></style>
+  export default ExampleComponent;
+</script>
 ```
 
-### [View live demo](https://handsontable.com/docs/vue3-simple-example/)
+[![Static Badge](https://img.shields.io/badge/View%20live%20demo-1a42e8?style=for-the-badge)](https://demos.handsontable.com/?example=vue)
 
-## Support
+</div>
 
-We provide support for developers working with commercial version via [contact form](https://handsontable.com/contact?category=technical_support)</a> or at support@handsontable.com.
+<br>
 
-If you use a non-commercial version then please ask your tagged question on [StackOverflow](https://stackoverflow.com/questions/tagged/handsontable).
+## 🎨 Themes
 
-## License
+Handsontable themes control how your data grid looks: colors, spacing, typography, borders, and overall visual style.
 
-Handsontable is a commercial software with two licenses available:
+You get three built-in themes out of the box:
+- main – modern, clean, default choice
+- horizon – lighter, spacious feel
+- classic – traditional spreadsheet look
 
-- Free for non-commercial purposes such as teaching, academic research, and evaluation. [Read it here](https://github.com/handsontable/handsontable/blob/master/handsontable-non-commercial-license.pdf).
-- Commercial license with support and maintenance included. See [pricing plans](https://handsontable.com/pricing).
+Each theme supports:
+- ️Light mode
+- Dark mode
 
-## License key
+<picture>
+  <img width="780" alt="JavaScript data grid preview" src="https://github.com/handsontable/handsontable/blob/develop/resources/handsontable-themes.png?raw=true"/>
+</picture>
 
-If you use Handsontable for Vue 3 in a project that supports your commercial activity, then you must purchase the license key at [handsontable.com](https://handsontable.com/pricing).
+## 🏗️ Custom Themes
 
-If you use the free for non-commercial license of Handsontable, then pass the phrase `'non-commercial-and-evaluation'`, as described in [this documentation](https://handsontable.com/docs/license-key/).
+You can style Handsontable to match your product's visual identity by creating a custom theme. Use the Theme API to extend a built-in theme and apply your own styling while keeping support for light/dark modes and density settings.
+
+To stay aligned with design, you can rely on the:
+- [Theme Builder](https://handsontable.com/theme-builder)
+- [Handsontable Design System](https://www.figma.com/community/file/1487445656371116081)
+
+## 🚀 Resources
+
+- [Website](https://handsontable.com)
+- [Demo](https://handsontable.com/demo)
+- [Documentation](https://handsontable.com/docs/vue-data-grid)
+- [npm](https://www.npmjs.com/package/@handsontable/vue3)
+- [CDN](https://www.jsdelivr.com/package/npm/@handsontable/vue3)
+- [Forum](https://forum.handsontable.com/)
+- [Blog](https://handsontable.com/blog)
+- [Contact support team](https://handsontable.com/contact?category=technical_support)
+- [Get a quote](https://handsontable.com/get-a-quote)
+
+<br>
+
+## 🤔 Is Handsontable DataGrid a data grid or a spreadsheet?
+
+Handsontable DataGrid is a data grid component written in JavaScript, not a spreadsheet. However, it brings in many features typically found in spreadsheet software. We designed it this way because spreadsheet-like patterns are often the most user-friendly when it comes to data entry and management.
+
+### Spreadsheet-like features in Handsontable:
+
+- Keyboard shortcuts compliant with either Google Sheets or Excel
+- 400 spreadsheet formulas via native integration with [HyperFormula](https://github.com/handsontable/hyperformula)
+- Keyboard navigation across headers that can be disabled, making only cells navigable
+- TAB navigation across cells that can be disabled
+- Built-in undo-redo functionality
+- Powerful clipboard capabilities for copy-paste operations
+- Ability to scroll the grid within the container (`div`) or window
+- Data binding in the form of an array of objects or arrays of arrays
+- Built-in cell editors like a date picker or dropdown list
+
+At first glance, it might seem that a data table, spreadsheet, and data grid are just different names for the same thing - an interactive table displaying data. In reality, these tools serve different purposes and offer distinct functionalities, designed to meet specific needs. Handsontable sits comfortably in the data grid category while incorporating many of the best aspects of spreadsheet software.
+
+<br>
+
+## 🤖 AI & agent resources
+
+Working with an AI assistant or coding agent? Handsontable DataGrid and HyperFormula ship first-party agent resources:
+
+- **Agent Skills** — install in Claude Code with `/plugin marketplace add handsontable/handsontable-skills` → [github.com/handsontable/handsontable-skills](https://github.com/handsontable/handsontable-skills)
+- **Docs MCP server** — live semantic search over the docs, API reference, release notes, and GitHub issues: `claude mcp add --transport http handsontable-docs https://docs-assistant.handsontable.com/mcp` → [guide](https://handsontable.com/docs/vue-data-grid/docs-mcp-server/)
+- **Docs written for agents** — every docs page has a Markdown twin; start at [handsontable.com/docs/llms.txt](https://handsontable.com/docs/llms.txt)
+
+## 🛟 Support
+
+**We're here to help!**
+
+If you're using Handsontable with a free, non-commercial license, you can:
+- Get quick help from our [**Ask AI** assistant](https://handsontable.com/docs/vue-data-grid/ai-docs-assistant/) available in the documentation.
+- Report any bugs you find on our [GitHub Issue Board](https://github.com/handsontable/handsontable/issues).
+- Connect with other developers and find answers on our [Developer Forum](https://forum.handsontable.com).
+
+If you have a commercial license, feel free to contact us directly at [support@handsontable.com](mailto:support@handsontable.com) or use our [contact form](https://handsontable.com/contact?category=technical_support).
+
+<br>
+
+## 📖 Licenses
+
+Handsontable DataGrid is available under the following licensing options. Each license comes with its own terms and conditions, as outlined below:
+
+### ① Free trial for evaluation
+Businesses and other organizations can evaluate Handsontable DataGrid for free. Start a trial at [handsontable.com/pricing](https://handsontable.com/pricing/) to get a trial license key. The trial covers internal evaluation outside production, runs once, and can't be renewed. During the trial, you can contact our technical support team. When it ends, you need a commercial license to keep using Handsontable DataGrid.
+
+### ② Commercial license
+For commercial use, a paid license is required. This license includes support and maintenance to ensure you get the most out of Handsontable. The commercial license can be purchased directly from Handsoncode or through an [authorized reseller](https://handsontable.com/resellers). See the [pricing page](https://handsontable.com/pricing) for details.
+
+### ③ Free license for non-commercial projects
+Non-commercial projects, such as teaching or academic research, may qualify for a free license. To apply, [contact our sales team](https://handsontable.com/contact/) and tell us about your project.
+
+<br>
+
+## 🔑 License Key
+
+Pass your license key in the `licenseKey` option. The examples above leave that line commented out: uncomment it and add your key.
+
+To evaluate Handsontable, [get a trial key](https://handsontable.com/pricing/). During the trial, the grid shows the Handsontable badge and a "Powered by Handsontable DataGrid" bar below the table, and the console warns how many days remain. After the trial expires, the grid shows an expiration message and the console reports an error. When the grace period stored in the key also passes, a blocking screen replaces the grid. See [Trial keys](https://handsontable.com/docs/vue-data-grid/license-key/#trial-keys) for details.
+
+For non-commercial use, [contact our sales team](https://handsontable.com/contact/) to apply for a free license.
+
+If you're using Handsontable in a project that supports commercial activities, you'll need to purchase a license key at [handsontable.com/pricing](https://handsontable.com/pricing). You can find more details in [our documentation](https://handsontable.com/docs/vue-data-grid/license-key/).
+
+<br>
+
+## 🙌 Contributing
+
+Contributions are welcome, but before you make them, please read the [Contributing Guide](https://github.com/handsontable/handsontable/blob/develop/CONTRIBUTING.md) and accept the [Contributor License Agreement](https://cla.handsontable.com/sign).
 
 <br>
 <br>
 
-Proudly created and maintained by the [Handsontable Team](https://handsontable.com/team).
+Created and maintained by the [Handsontable Team](https://handsontable.com/team) 👋
+
+---
+
+© 2012 - 2026 Handsoncode

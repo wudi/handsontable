@@ -1,0 +1,565 @@
+import type { HotInstance } from '../../core/types';
+import { BasePlugin } from '../base';
+import type { PhysicalIndexToValueMap as IndexToValueMap } from '../../translations';
+import { COLUMN_RESIZE_AXIS } from '../../utils/manualResize/axis';
+import { ResizeGesture } from '../../utils/manualResize/resizeGesture';
+import {
+  COLUMN_SIZE_OPTIONS,
+  isStorableSize,
+  pickStorableSizes,
+  redeclaresManualSizes,
+} from '../../utils/manualResize/utils';
+import { LICENSE } from './feature.generated';
+
+export const PLUGIN_KEY = 'manualColumnResize';
+export const PLUGIN_PRIORITY = 130;
+
+/**
+ * The narrowest width a column can have when its header renders no menu button, or when the theme tokens
+ * the floor is derived from can't be measured (no theme, or a grid that is not rendered yet). It is also
+ * the lowest the floor can ever be.
+ */
+const FALLBACK_MIN_WIDTH = 20;
+
+/**
+ * The room the header's menu button needs, as a CSS expression the browser resolves: the icon size plus
+ * the horizontal cell padding on both sides.
+ */
+const MIN_WIDTH_EXPRESSION = 'calc(var(--ht-icon-size) + 2 * var(--ht-cell-horizontal-padding))';
+
+/**
+ * @plugin ManualColumnResize
+ * @class ManualColumnResize
+ *
+ * @description
+ * This plugin allows to change columns width.
+ *
+ * The plugin creates additional components to make resizing possibly using user interface:
+ * - handle - the draggable element that sets the desired width of the column.
+ * - guide - the helper guide that shows the desired width as a vertical guide.
+ */
+export class ManualColumnResize extends BasePlugin {
+  /**
+   * Returns the plugin key used to identify this plugin in Handsontable settings.
+   */
+  static get PLUGIN_KEY() {
+    return PLUGIN_KEY;
+  }
+
+  /**
+   * Returns the setting keys that trigger a plugin update after an `updateSettings()` call. The
+   * `colWidths` option is listed alongside the plugin's own key, so that re-declaring the column
+   * widths discards the widths kept from earlier manual resizing.
+   *
+   * @returns {string[]}
+   */
+  static get SETTING_KEYS(): string[] {
+    return [PLUGIN_KEY, ...COLUMN_SIZE_OPTIONS];
+  }
+
+  /**
+   * Returns the priority order used to determine the order in which plugins are initialized.
+   */
+  static get PLUGIN_PRIORITY() {
+    return PLUGIN_PRIORITY;
+  }
+
+  /**
+   * Returns the license token of the plugin, its display name, where it is checked, and the tokens it
+   * requires.
+   */
+  static get LICENSE() {
+    return LICENSE;
+  }
+
+  /**
+   * The resize handle, the guide, and the drag and double-click state behind them. Shared with
+   * `ManualRowResize` - see `../../utils/manualResize/AGENTS.md`.
+   */
+  #gesture: ResizeGesture;
+  /**
+   * PhysicalIndexToValueMap to keep and track widths for physical column indexes.
+   *
+   * @type {PhysicalIndexToValueMap}
+   */
+  #columnWidthsMap!: IndexToValueMap;
+  /**
+   * Disposer function for the column widths map observer. Called on disable to clean up.
+   *
+   * @type {Function|null}
+   */
+  #disposeMapObserver: (() => void) | null = null;
+  /**
+   * Private pool to save configuration from updateSettings.
+   *
+   * @type {object}
+   */
+  #config!: unknown[];
+
+  /**
+   * Initializes the plugin and creates the resize gesture.
+   */
+  constructor(hotInstance: HotInstance) {
+    super(hotInstance);
+
+    this.#gesture = new ResizeGesture(this.hot, COLUMN_RESIZE_AXIS, {
+      isActive: () => this.enabled,
+      clampSize: width => this.#clampSize(width),
+      setManualSize: (column, width) => this.#setManualSize(column, width),
+      getRenderedOverhead: column => this.#getRenderedOverhead(column),
+    });
+  }
+
+  /**
+   * Checks if the plugin is enabled in the handsontable settings. This method is executed in {@link Hooks#beforeInit}
+   * hook and if it returns `true` then the {@link ManualColumnResize#enablePlugin} method is called.
+   *
+   * @returns {boolean}
+   */
+  isEnabled(): boolean {
+    return !!this.hot.getSettings()[PLUGIN_KEY];
+  }
+
+  /**
+   * Enables the plugin functionality for this Handsontable instance.
+   */
+  enablePlugin() {
+    if (this.enabled) {
+      return;
+    }
+
+    this.#columnWidthsMap = this.hot.columnIndexMapper.createAndRegisterIndexMap(
+      this.pluginName!, 'physicalIndexToValue', null, { skipUnchangedWrites: true },
+    );
+    this.#columnWidthsMap.addLocalHook('init', () => this.#onMapInit());
+
+    // `createAndRegisterIndexMap` initializes the map synchronously when the dataset is already
+    // loaded (a plugin re-enable), before the hook above could attach - replay the init handler.
+    if (this.hot.columnIndexMapper.getNumberOfIndexes() > 0) {
+      this.#onMapInit();
+    }
+
+    this.#disposeMapObserver = this.hot.columnIndexMapper
+      .observeMapChange(this.#columnWidthsMap, () => {
+        this.hot.view?.invalidateColumnWidthCache();
+      });
+
+    this.addHook('modifyColWidth', this.#onModifyColWidth, 1);
+    this.addHook('beforeStretchingColumnWidth', this.#onBeforeStretchingColumnWidth, 1);
+    this.addHook('beforeColumnResize', this.#onBeforeColumnResize);
+    this.addHook('beforeLoadData', this.#onBeforeDataReplace);
+
+    this.#gesture.bindEvents(this.eventManager);
+
+    super.enablePlugin();
+  }
+
+  /**
+   * Updates the plugin's state.
+   *
+   * This method is executed when [`updateSettings()`](@/api/core.md#updatesettings) is invoked with any of the following configuration options:
+   *  - [`manualColumnResize`](@/api/options.md#manualcolumnresize)
+   *  - [`colWidths`](@/api/options.md#colwidths)
+   *
+   * Passing `colWidths` re-declares the column widths, so the widths kept from earlier manual
+   * resizing are discarded. A grid whose `manualColumnResize` option is an array keeps that array
+   * instead, whether the array arrives in this call or was set when the grid was built.
+   *
+   * @param {object} [newSettings] The config object passed to `updateSettings()`.
+   */
+  updatePlugin(newSettings?: Record<string, unknown>) {
+    // Re-initialize only when the plugin's own option was declared. `#onMapInit` replays the
+    // declared `manualColumnResize` array, so re-initializing on a `colWidths`-only update would
+    // revert a column the user had since dragged to the array's width - neither the dragged width
+    // nor the one being requested.
+    if (newSettings === undefined || newSettings[PLUGIN_KEY] !== undefined) {
+      this.disablePlugin();
+      this.enablePlugin();
+    }
+
+    // Runs after the re-initialization, so that the widths replayed on the map's `init` hook are
+    // discarded too.
+    if (redeclaresManualSizes(newSettings, COLUMN_SIZE_OPTIONS, this.hot.getSettings()[PLUGIN_KEY])) {
+      this.clearManualSizes();
+    }
+
+    super.updatePlugin(newSettings);
+  }
+
+  /**
+   * Disables the plugin functionality for this Handsontable instance.
+   */
+  disablePlugin() {
+    // Leaves a drag in flight alone on purpose - see `ResizeGesture#detach()`.
+    this.#gesture.detach();
+
+    if (this.#disposeMapObserver) {
+      this.#disposeMapObserver();
+      this.#disposeMapObserver = null;
+    }
+
+    this.#config = this.#columnWidthsMap.getValues();
+    this.hot.columnIndexMapper.unregisterMap(this.pluginName!);
+    super.disablePlugin();
+  }
+
+  /**
+   * Sets the new width for the specified visual column index.
+   *
+   * This method updates the plugin's internal width map. Call `render()` after `setManualSize()` to repaint the grid.
+   * Values lower than the minimum column width are saved as that minimum. When the column headers render the
+   * menu button ([`dropdownMenu`](@/api/options.md#dropdownmenu) is enabled), the minimum is the icon size plus
+   * the cell's horizontal padding on both sides (`--ht-icon-size + 2 * --ht-cell-horizontal-padding`), so the
+   * button always fits: `32px` in the Main theme, `40px` in Horizon, and `24px` in Classic. In any other grid, and
+   * when the theme doesn't declare those tokens, the minimum is `20px`, which is also the lowest it can be.
+   *
+   * Nothing is stored while the plugin is disabled, for a column that does not exist, or for a width
+   * that is not a finite number.
+   *
+   * @example
+   * ```js
+   * const resizePlugin = hot.getPlugin('manualColumnResize');
+   *
+   * resizePlugin.setManualSize(0, 120);
+   * hot.render();
+   * ```
+   *
+   * @param {number} column Visual column index.
+   * @param {number} width Column width (no less than the minimum column width).
+   * @returns {number} The width after the minimum is applied, also when nothing was stored.
+   */
+  setManualSize(column: number, width: number): number {
+    return this.runOperation('resize_column', () => this.#setManualSize(column, width));
+  }
+
+  /**
+   * The body of `setManualSize()`, run inside its operation. The map exists only while the plugin is
+   * enabled, and an out-of-range visual index resolves to `null`, which would write an entry under the
+   * string "null", so both store nothing. The width is clamped first, which converts a numeric string
+   * and `null` the way released versions did, and a result that is not finite stores nothing.
+   *
+   * @param {number} column Visual column index.
+   * @param {number} width Column width (no less than the minimum column width).
+   * @returns {number} The clamped width: the width stored, or the width it would store.
+   */
+  #setManualSize(column: number, width: number): number {
+    const newWidth = this.#clampSize(width);
+    const physicalColumn = this.hot.toPhysicalColumn(column);
+
+    if (this.enabled && physicalColumn !== null && isStorableSize(newWidth)) {
+      this.#columnWidthsMap.setValueAtIndex(physicalColumn, newWidth);
+    }
+
+    return newWidth;
+  }
+
+  /**
+   * Returns the width `setManualSize()` stores for the given width.
+   *
+   * @param {number} width Column width.
+   * @returns {number}
+   */
+  #clampSize(width: number): number {
+    return Math.max(width, this.#getMinWidth());
+  }
+
+  /**
+   * Returns the narrowest width a column can have. A grid whose headers render the menu button gets the
+   * room that button needs: the icon size plus the horizontal cell padding on both sides. Any other grid
+   * keeps the old floor, because there is no button to protect.
+   *
+   * The theme tokens are resolved in the browser (`StylesHandler#getResolvedLength()`), so a custom theme
+   * can declare them in `rem`, `em` or `calc()`, and the answer is cached until the theme changes. It falls
+   * back to 20px when the tokens can't be measured (no theme, or a grid that is not rendered yet), and is
+   * never less than that.
+   *
+   * @returns {number}
+   */
+  #getMinWidth(): number {
+    if (!this.#rendersMenuButton()) {
+      return FALLBACK_MIN_WIDTH;
+    }
+
+    const width = this.hot.stylesHandler?.getResolvedLength(MIN_WIDTH_EXPRESSION);
+
+    return typeof width === 'number' ? Math.max(FALLBACK_MIN_WIDTH, width) : FALLBACK_MIN_WIDTH;
+  }
+
+  /**
+   * Returns how much wider a column renders than the width stored for it: the room `HiddenColumns` adds
+   * for the indicator of a hidden neighbor. A column the stretching resizes renders the stretched width,
+   * which replaces that room (`StretchColumns` runs after `HiddenColumns` in `modifyColWidth`), so it has none.
+   *
+   * @param {number} column Visual column index.
+   * @returns {number}
+   */
+  #getRenderedOverhead(column: number): number {
+    const stretchColumns = this.hot.getPlugin('stretchColumns');
+
+    if (stretchColumns?.enabled && typeof stretchColumns.getColumnWidth(column) === 'number') {
+      return 0;
+    }
+
+    return this.hot.getPlugin('hiddenColumns')?.getIndicatorExtraWidth(column) ?? 0;
+  }
+
+  /**
+   * Checks whether the column headers render the dropdown menu button, which is what the minimum width
+   * is derived from. Read when a width is written, so enabling the menu later applies from then on.
+   *
+   * The rendered header count, not the `colHeaders` option: `nestedHeaders` draws header rows with
+   * `colHeaders` off, and the menu puts its button on the bottom one.
+   *
+   * @returns {boolean}
+   */
+  #rendersMenuButton(): boolean {
+    return this.hot.countColHeaders() > 0 && !!this.hot.getPlugin('dropdownMenu')?.enabled;
+  }
+
+  /**
+   * Returns the width set manually for the specified column, or `null` when the column was never
+   * resized by hand and takes its width from elsewhere.
+   *
+   * @param {number} column Visual column index.
+   * @returns {number|null}
+   */
+  getManualSize(column: number): number | null {
+    // The map only exists while the plugin is enabled, and a disabled plugin stores no widths.
+    if (!this.enabled) {
+      return null;
+    }
+
+    const physicalColumn = this.hot.toPhysicalColumn(column);
+    const value = physicalColumn === null ? null : this.#columnWidthsMap.getValueAtIndex(physicalColumn);
+
+    return typeof value === 'number' ? value : null;
+  }
+
+  /**
+   * Returns every width set manually, as `[physicalColumn, width]` pairs. Physical indexes,
+   * because the map stores them that way: a manually resized column that trimming has taken out
+   * of the visual space still carries its width here, while `getManualSize` cannot reach it.
+   *
+   * @returns {Array<Array<number>>} The stored `[physicalColumn, width]` pairs.
+   */
+  getManualSizes(): Array<[number, number]> {
+    const sizes: Array<[number, number]> = [];
+
+    if (!this.enabled) {
+      return sizes;
+    }
+
+    this.#columnWidthsMap.getValues().forEach((value, physicalColumn) => {
+      if (typeof value === 'number') {
+        sizes.push([physicalColumn, value]);
+      }
+    });
+
+    return sizes;
+  }
+
+  /**
+   * Writes a set of manual widths at once, addressed by physical column index — the
+   * counterpart of {@link ManualColumnResize#getManualSizes}, so a stored set round-trips onto
+   * the same records regardless of trimming or column order. Values lower than the minimum
+   * column width (see {@link ManualColumnResize#setManualSize}) are saved as that minimum. A pair whose index
+   * is not an integer within the current column count, or whose width is not a finite number, is skipped.
+   * Unlike `setManualSize()`, a numeric string or `null` width is skipped, not converted.
+   * Call `render()` afterwards to repaint the grid.
+   *
+   * @param {Array<Array<number>>} sizes The `[physicalColumn, width]` pairs to write.
+   */
+  setManualSizes(sizes: Array<[number, number]>): void {
+    this.runOperation('resize_column', () => this.#setManualSizes(sizes));
+  }
+
+  /**
+   * The body of `setManualSizes()`, run inside its operation.
+   *
+   * @param {Array<Array<number>>} sizes The `[physicalColumn, width]` pairs to write.
+   */
+  #setManualSizes(sizes: Array<[number, number]>): void {
+    if (!this.enabled) {
+      return;
+    }
+
+    const storable = pickStorableSizes(sizes, this.hot.columnIndexMapper.getNumberOfIndexes());
+    // Read once: the floor cannot change inside the loop, and a restore can carry thousands of widths.
+    const minWidth = this.#getMinWidth();
+
+    this.hot.batchExecution(() => {
+      storable.forEach(([physicalColumn, width]) => {
+        this.#columnWidthsMap.setValueAtIndex(physicalColumn, Math.max(width, minWidth));
+      });
+    }, true);
+  }
+
+  /**
+   * Clears the width stored for the specified column, so the column falls back to the width coming
+   * from the [`colWidths`](@/api/options.md#colwidths) option, or to the built-in default width.
+   * Call `render()` afterwards to repaint the grid.
+   *
+   * @example
+   * ```js
+   * const resizePlugin = hot.getPlugin('manualColumnResize');
+   *
+   * resizePlugin.clearManualSize(0);
+   * hot.render();
+   * ```
+   *
+   * @param {number} column Visual column index.
+   */
+  clearManualSize(column: number): void {
+    this.runOperation('resize_column', () => this.#clearManualSize(column));
+  }
+
+  /**
+   * The body of `clearManualSize()`, run inside its operation.
+   *
+   * @param {number} column Visual column index.
+   */
+  #clearManualSize(column: number): void {
+    // The map only exists while the plugin is enabled, and a disabled plugin stores no widths.
+    if (!this.enabled) {
+      return;
+    }
+
+    const physicalColumn = this.hot.toPhysicalColumn(column);
+
+    // An out-of-range visual index resolves to `null`, which would write an entry under the string
+    // "null" and invalidate the width cache for nothing.
+    if (physicalColumn !== null) {
+      this.#columnWidthsMap.setValueAtIndex(physicalColumn, null);
+    }
+  }
+
+  /**
+   * Clears the widths stored for every column, so the columns fall back to the widths coming from
+   * the [`colWidths`](@/api/options.md#colwidths) option, or to the built-in default width. Call
+   * `render()` afterwards to repaint the grid.
+   *
+   * @example
+   * ```js
+   * const resizePlugin = hot.getPlugin('manualColumnResize');
+   *
+   * resizePlugin.clearManualSizes();
+   * hot.render();
+   * ```
+   */
+  clearManualSizes(): void {
+    this.runOperation('resize_column', () => this.#clearManualSizes());
+  }
+
+  /**
+   * The body of `clearManualSizes()`, run inside its operation.
+   */
+  #clearManualSizes(): void {
+    this.#config = [];
+
+    // The map only exists while the plugin is enabled, and a disabled plugin stores no widths.
+    if (this.enabled) {
+      this.#columnWidthsMap.clear();
+    }
+  }
+
+  /**
+   * Auto-size column after doubleclick - callback. Kept on the plugin because the frozen
+   * `autoRowSize.spec.js` calls it directly to close a double-click window between simulated clicks.
+   *
+   * @private
+   * @fires Hooks#beforeColumnResize
+   * @fires Hooks#afterColumnResize
+   */
+  afterMouseDownTimeout() {
+    this.#gesture.afterMouseDownTimeout();
+  }
+
+  /**
+   * Callback to call on map's `init` local hook.
+   *
+   * @private
+   */
+  #onMapInit() {
+    const initialSetting = this.hot.getSettings()[PLUGIN_KEY];
+
+    if (Array.isArray(initialSetting)) {
+      this.hot.batchExecution(() => {
+        initialSetting.forEach((width, physicalIndex) => {
+          this.#columnWidthsMap.setValueAtIndex(physicalIndex, width);
+        });
+      }, true);
+
+      this.#config = initialSetting;
+
+    } else if (initialSetting === true && Array.isArray(this.#config)) {
+      this.hot.batchExecution(() => {
+        this.#config.forEach((width: unknown, physicalIndex: number) => {
+          this.#columnWidthsMap.setValueAtIndex(physicalIndex, width);
+        });
+      }, true);
+    }
+  }
+
+  /**
+   * Modifies the provided column width, based on the plugin settings.
+   *
+   * @param {number} width Column width.
+   * @param {number} column Visual column index.
+   * @returns {number}
+   */
+  #onModifyColWidth = (width: number, column: number) => {
+    let newWidth = width;
+
+    if (this.enabled) {
+      const physicalColumn = this.hot.toPhysicalColumn(column);
+      const columnWidth = this.#columnWidthsMap.getValueAtIndex<number>(physicalColumn);
+
+      if (this.hot.getSettings()[PLUGIN_KEY] && columnWidth) {
+        newWidth = columnWidth;
+      }
+    }
+
+    return newWidth;
+  };
+
+  /**
+   * Modifies the provided column stretched width. This hook decides if specified column should be stretched or not.
+   *
+   * @param {number} stretchedWidth Stretched width.
+   * @param {number} column Visual column index.
+   * @returns {number}
+   */
+  #onBeforeStretchingColumnWidth = (stretchedWidth: number, column: number) => {
+    const width = this.#columnWidthsMap.getValueAtIndex(this.hot.toPhysicalColumn(column));
+
+    if (typeof width === 'number') {
+      return width;
+    }
+
+    return stretchedWidth;
+  };
+
+  /**
+   * Cancels a resize drag held while the grid's data is replaced (`loadData()`, a sheet
+   * switch), so the release does not resize the columns of the data that replaced it.
+   */
+  #onBeforeDataReplace = () => {
+    this.#gesture.abort();
+  };
+
+  /**
+   * `beforeColumnResize` hook callback.
+   */
+  #onBeforeColumnResize = () => {
+    // clear the header height cache information
+    this.hot.view._wt.wtViewport.resetHasOversizedColumnHeadersMarked();
+  };
+
+  /**
+   * Destroys the plugin instance.
+   */
+  destroy() {
+    this.#gesture.destroy();
+    super.destroy();
+  }
+}

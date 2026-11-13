@@ -13,7 +13,7 @@ describe('NestedRows', () => {
   });
 
   describe('Initialization', () => {
-    it('should display an error and disable the plugin, when no data was provided', () => {
+    it('should display an error and disable the plugin, when no data was provided', async() => {
       const errorSpy = spyOn(console, 'error');
 
       handsontable({
@@ -24,11 +24,11 @@ describe('NestedRows', () => {
         ' provided. The plugin has been disabled.');
     });
 
-    it('should display an error and disable the plugin, when an array of arrays was provided as a dataset', () => {
+    it('should display an error and disable the plugin, when an array of arrays was provided as a dataset', async() => {
       const errorSpy = spyOn(console, 'error');
 
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(3, 3),
+        data: createSpreadsheetData(3, 3),
         nestedRows: true
       });
 
@@ -37,24 +37,53 @@ describe('NestedRows', () => {
     });
 
     it('should prevent enabling the plugin after the updateSettings call when it was automatically disabled by ' +
-       'passing the wrong dataset', () => {
+       'passing the wrong dataset', async() => {
       const errorSpy = spyOn(console, 'error');
 
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(3, 3),
+        data: createSpreadsheetData(3, 3),
         nestedRows: true
       });
 
       expect(errorSpy).toHaveBeenCalledWith('The Nested Rows plugin requires an Array of Objects as a dataset to be' +
         ' provided. The plugin has been disabled.');
 
-      updateSettings({});
+      await updateSettings({});
 
-      expect(getSettings().nestedRows).toBe(false);
+      expect(getSettings().nestedRows).toBe(true);
       expect(getPlugin('nestedRows').enabled).toBe(false);
     });
 
-    it('should render the row header in correct width (based on the deepest dataset length)', () => {
+    it('should keep the plugin enabled when updating data to an empty array', async() => {
+      const nestedData = [{
+        label: 'Parent',
+        __children: [
+          { label: 'Child' },
+        ],
+      }];
+
+      handsontable({
+        data: nestedData,
+        nestedRows: true,
+      });
+
+      expect(getPlugin('nestedRows').enabled).toBe(true);
+      expect(countRows()).toBe(2);
+
+      await updateSettings({ data: [] });
+
+      expect(getPlugin('nestedRows').enabled).toBe(true);
+      expect(countRows()).toBe(0);
+
+      await updateSettings({ data: nestedData });
+
+      expect(getPlugin('nestedRows').enabled).toBe(true);
+      expect(countRows()).toBe(2);
+      expect(getDataAtCell(0, 0)).toBe('Parent');
+      expect(getDataAtCell(1, 0)).toBe('Child');
+    });
+
+    it('should render the row header in correct width (based on the deepest dataset length)', async() => {
       handsontable({
         data: [{
           category: 'Best Rock Performance',
@@ -92,7 +121,7 @@ describe('NestedRows', () => {
         nestedRows: true,
       });
 
-      expect(getCell(0, -1).offsetWidth).toBe(76);
+      expect(getCell(0, -1).offsetWidth).toBe(nestedRowsLevel1HeaderWidth(getThemeLayout()));
     });
   });
 });

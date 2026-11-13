@@ -4,30 +4,58 @@ This page covers guidelines for deploying the [Handsontable documentation](https
 
 ## About documentation deployment
 
-A [`prod-docs/<MAJOR.MINOR>` branch](./README.md#handsontable-documentation-branches-structure) with the largest version number gets automatically tagged as the documentation's latest version.
+The documentation is deployed to **Cloudflare Pages**. A [`prod-docs/<MAJOR.MINOR>` branch](./README.md#handsontable-documentation-branches-structure) with the largest version number gets automatically tagged as the documentation's latest version.
 
-Our server configuration watches for images tagged with `:v12.1`, `:v13.0` and so on, and automatically refreshes after detecting a newer version.
+The `prod-docs/latest` branch triggers a GitHub workflow that initiates a rebuild and deploys to Cloudflare Pages on each push or when a new `prod-docs/<MAJOR.MINOR>` branch is created.
 
-### Docker settings
+Two Cloudflare Pages projects back the documentation:
 
-Before generating the documentation, set [Docker's runtime memory limit](https://docs.docker.com/docker-for-mac/).
+| Project | Apex URL | Serves |
+|---|---|---|
+| `handsontable-docs` | `handsontable-docs.pages.dev` (custom domain: [handsontable.com/docs](https://handsontable.com/docs)) | Production |
+| `handsontable-docs-staging` | `handsontable-docs-staging.pages.dev` | Staging (`develop`) and per-PR previews |
 
-The recommended runtime memory limit is 8 GB. It allows us to generate 4 documentation versions at a time.
+`docs.handsontable.com` is a legacy custom domain on the `handsontable-docs` project. It pre-dates the move to `handsontable.com/docs` and is kept working for old bookmarks and inbound links, but every `GET`/`HEAD` on it answers with a `301` to the matching page on `handsontable.com`. The redirect is implemented in `docs/cloudflare/_worker.js` (rule 12a, see `LEGACY_DOCS_HOSTS`) rather than in the Cloudflare dashboard, so it stays in version control with the rest of the routing rules.
+
+Two details are load-bearing. The rule sits **above** the cookie-reading rules 12b-17 on purpose: those answer with a `302` because their destination depends on the `docs_fw` cookie, and a `302` is not a canonicalisation signal, so a legacy URL answered by one would never leave the search index. Placing the cut there also moves the framework decision to the host that actually holds the cookie, since cookies are host-scoped. And do not add a `*.pages.dev` apex to `LEGACY_DOCS_HOSTS` - the staging apex and the per-PR previews are served from the same worker, so redirecting them would break documentation review.
+
+A Cloudflare Pages deployment is served at the apex `<project>.pages.dev` only when its `wrangler --branch` matches the project's production branch label (a stable label, not a git branch). Production uses the label `production`; staging uses `develop`. Per-PR builds deploy to the branch `pr-<N>`, served as an isolated preview at `pr-<N>.handsontable-docs-staging.pages.dev`.
+
+The build scripts that assemble the multi-version documentation site live in the `docs/deploy/` directory. The redirect and rewrite logic is implemented in the Cloudflare Pages worker at `docs/cloudflare/_worker.js`.
+
+> **The Cloudflare worker is the single source of truth for redirects.** See the [Redirects](#redirects) section below before editing any redirect rule.
 
 ## Deploying the documentation
 
-Handsontable's [GitHub Actions setup](https://github.com/handsontable/handsontable/actions) deploys the documentation based on the following Docker image tags:
+Handsontable's [GitHub Actions setup](https://github.com/handsontable/handsontable/actions) deploys the documentation to Cloudflare Pages.
 
-| Docker image tag      | Build type | Triggered by                                          | Used for                                                                                                                                   |
-| --------------------- | ---------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `:[COMMIT_HASH]`      | Staging    | A push that changes `docs/**` on any branch           | [Manual local deployment](#deploying-the-documentation-locally-at-a-specific-commit)                                                       |
-| `:next`             | Staging    | A push that changes `docs/**` on the `develop` branch | [Manual staging deployment](#manually-deploying-the-documentation-to-the-staging-environment)          |
-| `:v12.1`, `v13.0` etc.         | Production | A push that changes `docs/**` on the Docs production branch e.g `prod-docs/12.1` | Automatic production deployment |
-| `:v12.1-[COMMIT_HASH]`, `:v13.0-[COMMIT_HASH]` etc. | Production | A push that changes `docs/**` on the Docs production branch e.g `prod-docs/12.1` | Images used for backups                                                                                                     |
+### Deploying the documentation to the staging environment
 
-### Manually deploying the documentation to the staging environment
+Staging documentation is deployed to Cloudflare Pages either automatically or manually based on the following diagram.
 
-To deploy the documentation to the [staging environment](https://dev.handsontable.com/docs), from GitHub Actions:
+```mermaid
+flowchart TD
+    Docs[Documentation Stage on Cloudflare Pages]
+    Push[Push on files <pre>docs/*</pre>]
+    Manual[Manual <pre>workflow_dispatch</pre>]
+    PullRequest[Pull Request event]
+    PullRequestClose[Pull Request close]
+    Apex[Deploy develop to apex <pre>handsontable-docs-staging.pages.dev</pre>]
+    Preview[Generate a preview at <pre>BRANCH.handsontable-docs-staging.pages.dev</pre>]
+    Destroy[Destroy, if exists, the preview at <pre>pr-N.handsontable-docs-staging.pages.dev</pre>]
+    Push -->|Automatic on develop| Apex
+    Manual -->|Manual trigger on a non-develop branch| Preview
+    PullRequest --> |Manual approve on PR page| Comment[Bot comments on PR page with URL]  --> Preview
+    PullRequestClose --> |Automatic| Destroy
+    Docs --> Push
+    Docs --> Manual
+    Docs --> PullRequest
+    PullRequest --> PullRequestClose
+```
+
+#### `workflow_dispatch` manual trigger on any branch
+
+To deploy the documentation to the staging environment, from GitHub Actions:
 
 1. Go to [github.com/handsontable/handsontable/actions](https://github.com/handsontable/handsontable/actions).
 2. Select the **Docs Staging Deployment** workflow.
@@ -35,60 +63,53 @@ To deploy the documentation to the [staging environment](https://dev.handsontabl
 4. Select the branch that you want to deploy.
 5. Select **Run workflow**.
 
-To deploy the documentation to the [staging environment](https://dev.handsontable.com/docs), from the command line:
+The deploy target depends on the branch:
 
-1. When deploying for the first time, log in to the GitHub Container Registry (ghcr.io):
-    ```bash
-    docker login --registry docker.pkg.github.com
-    ```
-    * Login: Your GitHub account email
-    * Password: PAT with the `write:packages` permission: https://github.com/settings/tokens/new
-2. Deploy the documentation:
-    ```bash
-    npm run docs:docker:build
+- `develop` deploys to the staging apex `handsontable-docs-staging.pages.dev`.
+- A `release/x.y.z` branch (RC build) deploys to `rc-<version>.handsontable-docs-staging.pages.dev` (a stable per-version URL the release pipeline links to).
+- Any other branch deploys to a sanitized branch-name preview at `<branch>.handsontable-docs-staging.pages.dev`.
 
-    docker push docker.pkg.github.com/handsontable/handsontable/handsontable-documentation:next
-    ```
+#### Manual trigger on pull request page
 
-### Manually deploying the documentation to the production environment
+On the pull request page there will be a pipeline in waiting mode that, once [approved](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-deployments/managing-environments-for-deployment#required-reviewers), (re)generates a Cloudflare Pages preview of the documentation and posts the `pr-<N>.handsontable-docs-staging.pages.dev` URL in a PR comment.
+
+When the pull request is closed, the preview deployment is deleted.
+
+### Deploying the documentation to the production environment
 
 To deploy the documentation to the [production environment](https://handsontable.com/docs), from GitHub Actions:
 
 1. Go to [github.com/handsontable/handsontable/actions](https://github.com/handsontable/handsontable/actions).
 2. Select the **Docs Production Deployment** workflow.
 3. Select the **Run workflow** drop-down.
-4. Select the Docs production branch that you want to deploy (e.g `docs-prod/12.1`).
+4. Select the Docs production branch that you want to deploy (e.g. `prod-docs/12.1`).
 5. Select **Run workflow**.
 
-To deploy the documentation to the [production environment](https://handsontable.com/docs), from the command line:
+The workflow assembles the multi-version site (current plus previous versions, pulled from the published GHCR Docker images) using the scripts in `docs/deploy/`, then deploys it to the `handsontable-docs` Cloudflare Pages project on the `production` branch label, which serves it at the apex.
 
-1. When deploying for the first time, log in to the GitHub Container Registry (ghcr.io):
-    ```bash
-    docker login --registry docker.pkg.github.com
-    ```
-    * Login: Your GitHub account email
-    * Password: PAT with the `write:packages` permission: https://github.com/settings/tokens/new
-
-2. Deploy the documentation:
-    ```bash
-    npm run docs:docker:build:production
-
-    docker push docker.pkg.github.com/handsontable/handsontable/handsontable-documentation:v12.1
-    ```
+During assembly, two scripts post-process the frozen previous-version builds (which are never rebuilt): `rewriteVersionedPaths.mjs` prefixes root-relative links in Astro builds (>= 17.1) with their version segment, including the `/docs/` base inside Vite's `_astro/preload-helper.*.js`, and `injectBannerTopCss.mjs` injects a CSS override into legacy VuePress builds so the "newer version available" banner renders at the top of the page instead of the bottom (PRO-1303). Both changes take effect in production only after they land on the `prod-docs/<MAJOR.MINOR>` branch that triggers the next deploy - a deploy triggered from an older `prod-docs` branch (e.g. a hotfix) assembles from that branch's checkout and reverts any assembly-script change it does not carry.
 
 ### Reverting a production deployment
 
-To revert a production deployment to a previous version (on the example of a broken version 12.1):
+To revert a production deployment to a previous version:
 
-1. Pull a previously-deployed Docker image of your choice, tagged with `[COMMIT_HASH]`:
-    ```bash
-    docker pull docker.pkg.github.com/handsontable/handsontable/handsontable-documentation:v12.1-[COMMIT_HASH]
-    ```
-2. Make the `production` Docker tag refer to your `[COMMIT_HASH]` version:
-    ```bash
-    docker tag docker.pkg.github.com/handsontable/handsontable/handsontable-documentation:v12.1-[COMMIT_HASH] docker.pkg.github.com/handsontable/handsontable/handsontable-documentation:v12.1
-    ```
-3. Push the `production` Docker image (which is your `[COMMIT_HASH]` version now) back to the registry:
-    ```bash
-    docker push docker.pkg.github.com/handsontable/handsontable/handsontable-documentation:v12.1
-    ```
+1. Go to [github.com/handsontable/handsontable/actions](https://github.com/handsontable/handsontable/actions).
+2. Select the **Docs Production Deployment** workflow.
+3. Select **Run workflow** on the `prod-docs/<MAJOR.MINOR>` branch with the desired version.
+4. Alternatively, revert the commit on the `prod-docs/latest` branch and push - this triggers an automatic rebuild and Cloudflare Pages deployment.
+
+You can also roll back instantly from the Cloudflare dashboard: open the `handsontable-docs` project, find a previous production deployment, and promote it via **Rollback to this deployment**.
+
+## Redirects
+
+Redirect rules are implemented in `cloudflare/_worker.js` - the **sole** authority for both production and staging. When a `_worker.js` is present, Cloudflare Pages ignores `_redirects` entirely, so this worker re-implements every redirect rule. It is **hand-maintained** - there is no generator. See `cloudflare/README.md` for the full rule catalog and the concepts (framework cookie, latest-version substitution, legacy version routing) behind it.
+
+When you add, change, or remove a redirect (for example, after renaming a page's `permalink`), add the old-slug-to-new-slug rule for all four framework prefixes (`javascript-/react-/angular-/vue-data-grid`) to the `CROSS_FRAMEWORK_PAGES` map in `cloudflare/_worker.js` (it is matched before the static-asset fallthrough). Do **not** point a `:major.:minor` versioned wildcard at the new slug - that wildcard matches every frozen older version where the page still lives at the old slug.
+
+`docker/redirects-autogenerated.conf` is generated at build (`# DO NOT EDIT`); it only normalizes `/docs/next/...` to `/docs/...` and does not handle same-version renames. `docker/redirects.conf` is reserved for ancient slug families and does not serve production.
+
+### Latest-version redirect (`/docs/<latest>/* → /docs/*`)
+
+The latest version's docs are also served at the unversioned `/docs/...` root, so the versioned URLs (for example, `/docs/18.0/angular-data-grid`) are duplicates of the unversioned canonical (`/docs/angular-data-grid`). The worker redirects the versioned form to the unversioned one (rule 1b): the `__LATEST_DOCS_VERSION__` placeholder in its `LATEST_VERSION` constant is substituted at deploy time by the "Add Cloudflare worker to production deploy" step in `docs-production.yml`, which reads `deploy/LATEST_DOCS_VERSION` - a file written by `build_current_version.sh` from the same `getListOrPreviousVersions.mjs` source that decides the content layout. This must be the *latest released* version, not the `prod-docs/<MAJOR.MINOR>` branch being deployed - those differ whenever a hotfix goes out to an older docs version, and substituting the branch name would misroute that version's URLs. If the placeholder is left unreplaced (for example, on staging previews, which have no versioned docs), the worker's `\d+\.\d+` guard makes the rule a no-op.
+
+This redirect is **not** a page rename, so it does not need a `CROSS_FRAMEWORK_PAGES` entry - it strips the latest-version prefix from any path.

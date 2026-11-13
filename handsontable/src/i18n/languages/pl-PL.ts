@@ -1,0 +1,202 @@
+/**
+ * @preserve
+ * Authors: Handsoncode
+ * Last updated: Dec 5, 2022
+ *
+ * Description: Definition file for Polish - Poland language-country.
+ */
+import * as C from '../constants';
+
+const dictionary = {
+  languageCode: 'pl-PL',
+
+  [C.OK]: 'OK',
+  [C.CANCEL]: 'Anuluj',
+
+  [C.CONTEXTMENU_ITEMS_NO_ITEMS]: 'Brak dostępnych opcji',
+  [C.CONTEXTMENU_ITEMS_ROW_ABOVE]: 'Wstaw wiersz powyżej',
+  [C.CONTEXTMENU_ITEMS_ROW_BELOW]: 'Wstaw wiersz poniżej',
+  [C.CONTEXTMENU_ITEMS_INSERT_LEFT]: 'Wstaw kolumnę z lewej',
+  [C.CONTEXTMENU_ITEMS_INSERT_RIGHT]: 'Wstaw kolumnę z prawej',
+  [C.CONTEXTMENU_ITEMS_REMOVE_ROW]: ['Usuń wiersz', 'Usuń wiersze'],
+  [C.CONTEXTMENU_ITEMS_REMOVE_COLUMN]: ['Usuń kolumnę', 'Usuń kolumny'],
+  [C.CONTEXTMENU_ITEMS_UNDO]: 'Cofnij',
+  [C.CONTEXTMENU_ITEMS_REDO]: 'Ponów',
+  [C.CONTEXTMENU_ITEMS_READ_ONLY]: 'Tylko do odczytu',
+  [C.CONTEXTMENU_ITEMS_CLEAR_COLUMN]: 'Wyczyść kolumnę',
+
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT]: 'Wyrównanie',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_LEFT]: 'Do lewej',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_CENTER]: 'Do środka',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_RIGHT]: 'Do prawej',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_JUSTIFY]: 'Wyjustuj',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_TOP]: 'Do góry',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_MIDDLE]: 'Wyśrodkuj',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_BOTTOM]: 'Do dołu',
+
+  [C.CONTEXTMENU_ITEMS_FREEZE_COLUMN]: 'Zablokuj kolumnę',
+  [C.CONTEXTMENU_ITEMS_UNFREEZE_COLUMN]: 'Odblokuj kolumnę',
+
+  [C.CONTEXTMENU_ITEMS_BORDERS]: 'Obramowanie',
+  [C.CONTEXTMENU_ITEMS_BORDERS_TOP]: 'Krawędź górna',
+  [C.CONTEXTMENU_ITEMS_BORDERS_RIGHT]: 'Krawędź prawa',
+  [C.CONTEXTMENU_ITEMS_BORDERS_BOTTOM]: 'Krawędź dolna',
+  [C.CONTEXTMENU_ITEMS_BORDERS_LEFT]: 'Krawędź lewa',
+  [C.CONTEXTMENU_ITEMS_REMOVE_BORDERS]: 'Usuń obramowanie(a)',
+
+  [C.CONTEXTMENU_ITEMS_ADD_COMMENT]: 'Dodaj komentarz',
+  [C.CONTEXTMENU_ITEMS_EDIT_COMMENT]: 'Edytuj komentarz',
+  [C.CONTEXTMENU_ITEMS_REMOVE_COMMENT]: 'Usuń komentarz',
+  [C.CONTEXTMENU_ITEMS_READ_ONLY_COMMENT]: 'Komentarz tylko do odczytu',
+
+  [C.CONTEXTMENU_ITEMS_MERGE_CELLS]: 'Scal komórki',
+  [C.CONTEXTMENU_ITEMS_UNMERGE_CELLS]: 'Rozdziel komórki',
+
+  [C.CONTEXTMENU_ITEMS_COPY]: 'Kopiuj',
+  [C.CONTEXTMENU_ITEMS_COPY_WITH_COLUMN_HEADERS]: ['Kopiuj z nagłówkiem', 'Kopiuj z nagłówkami'],
+  [C.CONTEXTMENU_ITEMS_COPY_WITH_COLUMN_GROUP_HEADERS]: [
+    'Kopiuj z nagłówkiem grupowym',
+    'Kopiuj z nagłówkami grupowymi'
+  ],
+  [C.CONTEXTMENU_ITEMS_COPY_COLUMN_HEADERS_ONLY]: ['Kopiuj sam nagłówek', 'Kopiuj same nagłówki'],
+  [C.CONTEXTMENU_ITEMS_CUT]: 'Wytnij',
+
+  [C.CONTEXTMENU_ITEMS_EXPORT]: 'Eksportuj',
+  [C.CONTEXTMENU_ITEMS_EXPORT_FILE_CSV]: 'Do CSV',
+  [C.CONTEXTMENU_ITEMS_EXPORT_FILE_XLSX]: 'Do Excela',
+  [C.EXPORT_FILE_DIALOG_TITLE]: 'Eksportowanie…',
+
+  [C.CONTEXTMENU_ITEMS_NESTED_ROWS_INSERT_CHILD]: 'Wstaw wiersz podrzędny',
+  [C.CONTEXTMENU_ITEMS_NESTED_ROWS_DETACH_CHILD]: 'Odłącz od nadrzędnego',
+
+  [C.CONTEXTMENU_ITEMS_HIDE_COLUMN]: ['Ukryj kolumnę', 'Ukryj kolumny'],
+  [C.CONTEXTMENU_ITEMS_SHOW_COLUMN]: ['Pokaż kolumnę', 'Pokaż kolumny'],
+
+  [C.CONTEXTMENU_ITEMS_HIDE_ROW]: ['Ukryj wiersz', 'Ukryj wiersze'],
+  [C.CONTEXTMENU_ITEMS_SHOW_ROW]: ['Pokaż wiersz', 'Pokaż wiersze'],
+
+  [C.FILTERS_CONDITIONS_NONE]: 'Brak',
+  [C.FILTERS_CONDITIONS_EMPTY]: 'Komórka jest pusta',
+  [C.FILTERS_CONDITIONS_NOT_EMPTY]: 'Komórka nie jest pusta',
+  [C.FILTERS_CONDITIONS_EQUAL]: 'Jest równe',
+  [C.FILTERS_CONDITIONS_NOT_EQUAL]: 'Jest różne od',
+  [C.FILTERS_CONDITIONS_BEGINS_WITH]: 'Tekst zaczyna się od',
+  [C.FILTERS_CONDITIONS_ENDS_WITH]: 'Tekst kończy się na',
+  [C.FILTERS_CONDITIONS_CONTAINS]: 'Tekst zawiera fragment',
+  [C.FILTERS_CONDITIONS_NOT_CONTAIN]: 'Tekst nie zawiera fragmentu',
+  [C.FILTERS_CONDITIONS_GREATER_THAN]: 'Większe niż',
+  [C.FILTERS_CONDITIONS_GREATER_THAN_OR_EQUAL]: 'Większe lub równe',
+  [C.FILTERS_CONDITIONS_LESS_THAN]: 'Mniejsze niż',
+  [C.FILTERS_CONDITIONS_LESS_THAN_OR_EQUAL]: 'Mniejsze lub równe',
+  [C.FILTERS_CONDITIONS_BETWEEN]: 'Jest pomiędzy',
+  [C.FILTERS_CONDITIONS_NOT_BETWEEN]: 'Nie jest pomiędzy',
+  [C.FILTERS_CONDITIONS_AFTER]: 'Data późniejsza niż',
+  [C.FILTERS_CONDITIONS_AFTER_OR_EQUAL]: 'Data późniejsza lub równa',
+  [C.FILTERS_CONDITIONS_BEFORE]: 'Data wcześniejsza niż',
+  [C.FILTERS_CONDITIONS_BEFORE_OR_EQUAL]: 'Data wcześniejsza lub równa',
+  [C.FILTERS_CONDITIONS_TODAY]: 'Dzisiaj',
+  [C.FILTERS_CONDITIONS_TOMORROW]: 'Jutro',
+  [C.FILTERS_CONDITIONS_YESTERDAY]: 'Wczoraj',
+
+  [C.FILTERS_VALUES_BLANK_CELLS]: 'Puste miejsca',
+
+  [C.FILTERS_DIVS_FILTER_BY_CONDITION]: 'Filtruj wg warunku',
+  [C.FILTERS_DIVS_FILTER_BY_VALUE]: 'Filtruj wg wartości',
+
+  [C.FILTERS_LABELS_CONJUNCTION]: 'Oraz',
+  [C.FILTERS_LABELS_DISJUNCTION]: 'Lub',
+
+  [C.FILTERS_BUTTONS_SELECT_ALL]: 'Zaznacz wszystko',
+  [C.FILTERS_BUTTONS_CLEAR]: 'Odznacz wszystko',
+  [C.FILTERS_BUTTONS_OK]: 'OK',
+  [C.FILTERS_BUTTONS_CANCEL]: 'Anuluj',
+
+  [C.FILTERS_BUTTONS_PLACEHOLDER_SEARCH]: 'Szukaj',
+  [C.FILTERS_BUTTONS_PLACEHOLDER_VALUE]: 'Wartość',
+  [C.FILTERS_BUTTONS_PLACEHOLDER_SECOND_VALUE]: 'Druga wartość',
+
+  [C.PAGINATION_SECTION]: 'Paginacja',
+  [C.PAGINATION_PAGE_SIZE_SECTION]: 'Liczba wierszy',
+  [C.PAGINATION_PAGE_SIZE_AUTO]: 'Auto',
+  [C.PAGINATION_COUNTER_SECTION]: '[start] - [end] z [total]',
+  [C.PAGINATION_NAV_SECTION]: 'Strona [currentPage] z [totalPages]',
+  [C.PAGINATION_FIRST_PAGE]: 'Przejdź do pierwszej strony',
+  [C.PAGINATION_PREV_PAGE]: 'Przejdź do poprzedniej strony',
+  [C.PAGINATION_NEXT_PAGE]: 'Przejdź do następnej strony',
+  [C.PAGINATION_LAST_PAGE]: 'Przejdź do ostatniej strony',
+
+  [C.SHEETS_BAR_SECTION]: 'Arkusze',
+  [C.SHEETS_BAR_ADD_SHEET]: 'Dodaj arkusz',
+  [C.SHEETS_BAR_ALL_SHEETS]: 'Wszystkie arkusze',
+  [C.SHEETS_BAR_SHEET_MENU]: 'Działania arkusza: [name]',
+  [C.SHEETS_BAR_RENAME_SHEET]: 'Nazwa arkusza',
+  [C.SHEETS_BAR_ITEMS_DELETE]: 'Usuń',
+  [C.SHEETS_BAR_ITEMS_DUPLICATE]: 'Duplikuj',
+  [C.SHEETS_BAR_ITEMS_RENAME]: 'Zmień nazwę',
+  [C.SHEETS_BAR_ITEMS_MOVE_RIGHT]: 'Przesuń w prawo',
+  [C.SHEETS_BAR_ITEMS_MOVE_LEFT]: 'Przesuń w lewo',
+  [C.SHEETS_BAR_PAGE_PREV]: 'Przewiń arkusze wstecz',
+  [C.SHEETS_BAR_PAGE_NEXT]: 'Przewiń arkusze do przodu',
+  [C.SHEETS_BAR_SHEET_CHANGED]: 'Arkusz [name] aktywowany',
+  [C.SHEETS_BAR_RENAME_REJECTED]: 'Nazwa arkusza nie została zmieniona: [name] jest już zajęta',
+  [C.SHEETS_BAR_RENAME_NOT_CHANGED]: 'Nazwa arkusza nie została zmieniona',
+  [C.SHEETS_BAR_SHEET_DUPLICATED]: 'Arkusz [name] zduplikowany jako [copy]',
+  [C.SHEETS_BAR_SHEET_MOVED]: 'Arkusz [name] przeniesiony na pozycję [position] z [count]',
+  [C.SHEETS_BAR_DEFAULT_SHEET_NAME]: 'Arkusz',
+
+  [C.CHECKBOX_CHECKED]: 'Zaznaczony',
+  [C.CHECKBOX_UNCHECKED]: 'Odznaczony',
+
+  [C.LOADING_TITLE]: 'Ładowanie...',
+  [C.NOTIFICATION_BUTTONS_CLOSE]: 'Zamknij',
+
+  [C.EMPTY_DATA_STATE_TITLE]: 'Brak dostępnych danych',
+  [C.EMPTY_DATA_STATE_DESCRIPTION]: 'Nie ma jeszcze nic do wyświetlenia.',
+  [C.EMPTY_DATA_STATE_TITLE_FILTERS]: 'Nie znaleziono wyników',
+  [C.EMPTY_DATA_STATE_DESCRIPTION_FILTERS]: 'Wygląda na to, że Twoje obecne filtry ukrywają wszystkie wyniki.',
+  [C.EMPTY_DATA_STATE_BUTTONS_FILTERS_RESET]: 'Resetuj filtry',
+  [C.EMPTY_DATA_STATE_TITLE_LOADING]: 'Wczytywanie danych',
+  [C.EMPTY_DATA_STATE_DESCRIPTION_LOADING]: 'Proszę czekać.',
+
+  [C.DATA_PROVIDER_ERRORS_FETCH]: 'Nie udało się wczytać danych',
+  [C.DATA_PROVIDER_ERRORS_CREATE]: 'Nie udało się utworzyć wierszy',
+  [C.DATA_PROVIDER_ERRORS_UPDATE]: 'Nie udało się zaktualizować wierszy',
+  [C.DATA_PROVIDER_ERRORS_REMOVE]: 'Nie udało się usunąć wierszy',
+  [C.DATA_PROVIDER_ERRORS_REQUEST_FAILED]: 'Żądanie nie powiodło się',
+  [C.DATA_PROVIDER_BUTTONS_REFETCH]: 'Ponów pobieranie',
+  [C.ROW_SELECTION_SELECT_ROW]: 'Zaznacz wiersz [row]',
+  [C.ROW_SELECTION_SELECT_ALL]: 'Zaznacz wszystkie wiersze (zaznaczono [selected] z [total])',
+  [C.CHECKBOX_HEADER_CHECK_ALL]: 'Zaznacz wszystkie (zaznaczono [checked] z [total])',
+  [C.ROW_SELECTION_ANNOUNCE_ROW_SELECTED]: 'Zaznaczono wiersz [row]',
+  [C.ROW_SELECTION_ANNOUNCE_ROW_DESELECTED]: 'Odznaczono wiersz [row]',
+  [C.ROW_SELECTION_ANNOUNCE_COUNT]: 'Zaznaczono [selected] z [total] wierszy',
+  [C.ROW_SELECTION_MENU_REMOVE]: 'Usuń zaznaczone wiersze ([count])',
+  [C.ROW_SELECTION_MENU_CLEAR]: 'Wyczyść zaznaczenie wierszy',
+  [C.FREEZE_BAR_ROWS_TOP]: 'Zablokowane wiersze u góry',
+  [C.FREEZE_BAR_ROWS_BOTTOM]: 'Zablokowane wiersze na dole',
+  [C.FREEZE_BAR_COLUMNS_START]: 'Zablokowane kolumny na początku',
+  [C.FREEZE_BAR_COLUMNS_END]: 'Zablokowane kolumny na końcu',
+  [C.NESTED_ROWS_ANNOUNCEMENT_EXPANDED]: 'Rozwinięto wiersz [label], widoczne rozwinięte wiersze: [count]',
+  [C.NESTED_ROWS_ANNOUNCEMENT_COLLAPSED]: 'Zwinięto wiersz [label]',
+  [C.FORMULA_BUILDER_EDITOR]: 'Edytor formuł',
+  [C.FORMULA_BUILDER_INPUT]: 'Pole formuły',
+  [C.FORMULA_BUILDER_CELL_ADDRESS]: 'Adres komórki',
+  [C.FORMULA_BUILDER_SUGGESTIONS]: 'Podpowiedzi formuł',
+  [C.FORMULA_BUILDER_ACCEPT_HINT]: 'aby zatwierdzić.',
+  [C.FORMULA_BUILDER_NAVIGATE_HINT]: 'aby nawigować',
+  [C.FORMULA_BUILDER_FUNCTION_HELP]: 'Pomoc funkcji',
+  [C.FORMULA_BUILDER_FUNCTION_HELP_FOR]: 'Pomoc funkcji [name]',
+  [C.FORMULA_BUILDER_FUNCTION_EXAMPLE]: 'Przykład',
+  [C.FORMULA_BUILDER_FUNCTION_DESCRIPTION]: 'Opis',
+  [C.FORMULA_BUILDER_OPTIONAL_ARGUMENT]: 'opcjonalny',
+  [C.FORMULA_BUILDER_REPEATABLE_ARGUMENT]: 'powtarzalny',
+  [C.FORMULA_BUILDER_LEARN_MORE]: 'Więcej informacji',
+  [C.FORMULA_BUILDER_CLOSE]: 'Zamknij',
+  [C.FORMULA_BUILDER_INVALID_ADDRESS]: 'Nieprawidłowy adres komórki: [text]',
+  [C.FORMULA_BUILDER_CELL_UNAVAILABLE]: 'Nie można zaznaczyć [text]',
+  [C.FORMULA_BUILDER_CELL_ERROR]: 'Błąd w [cell]: [message].',
+  [C.FORMULA_BUILDER_DEPENDENT_ERROR]: 'Jeszcze [count] komórka zawiera teraz błąd.',
+  [C.FORMULA_BUILDER_DEPENDENT_ERRORS]: 'Liczba innych komórek z błędem: [count].',
+};
+
+export default dictionary;

@@ -1,0 +1,336 @@
+# Coding Conventions
+
+## Naming Patterns
+
+**Files:**
+- Source files: `camelCase.ts` (e.g., `hiddenColumns.ts`, `conditionCollection.ts`, `editorManager.ts`). Walkontable (`src/3rdparty/walkontable/`) is also `camelCase.ts`.
+- Plugin directories: `camelCase/` (e.g., `src/plugins/hiddenColumns/`, `src/plugins/copyPaste/`)
+- Helper files: `camelCase.ts` in `src/helpers/` (e.g., `array.ts`, `object.ts`, `unicode.ts`)
+- Test files: `*.unit.js` or `*.unit.ts` for Jest unit tests, `*.spec.js` for Jasmine E2E tests
+- Type test files: `*.types.ts` in a `src/**/__tests__/` dir (`handsontable/test/types/tsconfig.json` compiles them); generated `.d.ts` in `handsontable/tmp/`
+- Each plugin directory has an `index.ts` barrel that re-exports `PLUGIN_KEY`, `PLUGIN_PRIORITY`, and the class
+
+**Functions:**
+- Use `camelCase` for all functions and methods: `getActiveEditor()`, `createSpreadsheetData()`
+- Private methods use `#` prefix (JavaScript private class fields): `#onAfterDocumentKeyDown()`
+- Use full names, never abbreviations: `row` and `columns` (not `cols`)
+- All exported functions require JSDoc comments (enforced by ESLint `jsdoc/require-jsdoc: 'error'`)
+- Factory functions follow naming pattern: `handsontableMethodFactory()`, `handsontableMouseTriggerFactory()`
+
+**Variables:**
+- Use `camelCase` for all variables: `activeEditor`, `tableMeta`, `cellProperties`
+- `hot` for Handsontable instance references throughout the codebase
+- Use `this.hot.rootWindow` and `this.hot.rootDocument` instead of global `window` or `document` (enforced by ESLint rule `no-restricted-globals`)
+- Constants: `UPPER_SNAKE_CASE` (e.g., `PLUGIN_KEY`, `PLUGIN_PRIORITY`, `SETTING_KEYS`, `BROWSERS_LIST`)
+
+**Types:**
+- Class names: `PascalCase` (e.g., `BasePlugin`, `HiddenColumns`, `CellMeta`, `EditorManager`)
+- Type annotations use TypeScript syntax directly in `.ts` source files
+- TypeScript `.d.ts` files in `handsontable/tmp/` are auto-generated — do not hand-edit them.
+- TypeScript compilation uses `strict: false`, `noImplicitAny: true`
+
+## Code Style
+
+**Formatting:**
+- Modified Airbnb JavaScript style (extends `airbnb-base`)
+- Indentation: 2 spaces (`SwitchCase: 1`, function params aligned to first)
+- Quotes: Single quotes only (`'string'` not `"string"`)
+- Max line length: 120 characters (ignores comments and long `it()` test names matching `^\s*x?it\s*\(`)
+- Space before function parens: never (`function foo()` not `function foo ()`)
+- Arrow parens: as-needed, required for block body
+- Curly braces: always required (`curly: ['error', 'all']`)
+- Trailing comma: off (`comma-dangle: 'off'`)
+- No `++`/`--` except in for loop afterthoughts
+- No multiple empty lines (max 1)
+- `no-eq-null: 'error'` -- never use `== null` or `!= null`
+
+**Padding/Blank Lines (enforced by `padding-line-between-statements`):**
+- Always a blank line before `return`
+- Always a blank line before control flow (`if`, `for`, `switch`, `while`) unless preceded by another block-like statement
+- Always a blank line after variable declarations (`const`, `let`, `var`) unless followed by another declaration
+
+**Linting:**
+- ESLint with `@babel/eslint-parser` and JSX support
+- Root config: `.eslintrc.js` (extends `airbnb-base`)
+- Handsontable-specific config: `handsontable/.eslintrc.js` (extends root, adds custom plugin rules)
+- Browser compatibility enforced via `eslint-plugin-compat` against browser targets from `browser-targets.js`
+- JSDoc validation with `eslint-plugin-jsdoc` at error level
+- CSS/SCSS linted via Stylelint: `stylelint --cache "src/**/*.{css,scss}" "test/**/*.{css,scss}"`
+
+## Handsontable-Specific ESLint Rules
+
+| Rule | Enforcement |
+|---|---|
+| `handsontable/no-native-error-throw` | Use `throwWithCause()` from `src/helpers/errors.ts`, never `throw new Error()` |
+| `handsontable/restricted-module-imports` | No imports from barrel index files (`plugins/index`, `editors/index`, `renderers/index`, `validators/index`, `cellTypes/index`, `i18n/index`). Import from specific submodule paths. Only exception: `src/registry.ts` |
+| `handsontable/require-async-in-it` | All `it()` callbacks in `*.spec.js` must be `async`. Disabled for `*.unit.js` |
+| `handsontable/require-await` | Specific HOT API calls must be `await`-ed in `*.spec.js` (full list in `handsontable/.eslintrc.js` lines 84-151) |
+| `handsontable/no-fixed-sleep-in-spec` | No fixed delay in `*.spec.js` / `*.unit.js` / `*.unit.ts`: `sleep()` (`noSleep`), a global `setTimeout` — bare, `window.setTimeout`, or `globalThis.setTimeout`; a `setTimeout` method on any other object is that object's contract and is not judged — whose delay is a non-zero numeric literal (`noSetTimeout`; a literal `0` is a macrotask hand-off, not a wait, and passes), and any `waitForNextAnimationFrames()` except a literal `0` frame count, which resolves at once (`noFrameWait`). Replace all three with the `waitUntil(condition, timeout)` spec global from `test/helpers/common.js`. `warn` (surfaces the frozen suite's legacy debt without red-walling CI); new E2E belongs in Playwright. RuleTester coverage: `.config/plugin/eslint/__tests__/`, run by `npm run test:eslint-rules` here and by CI's `Lint / core` job — not by the root `test:tooling`, whose job installs no dependencies |
+| `handsontable/no-new-it-flaky` | No new `it.flaky()`/`fit.flaky()` — fix the flake at its source or migrate the spec to Playwright. `warn` for the same reason |
+| `handsontable/no-skipped-test` | No `xit`/`it.skip`/`xdescribe`/`describe.skip` in `*.spec.js`/`*.unit.js`. `warn` (existing skips must not red-wall) |
+| `no-restricted-globals` | Source: `window`, `document`, `console`, `Handsontable` banned. Tests: only `fit`, `fdescribe` banned |
+| `compat/compat` | Browser API compatibility check (off in test files) |
+
+The three `warn` rules (`no-fixed-sleep-in-spec`, `no-new-it-flaky`, `no-skipped-test`) are **ratcheted**: a warning on a line your branch *adds* fails pre-push and CI (`.github/scripts/lint-ratchet.mjs`; the rule list is `RATCHETED_RULES` in `.github/scripts/lib/lint-ratchet.mjs`), while pre-existing occurrences stay warnings. Re-indented or moved lines count as added; a plain `git mv` adds nothing. Satisfy it with a condition wait or a `// eslint-disable-next-line <rule> -- <ticket>: <reason>` for a genuine exception — see `.ai/LOCAL-ENFORCEMENT.md`.
+
+The Playwright tier (`tests/`) has its own config (`tests/.eslintrc.cjs`) with the `@typescript-eslint` parser and `no-restricted-syntax` bans for `page.waitForTimeout()`, `sleep()`, `setTimeout()` (the global timer only — bare, `window.`, or `globalThis.` — which also catches a timer hidden inside `page.evaluate`; Playwright's `test.setTimeout(ms)` budget is not a wait and is not flagged), `'networkidle'`, `.only`, `.skip`, and bare `test.fixme` — at `error`, since that tier is greenfield with no debt to baseline, and in page objects (`tests/fixtures/`) as well as specs. A justified `setTimeout` (a 0ms scheduling barrier, never a duration) carries the same eslint-disable line as `test.fixme`, naming the owning task; see `tests/AGENTS.md`. The evals scorer (`evals/score.mjs`) mirrors both tiers' bans as `determinismSmells`, exemptions included.
+
+**A custom rule edit is live only while pnpm's hard link to it holds.** `eslint-plugin-handsontable` is a `file:.config/plugin/eslint` dependency, and pnpm materializes it under `node_modules/.pnpm/` as hard links to the source files (same inode, link count 2), not a symlink to the directory. An in-place write is live at once; a write that replaces the inode — an editor's atomic save-then-rename, `sed -i`, a branch switch that rewrites the file, a fresh worktree, or a brand-new rule file — leaves ESLint running the rule as it was at the last install. The RuleTester tests import the rule source directly and are unaffected; a lint run (local or the `--format json` debt count) is not. `pnpm install --frozen-lockfile --offline` relinks it in under a minute; `stat` both paths to confirm the inode matches.
+
+**Test file overrides (relaxed rules in `handsontable/.eslintrc.js`):**
+- `jsdoc/require-jsdoc`: off in `*.unit.js` and `*.spec.js`
+- `handsontable/no-native-error-throw`: off in test files
+- `handsontable/require-async-in-it`: off in `*.unit.js` (only enforced in `*.spec.js`)
+- `handsontable/require-await`: off in `*.unit.js`
+- `no-undef`: off in test files (globals available from bootstrap)
+- `no-await-in-loop`: off in test files
+
+## Import Organization
+
+**Order:**
+1. Third-party libraries
+2. Internal modules from parent/helper directories (relative paths like `../../helpers/`)
+3. Local modules from sibling/child directories
+4. Constants and configurations
+
+**Example from `src/plugins/hiddenColumns/hiddenColumns.ts`:**
+```typescript
+import { BasePlugin } from '../base';
+import { addClass } from '../../helpers/dom/element';
+import { rangeEach } from '../../helpers/number';
+import { arrayEach, arrayMap, arrayReduce } from '../../helpers/array';
+import { registerMenuEntries } from '../../utils/menu/menuEntries';
+import { Hooks } from '../../core/hooks';
+import hideColumnItem from './contextMenuItem/hideColumn';
+import showColumnItem from './contextMenuItem/showColumn';
+import { HidingMap } from '../../translations';
+```
+
+**Path Aliases (Jest/test only):**
+- `'handsontable'` maps to `<rootDir>/src`
+- `'walkontable'` maps to `<rootDir>/src/3rdparty/walkontable/src`
+
+**Critical Rule: No barrel imports in source code.**
+- Wrong: `import { HiddenColumns } from '../plugins'`
+- Correct: `import { HiddenColumns } from '../plugins/hiddenColumns/hiddenColumns'`
+- Only `src/registry.ts` may import from barrel indices
+
+## Error Handling
+
+**Pattern -- Always use `throwWithCause()`:**
+```typescript
+import { throwWithCause } from '../helpers/errors';
+
+// Instead of: throw new Error('message')
+throwWithCause('The `fixedColumnsLeft` is not supported for RTL. Please use option `fixedColumnsStart`.');
+```
+
+**Error Cause identification:**
+- All errors include `cause: { handsontable: true }` for programmatic recognition
+- Check with `error.cause?.handsontable === true`
+
+**Implementation in `src/helpers/errors.ts`:**
+```javascript
+export function throwWithCause(message) {
+  throw new Error(message, {
+    cause: { handsontable: true }
+  });
+}
+```
+
+## Logging
+
+**Framework:** Custom wrappers in `src/helpers/console.ts`
+
+**Available Functions:**
+- `log(...args)` -- General logging
+- `warn(...args)` -- Warning messages
+- `removedWarnOnce(key, message)` -- For APIs that no longer exist (an option kept in `REMOVED_OPTIONS` in `core.ts`). Same once-per-key record as `deprecatedWarnOnce`, but no `Deprecated:` prefix: a removed API is gone, not deprecated, and the message must name the removing version.
+- `deprecatedWarnOnce(key, message)` -- Preferred for deprecated public APIs: prints `Deprecated: <message>` once per `key` per page. There is no repeat-every-call variant: a deprecation that must print on every call is a design smell, use `warn` and say why.
+- `_resetDeprecationWarnings()` -- Test-only. The once-per-key record is module-global and shared by `deprecatedWarnOnce` and `removedWarnOnce`, so call this in `beforeEach` of any spec asserting on a deprecation or removal warning; otherwise the assertion passes whenever an earlier spec printed that warning.
+- `info(...args)` -- Informational messages
+- `error(...args)` -- Error messages
+
+**Usage Pattern:**
+```javascript
+import { warn, deprecatedWarnOnce } from './helpers/console';
+
+warn('Both `rowHeights` and `minRowHeights` are defined. The `minRowHeights` will be ignored.');
+deprecatedWarnOnce('Core.getTotalRows', 'The `getTotalRows()` method is deprecated. Use `countRows()` instead.');
+```
+
+**Why not `console` directly:**
+- Enforced by ESLint `no-restricted-globals` with custom error message
+- Safely handles missing console in older browsers
+- Provides consistent logging interface
+
+## Comments
+
+**When to Comment:**
+- Explain *why* code exists, not *what* it does
+- Non-obvious algorithmic decisions
+- Workarounds and temporary solutions (mark with `// TODO:` or `// FIXME:`)
+- Complex coordinate system transformations (physical/visual/renderable)
+
+**JSDoc/Typedoc Requirements:**
+- All exported functions must have JSDoc (`jsdoc/require-jsdoc: 'error'`)
+- Parameters: `@param {type} name - Description.`
+- Returns: `@returns {type} Description.`
+- Private: `@private` tag
+- Newline required after description (`jsdoc/newline-after-description: 'error'`)
+- Check param names, types, property names, access level (all at error level)
+
+**JSDoc Template:**
+```javascript
+/**
+ * Brief description of the method.
+ *
+ * Additional notes if needed.
+ *
+ * @param {string} paramName - Description of the parameter.
+ * @param {number} anotherParam - Description.
+ *
+ * @fires Hooks#eventName when triggered.
+ *
+ * @throws {Error} When condition is met.
+ *
+ * @returns {string} Description of the return value.
+ *
+ * @category CategoryName
+ */
+```
+
+**Allowed Custom JSDoc Tags:**
+`@plugin`, `@util`, `@experimental`, `@deprecated`, `@preserve`, `@core`, `@TODO`, `@category`, `@package`, `@template`
+
+**JSDoc formatting rules:**
+
+The API reference is generated by `jsdoc-to-markdown` and `dmd` (`docs/scripts/jsdoc-convert/`).
+It is **not** generated by TypeDoc, so TypeDoc-only syntax does not resolve — it is published as
+literal text on the page.
+
+- No HTML tags in descriptions -- use Markdown
+- Line breaks: use empty line, never `<br>`
+- Cross-references: use the inline `link` tag in qualified `Class#member` form -- `{@link Core#getCellMeta}`,
+  `{@link Options#dataProvider}`, `{@link Hooks#afterChange}`. Never TypeDoc's `[[Target]]`, which reaches
+  the published page verbatim (DEV-2728). Use inline code (`` `getParsedNumber()` ``) for anything the API
+  reference does not document: an unresolvable link tag silently points at a page that does not exist.
+  Enforced by `handsontable/test/__tests__/jsdocLinkSyntax.unit.js`.
+- `@fires` and `@throws` take a bare target, not a link tag -- `@fires Hooks#afterChange`,
+  `@throws {Error}`. The `**Emits**:` and `**Returns**:` lines those produce are auto-linked by
+  `docs/scripts/jsdoc-convert/renderer/postProcessors/typesLinkingFixers.mjs`.
+- End every sentence with a full stop
+- No blank line below `/**` or above `*/`
+
+## Function Design
+
+**Size:** Aim for functions under 100 lines. Extract complex logic into helper functions in `src/helpers/`.
+
+**Parameters:**
+- Use object destructuring for multiple related parameters
+- `no-param-reassign` is off, but prefer immutable patterns
+
+**Return Values:**
+- `consistent-return` is off -- functions may return different types in branches
+- Document return type in JSDoc `@returns` tag
+
+## Module Design
+
+**Exports:**
+- Named exports preferred (`import/prefer-default-export: 'off'`)
+- Plugin index pattern from `src/plugins/hiddenColumns/index.ts`:
+```typescript
+export {
+  PLUGIN_KEY,
+  PLUGIN_PRIORITY,
+  HiddenColumns,
+} from './hiddenColumns';
+```
+
+**Plugin Static Properties:**
+```javascript
+class MyPlugin extends BasePlugin {
+  static get PLUGIN_KEY() { return 'myPlugin'; }
+  static get PLUGIN_PRIORITY() { return 150; }
+  static get SETTING_KEYS() { return ['myPlugin']; }
+  static get DEFAULT_SETTINGS() { return {}; }
+  static get SETTINGS_VALIDATORS() { return null; }
+  // Never a hand-written array: declared in the plugin's `feature.json` and generated (see below).
+  static get PLUGIN_DEPS() { return [...PLUGIN_DEPS]; }
+}
+```
+
+**Plugin dependencies come from the feature manifest.** Every plugin folder has a `feature.json` (its manifest
+entry: license token and `requires`). A dependency `new Handsontable()` must check at init is listed in
+`requires.allOf` with `"enforceAtInit": true`; `npm run generate:feature-manifest` writes it to the committed
+`feature.generated.ts`, which the class imports (`import { PLUGIN_DEPS } from './feature.generated';`). A new
+plugin, cell type, editor, renderer, or validator needs its manifest entry, or the unit suite fails. Rules:
+`src/featureManifest/AGENTS.md`.
+
+**Plugin Lifecycle Methods (in order):**
+1. `constructor(hotInstance)` -- receives HOT instance as `this.hot`
+2. `isEnabled()` -- return truthy/falsy based on `this.hot.getSettings()[PLUGIN_KEY]`
+3. `enablePlugin()` -- set up hooks via `this.addHook()`, register IndexMapper maps. Call `super.enablePlugin()` at the end
+4. `updatePlugin()` -- typical: `this.disablePlugin(); this.enablePlugin(); super.updatePlugin();`
+5. `disablePlugin()` -- Call `super.disablePlugin()` first (clears EventManager and hooks). Then clean up
+6. `destroy()` -- final teardown. Call `super.destroy()` at the end
+
+**Hooks Registration at Module Level (outside the class):**
+```typescript
+import { Hooks } from '../../core/hooks';
+
+Hooks.getSingleton().register('beforeMyAction');
+Hooks.getSingleton().register('afterMyAction');
+```
+
+**Important:** `this.addHook()` (BasePlugin method) auto-cleans hooks on `disablePlugin()`. `this.hot.addHook()` does not.
+
+## Plugin Directory Structure Convention
+
+```
+src/plugins/{pluginName}/
+├── index.ts              # Re-exports PLUGIN_KEY, PLUGIN_PRIORITY, ClassName
+├── {pluginName}.ts       # Main plugin class extending BasePlugin
+├── __tests__/            # Tests (*.spec.js for E2E, *.unit.js for unit)
+│   └── helpers/          # Optional plugin-specific test helpers (auto-loaded for E2E)
+└── {submodules}/         # Additional subdirectories as needed
+```
+
+## DOM and Window Access
+
+- Always use `this.hot.rootWindow` instead of global `window`
+- Always use `this.hot.rootDocument` instead of global `document`
+- This enables multi-instance support and air-gapped environments
+
+```javascript
+const element = this.hot.rootDocument.createElement('div');
+const width = this.hot.rootWindow.innerWidth;
+```
+
+## Optional Chaining Policy
+
+Use `?.` only when a value is genuinely optional by design. Do not use as a blanket safety net. If a value is guaranteed by the data contract (e.g., parallel arrays from the same iterator, `getCellMeta()` always returns an object), access directly without `?.`. Unnecessary optional chaining hides bugs.
+
+## Performance Conventions
+
+- Never use `arr.push(...largeArray)` with arrays that could exceed 10k elements -- use `forEach` loop
+- Use `batch()` / `batchRender()` / `suspendRender()` / `resumeRender()` for multiple operations that trigger rendering
+- Use `requestAnimationFrame` for batching scroll events
+- Target 60fps with 100k+ row datasets
+
+### Locale-aware lowercasing (dogfooding rule)
+
+**Never call `String.prototype.toLocaleLowerCase` or `toLocaleUpperCase` directly.** Always use `localeLowerCase(value, locale)` from `src/helpers/string.ts`.
+
+Passing an explicit locale argument to the native method forces V8's ICU path and is ~45× slower than `toLowerCase()`, even though the result is byte-identical for every locale except Turkish, Azeri, and Lithuanian (the only locales that tailor lowercasing — on the dotted/dotless-I family). The helper probes each locale once (cached) and takes the fast path otherwise. It also never throws on an invalid or empty locale tag.
+
+The only sanctioned direct calls are inside `localeLowerCase` itself, marked with `// eslint-disable-next-line no-restricted-syntax`. The `no-restricted-syntax` ESLint rule enforces this everywhere else (test files excepted).
+
+**Cache safety:** the helper caches only the immutable locale → "does it tailor?" classification, keyed by the locale string. Call sites read the locale live, so changing a cell's or column's `locale` after `updateSettings` just passes a different string — there is no stale cached locale or cached lowercased value. Do not add per-instance locale caches or memoize lowercased values.
+
+## CSS Conventions
+
+- CSS and JavaScript are strictly separated -- never mix CSS into JavaScript files
+- Theme CSS uses CSS custom properties (variables) as the public API for customization
+- Three themes: `ht-theme-main`, `ht-theme-classic`, `ht-theme-horizon` (each with `-no-icons` variants)
+- Theme class is applied to the root container element

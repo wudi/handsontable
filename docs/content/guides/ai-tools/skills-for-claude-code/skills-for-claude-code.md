@@ -1,0 +1,42 @@
+---
+type: explanation
+title: Skills for Claude Code
+metaTitle: Skills for Claude Code | Handsontable DataGrid for JavaScript
+description: Reusable instructions that teach the Claude coding agent how to work with Handsontable DataGrid, covering plugin development, cell editors, tests, and documentation examples.
+permalink: /skills-for-claude-code
+react:
+  metaTitle: Skills for Claude Code | Handsontable DataGrid for React
+angular:
+  metaTitle: Skills for Claude Code | Handsontable DataGrid for Angular
+vue:
+  metaTitle: Skills for Claude Code | Handsontable DataGrid for Vue
+searchCategory: Guides
+category: AI Tools
+---
+Skills for Claude Code are bundled instructions that give Claude deep knowledge of Handsontable DataGrid and HyperFormula. Install them once, then ask Claude to build, configure, or debug -- it pulls from the same product docs you're reading right now, so the code it writes matches current APIs instead of guessing from outdated training data.
+
+## Two skills, one install
+
+The <a href="https://github.com/handsontable/handsontable-skills" target="_blank" rel="noopener noreferrer">repo</a> ships two skills:
+
+- **handsontable** -- the core Handsontable DataGrid skill. Covers React, Angular, Vue, and vanilla JS setup, configuration, theming, cell types, sorting, filtering, formulas, hooks, performance, and version migration.
+- **hyperformula** -- the headless calculation engine. Covers instance creation, CRUD, custom functions, named expressions, error handling, batch operations, and Node.js usage.
+
+Use **handsontable** when you're building a visible grid in a web app. Use **hyperformula** when you're evaluating formulas programmatically without a UI -- server-side calculations, pricing engines, what-if analysis. Claude loads whichever is relevant based on what you ask.
+
+## Install with one command
+
+In Claude Code, add the marketplace and install both skills:
+
+```bash
+/plugin marketplace add handsontable/handsontable-skills
+/plugin install handsontable-skills@handsontable-skills
+```
+
+For Cowork or Claude.ai web, download the zip from the latest GitHub release and drag it into chat. For the Claude API, upload the skill folder directly. Full instructions live in the repo README.
+
+## Versioned to match releases
+
+Each skill is tagged to the product version it targets -- `handsontable/v{{$currentVersion}}` is the skill for Handsontable DataGrid {{$currentVersion}}, and each HyperFormula release gets a matching `hyperformula/v*` tag. You always know which API surface Claude is working from.
+
+<a href="https://github.com/handsontable/handsontable-skills" target="_blank" rel="noopener noreferrer">Browse the Skills for Claude Code</a>

@@ -1,0 +1,347 @@
+---
+type: how-to
+title: Accessibility
+metaTitle: Accessibility | Handsontable DataGrid for JavaScript
+description: Learn about Handsontable DataGrid's accessibility features.
+permalink: /accessibility
+canonicalUrl: /accessibility
+tags:
+  - accessibility
+  - a11y
+  - aria
+  - nvda
+  - voiceover
+  - wcag
+  - wcag 2.2
+  - section 508
+  - ada
+  - vpat
+  - conformance report
+react:
+  metaTitle: Accessibility | Handsontable DataGrid for React
+angular:
+  metaTitle: Accessibility | Handsontable DataGrid for Angular
+vue:
+  metaTitle: Accessibility | Handsontable DataGrid for Vue
+searchCategory: Guides
+category: Accessibility
+menuTag: updated
+addedIn: "14.0.0"
+---
+Handsontable DataGrid supports keyboard navigation, screen readers, and ARIA roles. Use these steps to configure accessible behavior for your users.
+
+Handsontable {{$a11y.target.long}}. The {{$a11y.report.link}} states how far the grid conforms today, per success criterion.
+
+[[toc]]
+
+## Overview
+
+Accessibility features of Handsontable include:
+
+- Keyboard navigation that lets you use the grid without a mouse.
+- Support for screen readers, tested with {{$a11y.matrix.sentence}}.
+- Flexible API to configure keyboard shortcuts and navigation methods.
+- A published {{$a11y.report.link}}, version {{$a11y.report.version}} ({{$a11y.report.date}}), with the result per success criterion and the known gaps.
+
+## Standards built on WCAG
+
+Most local standards and regulations build on the Web Content Accessibility Guidelines ([WCAG]({{$a11y.target.url}})).
+Handsontable {{$a11y.target.long}}. The {{$a11y.report.link}}, version {{$a11y.report.version}} ({{$a11y.report.date}}), states, for each success criterion, the conformance level or that it was not evaluated, and lists the known gaps.
+The standards that build on WCAG include:
+
+**USA**
+
+<div class="boxes-list">
+
+- [Section 508 of the US Rehabilitation Act](https://www.section508.gov/){target="_blank"}
+- [Americans with Disabilities Act (ADA)](https://www.ada.gov/resources/web-guidance/){target="_blank"}
+
+</div>
+
+**Europe**
+
+<div class="boxes-list">
+
+- [European Accessibility Act (EAA)](https://ec.europa.eu/social/main.jsp?catId=1202){target="_blank"}
+- [Web Accessibility Directive (WAD)](https://eur-lex.europa.eu/legal-content/EN/LSU/?uri=CELEX:32016L2102){target="_blank"}
+
+</div>
+
+**Canada**
+
+<div class="boxes-list">
+
+- [Standard on Web Accessibility](https://www.tbs-sct.canada.ca/pol/doc-eng.aspx?id=23601){target="_blank"}
+
+</div>
+
+## Keyboard navigation
+
+Handsontable doesn't require a mouse to navigate across the grid's elements. This is an important feature for those users with temporary or permanent motor impairments for whom following the mouse cursor is difficult. Keyboard navigation is also a great way to improve productivity, which is why many users choose the keyboard over the mouse regardless of their accessibility needs.
+
+Our experience with hundreds of implementations shows that Handsontable tends to be used either as a **spreadsheet application** or a **data grid component**. While at first the difference seems subtle, it significantly impacts user expectations regarding navigation.
+
+In a typical spreadsheet application (think of Microsoft Excel or Google Sheets), you can't move the focus onto headers. This makes it difficult to sort or filter data without knowing complex [keyboard shortcuts](@/guides/navigation/keyboard-shortcuts/keyboard-shortcuts.md). Additionally, opening a [column menu](@/guides/accessories-and-menus/column-menu/column-menu.md) is not trivial.
+Handsontable offers flexibility in this regard, letting you switch between data grid and spreadsheet "modes". To do that switch, you can use a combination of two options: [`navigableHeaders`](@/api/options.md#navigableheaders) to enable or disable moving focus onto headers, and [`tabNavigation`](@/api/options.md#tabnavigation) to decide if the <kbd>**Tab**</kbd> key can be used to navigate across cells and headers.
+
+To control arrow-key wrapping at grid boundaries, use [`autoWrapRow`](@/api/options.md#autowraprow) and [`autoWrapCol`](@/api/options.md#autowrapcol). `autoWrapRow` wraps focus to the adjacent row when you move right or left past a row edge. `autoWrapCol` wraps focus to the adjacent column when you move up or down past a column edge.
+
+The following table provides more details about these two scenarios:
+ 
+| Aspect                    | Data grid mode                                                                                                                                                                                                                                          | Spreadsheet mode (default)                                                                                                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Configuration             | [`navigableHeaders: true`](@/api/options.md#navigableheaders) <br>  [`tabNavigation: false`](@/api/options.md#tabnavigation)                                                                                                                            | [`navigableHeaders: false`](@/api/options.md#navigableheaders) <br> [`tabNavigation: true`](@/api/options.md#tabnavigation)                                                                             |
+| Primary navigation method | Arrow keys                                                                                                                                                                                                                                              | <kbd>**Tab**</kbd> / <kbd>**Shift**</kbd>+<kbd>**Tab**</kbd>                                                                                                                                            |
+| Navigable headers         | Yes                                                                                                                                                                                                                                                     | No                                                                                                                                                                                                      |
+| Navigation                | Use the arrow keys navigate across the grid. Use simple shortcuts such as <kbd>**Enter**</kbd> or <kbd>**Space**</kbd> to open menus or interact with headers, cells, or cell editors. <br><br>You can't use the <kbd>**Tab**</kbd> key for navigation. | Use <kbd>**Tab**</kbd> / <kbd>**Shift**</kbd>+<kbd>**Tab**</kbd> to navigate across the grid.<br>This behavior is similar to Excel or Google Sheets. <br><br>To open menus, use more complex shortcuts. |
+| Focus behavior            | One tab stop. The grid is included in the page tab sequence only once.                                                                                                                                                                                  | Multiple tab stops. All tabbable elements of the grid, such as cells, are included in the page tab sequence.                                                                                            |
+
+## Navigation shortcuts
+
+Handsontable provides a wide range of [keyboard shortcuts](@/guides/navigation/keyboard-shortcuts/keyboard-shortcuts.md), but some of them are particularly important for users who navigate the grid with the keyboard only. For example, actions triggered while navigating across headers involve simple key combinations, making them intuitive and useful. For more complex scenarios, you can [customize the shortcuts keys](@/guides/navigation/custom-shortcuts/custom-shortcuts.md) through the API.
+
+| Windows                                                                                                 | macOS                                                                                                  | Action              | Focused element |
+| ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------- | --------------- |
+| <kbd>**Shift**</kbd>+<kbd>**Alt**</kbd>+<kbd>**↓**</kbd>                                                | <kbd>⇧</kbd>+<kbd>⌥</kbd>+<kbd>**↓**</kbd>                                            | Open a column menu  | Any cell        |
+| <kbd>**Ctrl**</kbd>+<kbd>**Enter**</kbd>                                                                | <kbd>⌘</kbd>+<kbd>**Enter**</kbd>                                                                | Open a column menu  | Column header   |
+| <kbd>**Enter**</kbd>                                                                                    | <kbd>**Enter**</kbd>                                                                                   | Sort data           | Column header   |
+| <kbd>**Alt**</kbd>+<kbd>**A**</kbd>                                                                     | <kbd>⌥</kbd>+<kbd>**A**</kbd>                                                                 | Clear filters       | Any cell        |
+| <kbd>**Ctrl**</kbd>+<kbd>**Space**</kbd>                                                                | <kbd>⌃</kbd>+<kbd>**Space**</kbd>*                                                              | Select a column     | Any cell        |
+| <kbd>**Shift**</kbd>+<kbd>**Space**</kbd>                                                               | <kbd>⇧</kbd>+<kbd>**Space**</kbd>                                                              | Select a row        | Any cell        |
+| <kbd>**Ctrl**</kbd>+<kbd>**Shift**</kbd>+<kbd>**\\**</kbd> <br> <kbd>**Shift**</kbd>+<kbd>**F10**</kbd> | <kbd>⌘</kbd>+<kbd>⇧</kbd>+<kbd>**\\**</kbd> <br> <kbd>⇧</kbd>+<kbd>**F10**</kbd> | Open a context menu | Any cell        |
+
+*To use this shortcut, disable the default macOS behavior for the <kbd>**Ctrl**</kbd>+<kbd>**Space**</kbd> key combination, under **System Settings** > **Keyboard** > **Keyboard Shortcuts** > **Input Sources**.
+
+For filter-menu-specific navigation details, including <kbd>**Tab**</kbd> traversal and hover behavior, see [Column filter](@/guides/columns/column-filter/column-filter.md#navigate-the-filter-menu).
+
+## Support for screen readers
+
+Although semantic HTML doesn't need any additional attributes to be properly interpreted by assistive technologies, some of Handsontable's complex features are not fully covered by the HTML specification. That's why Handsontable provides support for screen readers with ARIA attributes (Accessible Rich Internet Applications) applied to its HTML markup.
+
+Handsontable is tested with the screen readers below: the ones the audit behind the {{$a11y.report.link}} covered, and the ones an automated run checks. The list changes only when an audit or an automated run adds to it.
+
+{{$a11y.matrix.list}}
+
+Browsers in the last audit: {{$a11y.browsers.sentence}}.
+
+{{$a11y.notes.mobile}}
+
+{{$a11y.notes.automation}}
+
+## Accessible data grid demo
+
+Check out the interactive demo below to see how various Handsontable settings impact its accessibility level and affect the user experience.
+
+::: only-for javascript
+
+::: example #example1 --html 1 --css 2 --js 3 --ts 4
+
+@[code](@/content/guides/accessibility/accessibility/javascript/example1.html)
+@[code](@/content/guides/accessibility/accessibility/javascript/example1.css)
+@[code collapse={8-468}](@/content/guides/accessibility/accessibility/javascript/example1.js)
+@[code collapse={19-479}](@/content/guides/accessibility/accessibility/javascript/example1.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example2 :react --css 1 --js 2 --ts 3
+
+@[code](@/content/guides/accessibility/accessibility/react/example2.css)
+@[code collapse={8-468}](@/content/guides/accessibility/accessibility/react/example2.jsx)
+@[code collapse={30-490}](@/content/guides/accessibility/accessibility/react/example2.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example1 :angular --ts 1 --html 2
+
+@[code collapse={22-482}](@/content/guides/accessibility/accessibility/angular/example1.ts)
+@[code](@/content/guides/accessibility/accessibility/angular/example1.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example2 :vue3 --css 1
+
+@[code](@/content/guides/accessibility/accessibility/vue/example2.css)
+@[code](@/content/guides/accessibility/accessibility/vue/example2.vue)
+
+:::
+
+:::
+
+## Disabling DOM virtualization for improved accessibility
+
+By default, Handsontable uses DOM virtualization to display only the [rows](@/guides/rows/row-virtualization/row-virtualization.md)
+and [columns](@/guides/columns/column-virtualization/column-virtualization.md) that are currently visible on the screen,
+plus a few extra cells outside the visible area to ensure a seamless scrolling experience.
+
+However, assistive technologies rely on the elements within the DOM appearing in the correct order.
+Otherwise, they require the use of [additional ARIA attributes](https://www.w3.org/WAI/ARIA/apg/practices/grid-and-table-properties),
+such as `row-colindex` or `aria-rowindex`, to understand the grid's structure and accurately announce (read) it to the user.
+
+Handsontable describes hidden columns or rows, merged cells, and the sort order of a column (`aria-sort`) with ARIA attributes.
+Screen readers do not always read them: a change of the sort order is not announced, and in some scenarios a screen reader announces incorrect indices or omits the attributes. See [Known limitations](#known-limitations).
+To address this issue, we recommend disabling DOM virtualization, which entails loading all grid elements into the browser.
+This action creates a complete [Accessibility tree](https://developer.mozilla.org/en-US/docs/Glossary/Accessibility_tree) that can be easily parsed
+and interpreted by assistive technology.
+
+::: only-for javascript
+
+```js
+const hot = new Handsontable(container, {
+  // disable column virtualization
+  renderAllColumns: true,
+  // disable row virtualization
+  renderAllRows: true,
+});
+```
+
+:::
+
+::: only-for react
+
+```js
+<HotTable
+  // disable column virtualization
+  renderAllColumns={true}
+  // disable row virtualization
+  renderAllRows={true}
+/>
+```
+
+:::
+
+::: only-for angular
+
+```ts
+import {GridSettings, HotTableModule} from '@handsontable/angular-wrapper';
+
+const configurationOptions: GridSettings = {
+  // disable column virtualization
+  renderAllColumns: true,
+  // disable row virtualization
+  renderAllRows: true,
+};
+```
+
+```html
+<hot-table [settings]="configurationOptions"></hot-table>
+```
+
+:::
+
+::: only-for vue
+
+```ts
+const hotSettings = ref({
+  // disable column virtualization
+  renderAllColumns: true,
+  // disable row virtualization
+  renderAllRows: true,
+});
+```
+
+```html
+<HotTable :settings="hotSettings" />
+```
+
+:::
+
+## High-contrast theme
+
+The recommended [minimum contrast ratio](https://www.w3.org/WAI/WCAG22/quickref/#contrast-minimum) for text against images or backgrounds is 4.5:1. To achieve this level of contrast with Handsontable's default theme, you can:
+
+- Override the grid's CSS with your own styles.
+- Use third-party software, such as the [High Contrast](https://chrome.google.com/webstore/detail/high-contrast/djcfdncoelnlbldjfhinnjlhdjlikmph) extension for Chrome, supported by Google.
+
+## Requirements for developers
+
+When you customize Handsontable, it's you who's responsible for ensuring the accessibility of your solution. Especially when you create a [custom cell type](@/guides/cell-types/cell-type/cell-type.md) or a [custom plugin](@/guides/tools-and-building/custom-plugins/custom-plugins.md), remember to make them accessible to everyone.
+
+Our recommendations for custom development:
+
+- Test your code against the [{{$a11y.target.name}}]({{$a11y.target.url}}) {{$a11y.target.level}} success criteria frequently.
+- Use proper color contrast, font size, and semantic HTML.
+- If needed, implement additional WAI-ARIA attributes.
+- Avoid flashing or blinking content.
+- Test your customizations with real users who have different types of disabilities. If you don’t have access to real users, try [Funkify](https://www.funkify.org/), a disability simulator, which can help you look at your application from the perspective of users with different disabilities.
+
+::: tip
+
+The quality of custom Handsontable modifications can impact your application's accessibility level. Make sure to actively check how your changes influence the overall accessibility of your application, using tools like [Lighthouse](https://developers.google.com/web/tools/lighthouse).
+
+:::
+
+## Maintaining accessibility
+
+Handsontable keeps the grid accessible with the following measures:
+
+- An automated [axe-core](https://github.com/dequelabs/axe-core) scan with the WCAG 2.2 Level A and AA rule tags runs in CI on every change to the grid, on the three built-in themes, and reports every new finding.
+- Keyboard-only end-to-end tests cover the keyboard path of the grid's controls, and every change to a control adds one that also checks its accessible name.
+- The {{$a11y.report.link}} states the result per success criterion. {{$a11y.report.next.sentence}}
+- Screen-reader testing with the matrix listed under [Support for screen readers](#support-for-screen-readers).
+
+## Known limitations
+
+The {{$a11y.report.link}} lists the ones that carry a reference and a success criterion; the rest come from Handsontable's own testing.
+
+{{$a11y.knownLimitations.list}}
+
+## Result
+
+Your grid now supports keyboard navigation and carries ARIA attributes on its interactive elements. Screen readers announce the focused cell and the menus; the sort order and a range selection are not announced yet (see [Known limitations](#known-limitations)).
+
+## API reference
+
+For the list of [options](@/guides/configuration/configuration-options/configuration-options.md), methods, and [Handsontable hooks](@/guides/getting-started/events-and-hooks/events-and-hooks.md) related to accessibility, see the following API reference pages:
+
+**Configuration options**
+
+<div class="boxes-list">
+
+- [`autoWrapCol`](@/api/options.md#autowrapcol)
+- [`autoWrapRow`](@/api/options.md#autowraprow)
+- [`enterBeginsEditing`](@/api/options.md#enterbeginsediting)
+- [`enterMoves`](@/api/options.md#entermoves)
+- [`navigableHeaders`](@/api/options.md#navigableheaders)
+- [`renderAllColumns`](@/api/options.md#renderallcolumns)
+- [`renderAllRows`](@/api/options.md#renderallrows)
+- [`tabNavigation`](@/api/options.md#tabnavigation)
+- [`viewportColumnRenderingOffset`](@/api/options.md#viewportcolumnrenderingoffset)
+- [`viewportRowRenderingOffset`](@/api/options.md#viewportrowrenderingoffset)
+
+</div>
+
+## Related blog articles
+
+<div class="boxes-list gray">
+
+- [Handsontable 15.3.0: CSV sanitization, accessibility updates, and 30+ fixes](https://handsontable.com/blog/handsontable-15.3.0-csv-sanitization-accessibility-updates-and-30-fixes)
+- [What's new in Handsontable 14: Improvements to accessibility](https://handsontable.com/blog/whats-new-in-handsontable-14-improvements-to-accessibility)
+
+</div>
+
+## Troubleshooting
+
+Didn't find what you need? Try this:
+
+<div class="boxes-list">
+
+- [View related topics](https://github.com/handsontable/handsontable/labels/Accessibility) on GitHub
+- [Report an issue](https://github.com/handsontable/handsontable/issues/new/choose) on GitHub
+- [Start a discussion](https://forum.handsontable.com/c/getting-help/questions) on Handsontable's forum
+- [Contact our technical support](https://handsontable.com/contact?category=technical_support) to get help
+
+</div>
+
+Microsoft and Excel are registered trademarks of Microsoft Corporation. Google Sheets is a trademark of Google LLC.

@@ -1,0 +1,509 @@
+---
+type: how-to
+title: Custom shortcuts
+metaTitle: Custom shortcuts | Handsontable DataGrid for JavaScript
+description: Customize Handsontable DataGrid's keyboard shortcuts.
+permalink: /custom-shortcuts
+canonicalUrl: /custom-shortcuts
+tags:
+  - key bindings
+  - keymap
+  - key mapping
+  - keyboard navigation
+  - hotkey
+  - accessibility
+  - function key
+  - commands
+  - custom shortcuts
+  - shortcut keys
+react:
+  metaTitle: Custom shortcuts | Handsontable DataGrid for React
+angular:
+  metaTitle: Custom shortcuts | Handsontable DataGrid for Angular
+vue:
+  metaTitle: Custom shortcuts | Handsontable DataGrid for Vue
+searchCategory: Guides
+category: Navigation
+menuTag: updated
+---
+Use the [`ShortcutManager`](@/api/shortcutManager.md) API to add, remove, replace, or block keyboard shortcuts in Handsontable DataGrid.
+
+[[toc]]
+
+::: only-for react
+
+::: tip
+
+To use the Handsontable API, you'll need access to the Handsontable instance. You can do that by utilizing a reference to the `HotTable` component, and reading its `hotInstance` property.
+
+For more information, see the [Instance methods](@/guides/getting-started/react-methods/react-methods.md) page.
+
+:::
+
+:::
+
+::: only-for angular
+
+::: tip
+
+To use the Handsontable API, you'll need access to the Handsontable instance. You can do that by utilizing a reference to the `HotTable` component, and reading its `hotInstance` property.
+
+For more information, see the [Instance access](@/guides/getting-started/angular-hot-instance/angular-hot-instance.md) page.
+
+:::
+
+:::
+
+::: only-for vue
+
+::: tip
+
+To use the Handsontable API, use a template ref on `HotTable` and read `hotRef.value.hotInstance`.
+
+For more information, see [Referencing the Handsontable instance in Vue 3](@/guides/getting-started/vue3-hot-reference/vue3-hot-reference.md).
+
+:::
+
+:::
+
+<ol class="sl-steps">
+<li>
+
+**Access the [`ShortcutManager`](@/api/shortcutManager.md) API:**
+
+```js
+hot.getShortcutManager();
+```
+
+</li>
+<li>
+
+**Select a keyboard shortcut context, for example:**
+
+```js
+const gridContext = hot.getShortcutManager().getContext('grid');
+```
+
+</li>
+<li>
+
+**Use the selected context's [methods](@/api/shortcutContext.md).** For example, to use the [`addShortcut()`](@/api/shortcutContext.md#addshortcut) method in the `grid` context:
+
+```js
+const gridContext = hot.getShortcutManager().getContext('grid');
+
+gridContext.addShortcut({
+  group: 'group_ID', // a string value; the user can decide on its name.
+  // Each shortcut should be assigned to the group.
+  keys: [['enter']],
+  callback: () => {},
+});
+```
+
+</li>
+</ol>
+
+## Add a custom keyboard shortcut
+
+To add a custom keyboard shortcut:
+
+<ol class="sl-steps">
+<li>
+
+**Select a [context](#keyboard-shortcut-contexts) in which you want to add a shortcut, for example:**
+
+```js
+const gridContext = hot.getShortcutManager().getContext('grid');
+```
+
+</li>
+<li>
+
+**Using the selected context's [`addShortcut()`](@/api/shortcutContext.md#addshortcut) method, add your keyboard shortcut:**
+
+```js
+const gridContext = hot.getShortcutManager().getContext('grid');
+
+gridContext.addShortcut({
+  group: 'group_ID', // a string value; the user can decide on its name.
+  // Each shortcut should be assigned to the group.
+  keys: [['enter']],
+  callback: () => {},
+});
+```
+
+</li>
+</ol>
+
+### Try it out
+
+The example below registers a custom keyboard shortcut in the `grid` context, using the [`addShortcut()`](@/api/shortcutContext.md#addshortcut) method. Select a cell and press <kbd>Control</kbd>/<kbd>Cmd</kbd> + <kbd>Enter</kbd> to insert a new row below it.
+
+::: only-for javascript
+
+::: example #example1 --js 1 --ts 2
+@[code](@/content/guides/navigation/custom-shortcuts/javascript/example1.js)
+@[code](@/content/guides/navigation/custom-shortcuts/javascript/example1.ts)
+:::
+
+:::
+
+::: only-for react
+
+::: example #example1 :react --js 1 --ts 2
+@[code](@/content/guides/navigation/custom-shortcuts/react/example1.jsx)
+@[code](@/content/guides/navigation/custom-shortcuts/react/example1.tsx)
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example1 :angular --ts 1 --html 2
+@[code](@/content/guides/navigation/custom-shortcuts/angular/example1.ts)
+@[code](@/content/guides/navigation/custom-shortcuts/angular/example1.html)
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example1 :vue3
+@[code](@/content/guides/navigation/custom-shortcuts/vue/example1.vue)
+:::
+
+:::
+
+### Add a conditional keyboard action
+
+To make a keyboard action run on a certain condition, set the [`runOnlyIf`](@/api/shortcutContext.md#addshortcut) parameter to a function:
+
+```js
+const gridContext = hot.getShortcutManager().getContext('grid');
+
+gridContext.addShortcut({
+  group: 'group_ID', // a string value; the user can decide on its name. 
+     // Each shortcut should be assigned to the group.
+  runOnlyIf: () => hot.getSelected() !== undefined,
+  keys: [['enter']],
+  callback: () => {},
+});
+```
+
+### Set the order of keyboard actions
+
+You can assign multiple actions to a single keyboard shortcut.
+
+By default, when you assign a new action, it runs after any other actions that were assigned previously. To set your own order of actions, use the [`position`](@/api/shortcutContext.md#addshortcut) and [`relativeToGroup`](@/api/shortcutContext.md#addshortcut) parameters of the [`addShortcut()`](@/api/shortcutContext.md#addshortcut) method:
+
+```js
+const gridContext = hot.getShortcutManager().getContext('grid');
+
+gridContext.addShortcut({
+  group: 'customNumericEditor',
+  position: 'before',
+  relativeToGroup: 'editorManager.handlingEditor',
+  runOnlyIf: () => hot.getSelected() !== undefined,
+  keys: [['F2']],
+  callback: () => {
+    if (hot.getActiveEditor().cellProperties.type === 'numeric') {
+      return false; // the `F2` shortcut won't work for `numeric` cells
+    }
+
+    // another action
+  },
+});
+```
+
+A new action goes next to the first action of the `relativeToGroup` group. When you add several actions next to the same group, the newest one runs first.
+
+## Remove a keyboard shortcut
+
+To remove a keyboard shortcut (e.g., one of the [default](#default-custom-shortcuts) keyboard shortcuts):
+
+<ol class="sl-steps">
+<li>
+
+**Select a [context](#keyboard-shortcut-contexts) in which you want to remove a keyboard shortcut.**
+
+</li>
+<li>
+
+**Use the selected context's [`removeShortcutsByKeys()`](@/api/shortcutContext.md#removeshortcutsbykeys) method.**
+
+```js
+const gridContext = hot.getShortcutManager().getContext('grid');
+
+gridContext.removeShortcutsByKeys(['enter']);
+```
+
+</li>
+</ol>
+
+To remove all keyboard shortcuts registered in a certain group:
+
+<ol class="sl-steps">
+<li>
+
+**Select a [context](#keyboard-shortcut-contexts).**
+
+</li>
+<li>
+
+**Use the selected context's [`removeShortcutsByGroup()`](@/api/shortcutContext.md#removeshortcutsbygroup) method.**
+
+```js
+const gridContext = hot.getShortcutManager().getContext('grid');
+
+gridContext.removeShortcutsByGroup('group_ID');
+```
+
+</li>
+</ol>
+
+### Remove the copy, cut, and paste shortcuts
+
+The `grid` context registers <kbd>**Ctrl**</kbd>/<kbd>**Cmd**</kbd> + <kbd>**C**</kbd>, <kbd>**X**</kbd>, and <kbd>**V**</kbd>. These shortcuts do nothing on their own, because the browser runs the action. When you remove one, the [`CopyPaste`](@/api/copyPaste.md) plugin cancels that exact key combination, so <kbd>**Ctrl**</kbd>/<kbd>**Cmd**</kbd> + <kbd>**C**</kbd>, <kbd>**X**</kbd>, or <kbd>**V**</kbd> no longer copies, cuts, or pastes.
+
+```js
+const gridContext = hot.getShortcutManager().getContext('grid');
+
+gridContext.removeShortcutsByKeys(['control/meta', 'c']);
+```
+
+Only these three key combinations stop working. Handsontable treats <kbd>**Ctrl**</kbd> and <kbd>**Cmd**</kbd> as the same key, so <kbd>**Ctrl**</kbd> + <kbd>**Cmd**</kbd> + <kbd>**C**</kbd> on macOS and <kbd>**Ctrl**</kbd> + <kbd>**Win**</kbd> + <kbd>**C**</kbd> on Windows are cancelled too. Other native clipboard keys are not blocked, for example <kbd>**Ctrl**</kbd>/<kbd>**Cmd**</kbd> + <kbd>**Shift**</kbd> + <kbd>**V**</kbd>, <kbd>**Shift**</kbd> + <kbd>**Insert**</kbd>, <kbd>**Ctrl**</kbd> + <kbd>**Insert**</kbd>, and <kbd>**Shift**</kbd> + <kbd>**Delete**</kbd>.
+
+The context menu items and the [`copy()`](@/api/copyPaste.md#copy), [`cut()`](@/api/copyPaste.md#cut), and [`paste()`](@/api/copyPaste.md#paste) methods keep working. The keyboard also keeps working inside an open cell editor, including the editor's text area when you use `imeFastEdit`, and inside your application's own fields.
+
+:::: tip
+
+Moving a clipboard shortcut to other keys, as in [Replace a keyboard shortcut](#replace-a-keyboard-shortcut), leaves the original key combination without a shortcut. The plugin then cancels it. To keep the original key working, add the shortcut again with the same keys, a callback that does nothing, and `preventDefault: false`. To turn the key off, remove the shortcut and don't add it back.
+
+::::
+
+### Remove the select-all shortcut
+
+<kbd>**Ctrl**</kbd>/<kbd>**Cmd**</kbd> + <kbd>**A**</kbd> is a grid shortcut that selects all cells. When you remove it, Handsontable no longer handles the key combination. The browser's native select-all runs instead. It selects the text on the page, or the text of the focused field. With `imeFastEdit`, the focused field is the editor's hidden text area, so the page text stays unselected.
+
+To block select-all completely, replace the shortcut with one whose callback does nothing. Leave the `preventDefault` option at its default value (`true`), so the browser does not select the page text either:
+
+```js
+const gridContext = hot.getShortcutManager().getContext('grid');
+
+gridContext.removeShortcutsByKeys(['control/meta', 'a']);
+
+gridContext.addShortcuts([{
+  keys: [['control/meta', 'a']],
+  callback: () => {},
+  group: 'myShortcuts',
+}]);
+```
+
+## Replace a keyboard shortcut
+
+To replace a keyboard shortcut:
+
+<ol class="sl-steps">
+<li>
+
+**Select a [context](#keyboard-shortcut-contexts) in which you want to replace a keyboard shortcut.**
+
+</li>
+<li>
+
+**Get the old keyboard shortcut, using the selected context's [`getShortcuts()`](@/api/shortcutContext.md#getshortcuts) method.**
+
+</li>
+<li>
+
+**Remove the old keyboard shortcut, using the selected context's [`removeShortcutsByKeys()`](@/api/shortcutContext.md#removeshortcutsbykeys) method.**
+
+</li>
+<li>
+
+**Replace the `keys` property of the old keyboard shortcut with your new array of keys.**
+
+</li>
+<li>
+
+**Add your new keyboard shortcut, using the selected context's [`addShortcuts()`](@/api/shortcutContext.md#addshortcuts) method.**
+
+```js
+const gridContext = hot.getShortcutManager().getContext('grid');
+const undoShortcut = gridContext.getShortcuts(['control/meta', 'z']);
+
+gridContext.removeShortcutsByKeys(['control/meta', 'z']);
+
+undoShortcut.map((shortcut) => {
+  shortcut.keys = [['shift', 'control/meta', 'z']];
+});
+
+gridContext.addShortcuts(undoShortcut);
+```
+
+</li>
+</ol>
+
+## Block a keyboard shortcut's actions
+
+To block a keyboard shortcut's actions, return `false` in the [`beforeKeyDown`](@/api/hooks.md#beforekeydown) hook's callback:
+
+::: only-for javascript
+
+```js
+hot.addHook('beforeKeyDown', (event) => {
+  // the `Enter` shortcut won't work
+  if (event.key === 'enter') {
+    return false;
+  }
+});
+```
+
+:::
+
+::: only-for react
+
+```jsx
+<HotTable
+  beforeKeyDown={(event) => {
+    // the `Enter` shortcut won't work
+    if (event.key === 'enter') {
+      return false;
+    }
+  }}
+/>
+```
+
+:::
+
+::: only-for angular
+
+```ts
+settings = {
+  beforeKeyDown: (event) => {
+    // the `Enter` shortcut won't work
+    if (event.key === "enter") {
+      return false;
+    }
+  },
+};
+```
+
+```html
+<hot-table [settings]="settings" />
+```
+
+:::
+
+::: only-for vue
+
+```js
+const hotSettings = ref({
+  beforeKeyDown(event) {
+    // the `Enter` shortcut won't work
+    if (event.key === 'enter') {
+      return false;
+    }
+  },
+  // ...other settings
+});
+```
+
+:::
+
+## Result
+
+After completing these steps, you have custom keyboard shortcuts registered in the target context. The shortcuts trigger your callbacks when the user presses the configured key combination, and only when the specified context is active.
+
+## Reference
+
+### Keyboard shortcut contexts
+
+Every keyboard action is registered in a particular context:
+
+| Context  | Description                                                       | Type     |
+| -------- | ----------------------------------------------------------------- | -------- |
+| `grid`   | Activates when the user navigates the data grid (initial context) | Built-in |
+| `editor` | Activates when the user opens a cell editor                       | Built-in |
+| `menu`   | Activates when the user opens a cell's context menu               | Built-in |
+| Custom   | Your custom context                                               | Custom   |
+
+When the user interacts with the keyboard, only actions registered for the currently-active context are executed. Only one context is active at a time.
+
+### Manage keyboard shortcut contexts
+
+Using the [`ShortcutManager`](@/api/shortcutManager.md) API methods, you can:
+
+- Get the name of the currently-active context: [`getActiveContextName()`](@/api/shortcutManager.md#getactivecontextname)
+- Switch to a different context: [`setActiveContextName()`](@/api/shortcutManager.md#setactivecontextname)
+- Get an already-registered context: [`getContext()`](@/api/shortcutManager.md#getcontext)
+- Create and register a new context: [`addContext()`](@/api/shortcutManager.md#addcontext)
+
+For example: if you're using a complex [custom editor](@/guides/cell-functions/cell-editor/cell-editor.md#how-to-create-a-custom-editor), you can create a new shortcut context to navigate your editor's UI with the arrow keys (normally, the arrow keys would navigate the grid instead).
+
+### `addShortcut()` parameters
+
+The [`keys`](@/api/shortcutContext.md#addshortcut) parameter:
+
+- Accepts all the [`KeyboardEvent.key`](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/key/Key_Values) key names.
+- Accepts key names in both lowercase and uppercase (e.g., both `Enter` and `enter` work)
+- Handles key-name discrepancies between browsers (e.g., both `'Spacebar'` and `' '` work)
+- Accepts key names in any order (e.g., both `[['control', 'a']]` and `[['a', 'control']]`) work)
+
+The `control/meta` key name is specific to Handsontable. It matches `Control` on Windows and Linux, and `Meta` on macOS. For arrow keys, use `KeyboardEvent.key` names such as `ArrowLeft`, not display glyphs such as `←`.
+
+## API reference
+
+For the list of [options](@/guides/configuration/configuration-options/configuration-options.md), methods, and [Handsontable hooks](@/guides/getting-started/events-and-hooks/events-and-hooks.md) related to keyboard navigation, see the following API reference pages:
+
+**APIs**
+
+<div class="boxes-list">
+
+- [ShortcutContext](@/api/shortcutContext.md)
+- [ShortcutManager](@/api/shortcutManager.md)
+
+</div>
+
+**Configuration options**
+
+<div class="boxes-list">
+
+- [enterBeginsEditing](@/api/options.md#enterbeginsediting)
+- [enterMoves](@/api/options.md#entermoves)
+- [tabMoves](@/api/options.md#tabmoves)
+
+</div>
+
+**Core methods**
+
+<div class="boxes-list">
+
+- [getShortcutManager()](@/api/core.md#getshortcutmanager)
+- [isListening()](@/api/core.md#islistening)
+- [listen()](@/api/core.md#listen)
+- [unlisten()](@/api/core.md#unlisten)
+
+</div>
+
+**Hooks**
+
+<div class="boxes-list">
+
+- [afterDocumentKeyDown](@/api/hooks.md#afterdocumentkeydown)
+- [beforeKeyDown](@/api/hooks.md#beforekeydown)
+
+</div>
+
+## Troubleshooting
+
+Didn't find what you need? Try this:
+
+<div class="boxes-list">
+
+- [View related topics](https://github.com/handsontable/handsontable/issues) on GitHub
+- [Report an issue](https://github.com/handsontable/handsontable/issues/new/choose) on GitHub
+- [Start a discussion](https://forum.handsontable.com/c/getting-help/questions) on Handsontable's forum
+- [Contact our technical support](https://handsontable.com/contact?category=technical_support) to get help
+
+</div>

@@ -1,0 +1,579 @@
+import type { HotInstance } from '../core/types';
+import {
+  createObjectPropListener,
+  getProperty,
+  hasOwnProperty,
+  isObject,
+  objectEach,
+  setProperty,
+  writeOwnProperty,
+} from '../helpers/object';
+import { cloneRow, countFirstRowKeys } from '../helpers/data';
+import { arrayEach } from '../helpers/array';
+import { rangeEach } from '../helpers/number';
+import { isFunction } from '../helpers/function';
+import { colToPropOrIndex } from '../helpers/columnProp';
+
+/**
+ * A `columns[].data` accessor: called with the row object only to read, and with the row object
+ * and a value to write.
+ *
+ * Declared through the bivariance hack so that the public `ColumnDataGetterSetterFunction`, whose
+ * row parameter is narrower, stays assignable to it under `strictFunctionTypes`.
+ */
+export type DataAccessorFn = {
+  bivarianceHack(dataRow: unknown, value?: unknown): unknown
+}['bivarianceHack'];
+
+/**
+ * Checks whether the passed value is a `columns[].data` accessor function.
+ *
+ * @param {*} value The value to test.
+ * @returns {boolean} `true` when the value is an accessor function.
+ */
+export function isDataAccessorFn(value: unknown): value is DataAccessorFn {
+  return typeof value === 'function';
+}
+
+/**
+ * @class DataSource
+ * @private
+ */
+class DataSource {
+  /**
+   * Instance of Handsontable.
+   *
+   * @type {Handsontable}
+   */
+  declare hot: HotInstance | null;
+  /**
+   * Data source.
+   *
+   * @type {Array}
+   */
+  declare data: (Record<string, unknown> | unknown[])[] | null;
+  /**
+   * Type of data source.
+   *
+   * @type {string}
+   * @default 'array'
+   */
+  dataType = 'array';
+
+  /**
+   * Translates a visual column index to the corresponding data property key. May be overridden by DataMap when object data is used.
+   */
+  colToProp: (column: unknown) => unknown = (_column: unknown) => undefined;
+  /**
+   * Translates a data property key to the corresponding visual column index. May be overridden by DataMap when object data is used.
+   */
+  propToCol: (prop: unknown) => unknown = (_prop: unknown) => undefined;
+  /**
+   * Returns the number of columns derived from the data source cache; injected externally when object-based data is used.
+   */
+  countCachedColumns?: () => number;
+  /**
+   * Resolves a column through this source's own `colToProp` for `colToPropOrIndex()`, so the
+   * injected translator stays the one in use. Built once, as it runs for every cell of a range.
+   */
+  #columnResolver = {
+    colToProp: (column: number) => this.colToProp(column) as string | number | DataAccessorFn | null,
+    toPhysicalColumn: (column: number) => this.hot!.toPhysicalColumn(column),
+  };
+
+  /**
+   * Initializes the data source with a reference to the Handsontable instance and the raw data array.
+   */
+  constructor(hotInstance: HotInstance, dataSource: unknown[][] | object[][] = []) {
+    this.hot = hotInstance;
+    this.data = dataSource;
+  }
+
+  /**
+   * Run the `modifyRowData` hook and return either the modified or the source data for the provided row.
+   *
+   * @private
+   * @param {number} rowIndex Row index.
+   * @returns {Array|object} Source or modified row of data.
+   */
+  modifyRowData(rowIndex: number) {
+    let modifyRowData;
+
+    if (this.hot!.hasHook('modifyRowData')) {
+      modifyRowData = this.hot!.runHooks('modifyRowData', rowIndex);
+    }
+
+    return (modifyRowData !== undefined && !Number.isInteger(modifyRowData)) ? modifyRowData : this.data![rowIndex];
+  }
+
+  /**
+   * Get all data.
+   *
+   * Each call returns a fresh shallow clone of the source data so consumers can
+   * safely mutate the returned array without affecting subsequent calls or the
+   * underlying data. The fast path skips the per-cell hook lookups in
+   * `getByRange()` and is taken when no `modifySourceData` / `modifyRowData`
+   * hooks are registered and the caller does not request array-of-arrays
+   * coercion (which needs the `colToProp` mapping `getByRange()` supplies).
+   *
+   * @param {boolean} [toArray=false] If `true` return source data as an array of arrays even when source data was provided
+   *                                  in another format.
+   * @returns {Array}
+   */
+  getData(toArray = false) {
+    if (!this.data?.length) {
+      return this.data;
+    }
+
+    if (!toArray
+        && !this.hot!.hasHook('modifySourceData')
+        && !this.hot!.hasHook('modifyRowData')) {
+      return this.data.map(cloneRow);
+    }
+
+    return this.getByRange(null, null, toArray);
+  }
+
+  /**
+   * Set new data source.
+   *
+   * @param {Array} data The new data.
+   */
+  setData(data: unknown[]) {
+    this.data = data as (Record<string, unknown> | unknown[])[];
+  }
+
+  /**
+   * Returns array of column values from the data source. `column` is the index of the row in the data source.
+   *
+   * @param {number} column Visual column index.
+   * @returns {Array}
+   */
+  getAtColumn(column: number) {
+    const result: unknown[] = [];
+
+    arrayEach(this.data!, (row: unknown, rowIndex: number) => {
+      const value = this.getAtCell(rowIndex, column);
+
+      result.push(value);
+    });
+
+    return result;
+  }
+
+  /**
+   * Returns a single row of the data or a subset of its columns. If a column range or `toArray` arguments are provided, it
+   * operates only on the columns declared by the `columns` setting or the data schema.
+   *
+   * @param {number} row Physical row index.
+   * @param {number} [startColumn] Starting index for the column range (optional).
+   * @param {number} [endColumn] Ending index for the column range (optional).
+   * @param {boolean} [toArray=false] `true` if the returned value should be forced to be presented as an array.
+   * @returns {Array|object}
+   */
+  getAtRow(row: number, startColumn?: number, endColumn?: number, toArray = false) {
+    const getAllProps = startColumn === undefined && endColumn === undefined;
+    const { dataDotNotation, columns, maxCols } = this.hot!.getSettings();
+    let dataRow = null;
+    let newDataRow: Record<string | number, unknown> | null = null;
+
+    dataRow = this.modifyRowData(row);
+
+    if (Array.isArray(dataRow)) {
+      newDataRow = [] as unknown as Record<string | number, unknown>;
+
+      if (getAllProps) {
+        dataRow.forEach((cell: unknown, column: number) => {
+          newDataRow![column] = this.getAtPhysicalCell(row, column, dataRow);
+        });
+
+      } else {
+        // Only the columns from the provided range
+        rangeEach(startColumn!, endColumn!, (column: number) => {
+          newDataRow![column - startColumn!] = this.getAtPhysicalCell(row, column, dataRow);
+        });
+      }
+
+    } else if (isObject(dataRow) || isFunction(dataRow)) {
+      if (toArray) {
+        newDataRow = [] as unknown as Record<string | number, unknown>;
+      } else {
+        newDataRow = {};
+      }
+
+      if (!getAllProps || toArray) {
+        const rangeStart = 0;
+        // `columns` can declare more columns than the first row has keys (nested paths such as
+        // `list.7` read one key each), so the count of keys alone would cut the declared ones off. The
+        // property cache only reaches the last column that has a `data` option, so a trailing column
+        // without one is counted from the `columns` array, capped by `maxCols` the way the cache is built.
+        const cachedColumns = this.countCachedColumns?.() ?? 0;
+        const declaredColumns = Array.isArray(columns) ?
+          Math.max(cachedColumns, Math.min(maxCols ?? Infinity, columns.length)) : cachedColumns;
+        const rangeEnd = Math.max(this.countFirstRowKeys(), declaredColumns) - 1;
+
+        rangeEach(rangeStart, rangeEnd, (column: number) => {
+          // An index that names no column comes back as the index, which the integer test below
+          // rejects. An unbound column (`{ data: null }`) keeps its `null` property, so it keeps its
+          // slot and the columns after it stay in place. A column declared without a `data` option
+          // resolves to its own index instead, so in the array form the declaration of the column
+          // decides whether it keeps its slot.
+          const prop = colToPropOrIndex(this.#columnResolver, column);
+          const keepsSlot = !Number.isInteger(prop) ||
+            (toArray && column < declaredColumns && this.hot!.toPhysicalColumn(column) !== null);
+
+          if (column >= (startColumn || rangeStart) && column <= (endColumn ?? rangeEnd) && keepsSlot) {
+            const cellValue = this.getAtPhysicalCell(row, prop as string | number | DataAccessorFn, dataRow);
+
+            if (toArray) {
+              (newDataRow as unknown as unknown[]).push(cellValue);
+
+            } else if (dataDotNotation) {
+              if (newDataRow !== null) {
+                setProperty(newDataRow as Record<string, unknown>, prop as string, cellValue);
+              }
+
+            } else {
+              newDataRow![prop as string] = cellValue;
+            }
+          }
+        });
+
+      } else {
+        objectEach(dataRow as Record<string, unknown>, (value: unknown, prop: string) => {
+          const cellValue = this.getAtPhysicalCell(row, prop, dataRow);
+
+          if (dataDotNotation) {
+            if (newDataRow !== null) {
+              setProperty(newDataRow as Record<string, unknown>, prop, cellValue);
+            }
+          } else {
+            newDataRow![prop] = cellValue;
+          }
+        });
+      }
+    }
+
+    return newDataRow;
+  }
+
+  /**
+   * Set the provided value in the source data set at the provided coordinates.
+   *
+   * @param {number|string} row Physical row index.
+   * @param {number|string|Function} column Property name / physical column index / a `columns[].data`
+   *   accessor function (called as `column(dataRow, value)`).
+   * @param {*} value The value to be set at the provided coordinates.
+   * @param {boolean} [byProp=false] `true` to write a numeric `column` as the property it names even past
+   *   the keys of the first row – the way `DataMap` wrote it and the undo journal recorded it.
+   */
+  setAtCell(row: number | string, column: string | number | DataAccessorFn, value: unknown, byProp = false) {
+    // Normalize row: accept string numeric indices (e.g. '0', '1') passed by setSourceDataAtCell,
+    // but reject prototype-pollution keys like '__proto__', 'constructor', 'prototype'.
+    let normalizedRow: number;
+
+    if (typeof row === 'string') {
+      const parsed = Number(row);
+
+      if (Number.isNaN(parsed) || !Number.isInteger(parsed) || parsed < 0) {
+        return;
+      }
+      normalizedRow = parsed;
+    } else if (typeof row !== 'number' || !Number.isInteger(row) || row < 0) {
+      return;
+    } else {
+      normalizedRow = row;
+    }
+
+    if (
+      normalizedRow >= this.countRows() ||
+      (!byProp && typeof column === 'number' && column >= this.countFirstRowKeys())
+    ) {
+      // Not enough rows and/or columns.
+      return;
+    }
+
+    if (this.hot!.hasHook('modifySourceData')) {
+      const valueHolder = createObjectPropListener(value);
+
+      this.hot!.runHooks('modifySourceData', normalizedRow, column, valueHolder, 'set');
+
+      if (valueHolder.isTouched()) {
+        value = valueHolder.value;
+      }
+    }
+
+    const dataRow = this.modifyRowData(normalizedRow);
+
+    if (typeof column === 'function') {
+      // The accessor owns the write, the same way it owns the read in `getAtPhysicalCell`.
+      if (dataRow !== undefined && dataRow !== null) {
+        column(dataRow, value);
+      }
+
+      return;
+    }
+
+    if (!Number.isInteger(column)) {
+      // column argument is the prop name
+      if (Array.isArray(dataRow)) {
+        // String numeric column with array data — convert to number and write directly, same as
+        // the integer path below. setProperty rejects arrays, so this must be handled here.
+        const numericIndex = Number(column);
+
+        if (!Number.isNaN(numericIndex) && Number.isInteger(numericIndex) &&
+            numericIndex >= 0 && numericIndex < this.countFirstRowKeys()) {
+          dataRow[numericIndex] = value;
+        }
+      } else if (isObject(dataRow)) {
+        this.#writeProperty(dataRow as Record<string, unknown>, String(column), value, byProp);
+      }
+    } else if (Array.isArray(dataRow)) {
+      dataRow[column as number] = value;
+    } else if (isObject(dataRow)) {
+      setProperty(dataRow as Record<string, unknown>, String(column), value);
+    }
+  }
+
+  /**
+   * Writes a property name into an object row. A replay (`byProp`) writes the key the way `DataMap#set`
+   * wrote it, since that is the key the journal recorded: a key the row owns is a literal key, a dotted
+   * name is walked only with `dataDotNotation`, and any other name is a literal key. Any other write
+   * walks a dotted name, as `setSourceDataAtCell()` always has.
+   *
+   * @param {object} dataRow The object row.
+   * @param {string} prop The property name.
+   * @param {*} value The value to write.
+   * @param {boolean} byProp `true` for an undo or redo replay.
+   */
+  #writeProperty(dataRow: Record<string, unknown>, prop: string, value: unknown, byProp: boolean) {
+    const walksDots = !byProp ||
+      (!hasOwnProperty(dataRow, prop) && this.hot!.getSettings().dataDotNotation === true && prop.includes('.'));
+
+    if (walksDots) {
+      setProperty(dataRow, prop, value);
+    } else {
+      writeOwnProperty(dataRow, prop, value);
+    }
+  }
+
+  /**
+   * Get data from the source data set using the physical indexes.
+   *
+   * @private
+   * @param {number} row Physical row index.
+   * @param {string|number|Function} column Physical column index / property / function.
+   * @param {Array|object} dataRow A representation of a data row.
+   * @returns {*} Value at the provided coordinates.
+   */
+  getAtPhysicalCell(row: number, column: number | string | DataAccessorFn, dataRow: unknown): unknown {
+    let result = this.#readFromRow(column, dataRow);
+
+    if (this.hot!.hasHook('modifySourceData')) {
+      const valueHolder = createObjectPropListener(result);
+
+      this.hot!.runHooks('modifySourceData', row, column, valueHolder, 'get');
+
+      if (valueHolder.isTouched()) {
+        result = valueHolder.value;
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Returns a single value from the data.
+   *
+   * @param {number} row Physical row index.
+   * @param {number|string|Function} columnOrProp Visual column index, property, or a `columns[].data`
+   *   accessor function.
+   * @returns {*}
+   */
+  getAtCell(row: number, columnOrProp: number | string | DataAccessorFn): unknown {
+    const dataRow = this.modifyRowData(row);
+    // An index that names no column falls back to the index, so a source read past `countCols()`
+    // reaches the stored value as it did before, and `modifySourceData` keeps receiving a column
+    // address rather than `null`.
+    const prop = typeof columnOrProp === 'function' ?
+      columnOrProp : colToPropOrIndex(this.#columnResolver, columnOrProp as number);
+
+    return this.getAtPhysicalCell(row, prop as number | string | DataAccessorFn, dataRow);
+  }
+
+  /**
+   * Returns a single value addressed by its property, without translating it first.
+   *
+   * `getAtCell()` takes a *visual column index* and resolves it through `colToProp()`. A caller that
+   * already holds a prop must not go through it – a numeric prop (an array-data source index, or a
+   * `columns[].data` index) would be translated a second time and read a different column.
+   *
+   * @param {number} row Physical row index.
+   * @param {number|string|Function} prop Property, physical column index, or a `columns[].data`
+   *   accessor function.
+   * @param {Array|object} [dataRow] A representation of the data row. Pass it to read several
+   *   columns of one row without re-running the `modifyRowData` hook per column.
+   * @returns {*}
+   */
+  getAtCellByProp(row: number, prop: number | string | DataAccessorFn, dataRow?: unknown): unknown {
+    return this.getAtPhysicalCell(row, prop, dataRow === undefined ? this.modifyRowData(row) : dataRow);
+  }
+
+  /**
+   * Returns the value a cell stores, addressed by its property, without running the
+   * `modifySourceData` hook. The hook may project another value onto a read – the Formulas plugin
+   * reports the engine's formula there, and the engine already holds the NEW value while a change is
+   * being applied – so a caller that must know what the source really held (the change journal)
+   * reads through this method. The `modifyRowData` hook still runs: it decides which row object the
+   * physical index names.
+   *
+   * A property name resolves the way `DataMap#get` resolves it, so the journal records the key the
+   * grid wrote: a key the row owns is read as a literal key, even with a dot in its name.
+   *
+   * @param {number} row Physical row index.
+   * @param {number|string|Function} prop Property, physical column index, or a `columns[].data`
+   *   accessor function.
+   * @returns {*}
+   */
+  getRawAtCellByProp(row: number, prop: number | string | DataAccessorFn): unknown {
+    const dataRow = this.modifyRowData(row);
+
+    if (typeof prop === 'string' && isObject(dataRow) && hasOwnProperty(dataRow as object, prop)) {
+      return (dataRow as Record<string, unknown>)[prop];
+    }
+
+    return this.#readFromRow(prop, dataRow);
+  }
+
+  /**
+   * Reads one value from a data row, honoring `dataDotNotation` for a prop name and calling an
+   * accessor function for a `columns[].data` accessor.
+   *
+   * @param {number|string|Function} column Physical column index, property, or accessor function.
+   * @param {Array|object} dataRow A representation of a data row.
+   * @returns {*}
+   */
+  #readFromRow(column: number | string | DataAccessorFn, dataRow: unknown): unknown {
+    if (!dataRow) {
+      return null;
+    }
+
+    if (typeof column === 'string') {
+      const { dataDotNotation } = this.hot!.getSettings();
+
+      return dataDotNotation
+        ? getProperty(dataRow as Record<string, unknown>, column)
+        : (dataRow as Record<string, unknown>)[column];
+    }
+
+    if (typeof column === 'function') {
+      return column(dataRow);
+    }
+
+    return (dataRow as unknown[])[column];
+  }
+
+  /**
+   * Returns source data by passed range.
+   *
+   * @param {object} [start] Object with physical `row` and `col` keys (or visual column index, if data type is an array of objects).
+   * @param {object} [end] Object with physical `row` and `col` keys (or visual column index, if data type is an array of objects).
+   * @param {boolean} [toArray=false] If `true` return source data as an array of arrays even when source data was provided
+   *                                  in another format.
+   * @returns {Array}
+   */
+  getByRange(
+    start: {row?: number, col?: number} | null = null, end: {row?: number, col?: number} | null = null, toArray = false
+  ) {
+    let getAllProps = false;
+    let startRow = null;
+    let startCol = null;
+    let endRow = null;
+    let endCol = null;
+
+    if (start === null || end === null) {
+      getAllProps = true;
+      startRow = 0;
+      endRow = this.countRows() - 1;
+
+    } else {
+      startRow = Math.min(start.row!, end.row!);
+      startCol = Math.min(start.col!, end.col!);
+      endRow = Math.max(start.row!, end.row!);
+      endCol = Math.max(start.col!, end.col!);
+    }
+
+    const result: unknown[] = [];
+
+    rangeEach(startRow, endRow, (currentRow: number) => {
+      result.push((
+        getAllProps ?
+          this.getAtRow(currentRow, undefined, undefined, toArray) :
+          this.getAtRow(currentRow, startCol!, endCol!, toArray)
+      ));
+    });
+
+    return result;
+  }
+
+  /**
+   * Returns single value from the data array (intended for clipboard copy to an external application).
+   *
+   * The value is returned as it is stored, so it can be a nested object or an array.
+   *
+   * @param {number} row Visual row index.
+   * @param {number|string|Function} prop The column property, or a `columns[].data` accessor function.
+   * @since 16.1.0
+   * @returns {*}
+   */
+  getCopyable(row: number, prop: string | number | DataAccessorFn | null): unknown {
+    // Falls back to the prop, matching `DataMap#getCopyable`, so an out-of-range index still
+    // reaches the meta lookup and the source copyable getter reads back what it did before.
+    const visualColumn = this.propToCol(prop) ?? prop;
+
+    // The transient read honors a `cells()`-driven `copyable: false` (the dynamic extension
+    // runs) without permanently materializing one meta object per copied cell - `onCopy` walks
+    // the whole copied range through this method.
+    if (typeof visualColumn === 'number' && this.hot!.getCellMetaTransient(row, visualColumn).copyable) {
+      return this.getAtCell(this.hot!.toPhysicalRow(row), visualColumn);
+    }
+
+    return '';
+  }
+
+  /**
+   * Count number of rows.
+   *
+   * @returns {number}
+   */
+  countRows() {
+    if (this.hot!.hasHook('modifySourceLength')) {
+      const modifiedSourceLength = this.hot!.runHooks('modifySourceLength');
+
+      if (typeof modifiedSourceLength === 'number' && Number.isInteger(modifiedSourceLength)) {
+        return modifiedSourceLength;
+      }
+    }
+
+    return this.data!.length;
+  }
+
+  /**
+   * Count number of columns.
+   *
+   * @returns {number}
+   */
+  countFirstRowKeys() {
+    return countFirstRowKeys(this.data ?? []);
+  }
+
+  /**
+   * Destroy instance.
+   */
+  destroy() {
+    this.data = null;
+    this.hot = null;
+  }
+}
+
+export default DataSource;

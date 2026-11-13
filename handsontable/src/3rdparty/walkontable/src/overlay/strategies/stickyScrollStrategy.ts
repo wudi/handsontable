@@ -1,0 +1,447 @@
+import { isSafari } from '../../../../../helpers/browser';
+import type { EngineContext } from '../../wire';
+import type { default as Overlays } from '../overlays';
+import type { Overlay } from '../regions/_base';
+import { getSpreaderOffset, applySpreaderTransform, clearSpreaderTransform } from '../spreaderOffset';
+
+/**
+ * Assembles the StickyScrollStrategy's dependencies. Most come from the engine composition context;
+ * the three that drive the Overlays coordinator itself (`refreshAll`/`applyToDOM`/`scrollableElement`)
+ * and the shared `eventManager` come from the owning Overlays instance — so its scrollbar listeners
+ * are tracked on (and torn down with) the same event manager as the rest of the overlays.
+ *
+ * @param {EngineContext} ctx The engine composition context.
+ * @param {Overlays} overlays The owning Overlays coordinator.
+ * @returns {object} The StickyScrollStrategy dependency set.
+ */
+export function createStickyScrollStrategyDeps(ctx: EngineContext, overlays: Overlays) {
+  return {
+    wtSettings: ctx.wtSettings,
+    rootDocument: ctx.rootDocument,
+    rootWindow: ctx.rootWindow,
+    eventManager: overlays.eventManager,
+    wtTable: ctx.getWtTable(),
+    getWtViewport: ctx.getWtViewport,
+    getTopOverlay: ctx.getTopOverlay,
+    getBottomOverlay: ctx.getBottomOverlay,
+    getInlineStartOverlay: ctx.getInlineStartOverlay,
+    getInlineEndOverlay: ctx.getInlineEndOverlay,
+    getScrollableElement: () => overlays.scrollableElement,
+    isScrollbarProxy: (element: EventTarget | null) => overlays.isScrollbarProxy(element),
+    refreshAll: () => overlays.refreshAll(),
+    applyToDOM: () => overlays.applyToDOM(),
+  };
+}
+
+/**
+ * The StickyScrollStrategy dependencies, inferred from `createStickyScrollStrategyDeps`.
+ */
+export type StickyScrollStrategyDeps = ReturnType<typeof createStickyScrollStrategyDeps>;
+
+/**
+ * Manages the sticky-scroll optimization during native scrollbar drag.
+ *
+ * When the user grabs the native scrollbar and drags, the master spreader
+ * (and overlay clone spreaders in element-scroll mode) switch to
+ * `position: sticky` so the browser keeps them visible in the viewport.
+ * Row/column content still updates via `refreshAll()` on each scroll event,
+ * but the spreader positioning is handled by CSS rather than JS, eliminating
+ * visual flickering.
+ *
+ * The class owns the full lifecycle: detection, activation, offset updates,
+ * deactivation, and scroll position correction on release.
+ *
+ * @class StickyScrollStrategy
+ */
+export class StickyScrollStrategy {
+  /**
+   * The StickyScrollStrategy dependencies.
+   *
+   * @type {StickyScrollStrategyDeps}
+   */
+  readonly #deps: StickyScrollStrategyDeps;
+
+  /**
+   * Whether sticky-scroll mode is currently active.
+   *
+   * @type {boolean}
+   */
+  #active = false;
+
+  /**
+   * Whether the mouse button is currently pressed.
+   *
+   * @type {boolean}
+   */
+  #mouseDown = false;
+
+  /**
+   * @param {StickyScrollStrategyDeps} deps The StickyScrollStrategy dependencies.
+   */
+  constructor(deps: StickyScrollStrategyDeps) {
+    this.#deps = deps;
+  }
+
+  /**
+   * Discards the sticky state left from the previous scrollable element, so a stale `deactivate()`
+   * cannot compute a wrong scroll. Called whenever the scrollable elements are re-picked.
+   */
+  resetForScrollableElementChange() {
+    if (this.#active) {
+      this.#active = false;
+      this.#applySpreaderStyles('relative', 0, 0);
+    }
+
+    this.#mouseDown = false;
+  }
+
+  /**
+   * Registers mousedown/mouseup listeners for scrollbar drag detection. They are bound to the
+   * document, so they are registered once, when the overlays are built, and survive a change of
+   * the scrollable element.
+   */
+  registerListeners() {
+    const { eventManager, rootDocument } = this.#deps;
+
+    eventManager.addEventListener(rootDocument, 'mousedown', (event) => {
+      if (event instanceof MouseEvent) {
+        this.#mouseDown = this.#isScrollbarTarget(event);
+      }
+    });
+    eventManager.addEventListener(rootDocument, 'mouseup', () => {
+      this.#mouseDown = false;
+
+      if (this.#active) {
+        this.deactivate();
+      }
+    });
+  }
+
+  /**
+   * Whether sticky-scroll mode currently owns the spreaders' position.
+   *
+   * @returns {boolean}
+   */
+  isActive(): boolean {
+    return this.#active;
+  }
+
+  /**
+   * Whether sticky-scroll mode currently owns the overlay CLONES' spreaders as well. In window-scroll
+   * mode it never does - the clones keep the overlay system's own positioning - so their transform
+   * writes must carry on during a drag.
+   *
+   * @returns {boolean}
+   */
+  ownsCloneSpreaders(): boolean {
+    return this.#active && !this.#isWindowScroll();
+  }
+
+  /**
+   * Checks whether sticky-scroll should activate based on the current state.
+   * Called from `Overlays.syncScrollPositions()` after scroll direction is determined.
+   *
+   * @param {boolean} verticalScrolling Whether vertical scrolling occurred.
+   * @param {boolean} horizontalScrolling Whether horizontal scrolling occurred.
+   */
+  tryActivate(verticalScrolling: boolean, horizontalScrolling: boolean): void {
+    if (this.#mouseDown && !this.#active && !isSafari()
+      && (verticalScrolling || horizontalScrolling)) {
+      this.#activate();
+    }
+  }
+
+  /**
+   * Recalculates and applies sticky offsets on all spreaders. Called after
+   * every render (both full and fast draws) to keep the sticky offset in
+   * sync with the current scroll position.
+   */
+  syncOffsets() {
+    if (!this.#active) {
+      return;
+    }
+
+    const wtViewport = this.#deps.getWtViewport();
+    const renderedStartTop = wtViewport.rowsRenderCalculator?.startPosition;
+    const renderedStartLeft = wtViewport.columnsRenderCalculator?.startPosition;
+
+    // startPosition is null when nothing is rendered on that axis (no rows, or every row hidden,
+    // trimmed, or filtered out - and likewise for columns). Such an axis takes offset 0, which is
+    // what the overlays' `applyToDOM()` writes for it outside a drag. Resolve each axis on its own:
+    // skipping the whole update would freeze the OTHER axis at its activation inset, so a drag on a
+    // grid with no rows would leave the column headers behind and snap the scroll back on release.
+    const startTop = typeof renderedStartTop === 'number' ? renderedStartTop : 0;
+    const startLeft = typeof renderedStartLeft === 'number' ? renderedStartLeft : 0;
+
+    const stickyTop = startTop - this.#getScrollTop();
+    const stickyLeft = startLeft - this.#getScrollLeft();
+
+    this.#applySpreaderStyles('sticky', stickyTop, stickyLeft);
+  }
+
+  /**
+   * Cleans up on destroy.
+   */
+  destroy() {
+    if (this.#active) {
+      this.#applySpreaderStyles('relative', 0, 0);
+    }
+
+    this.#active = false;
+    this.#mouseDown = false;
+  }
+
+  /**
+   * Activates sticky-scroll mode: switches spreaders to `position: sticky`
+   * using the exact visual offset so no jump occurs.
+   */
+  #activate() {
+    // The spreader is placed with a transform (`../spreaderOffset.ts`); its recorded offset is the
+    // first rendered row/column, which is what the inset formula needs. `x` is negative in RTL.
+    const { x: startLeft, y: startTop } = getSpreaderOffset(this.#deps.wtTable.spreader);
+    const stickyTop = startTop - this.#getScrollTop();
+    const stickyLeft = Math.abs(startLeft) - this.#getScrollLeft();
+
+    this.#active = true;
+
+    this.#applySpreaderStyles('sticky', stickyTop, stickyLeft);
+  }
+
+  /**
+   * Deactivates sticky-scroll mode: captures the current offsets, adjusts
+   * the scroll position to match, then restores `position: relative` and
+   * triggers a final full render.
+   */
+  deactivate() {
+    const spreader = this.#deps.wtTable.spreader;
+    const wtViewport = this.#deps.getWtViewport();
+    const isRtl = this.#deps.wtSettings.getSetting('rtlMode');
+    const leftProp = isRtl ? 'right' : 'left';
+
+    // Render while still active (same code path as during drag).
+    this.#deps.refreshAll();
+
+    // Capture the sticky offsets and computed start positions.
+    const lastStickyTop = Number.parseInt(spreader.style.top, 10) || 0;
+    const lastStickyLeft = Number.parseInt(spreader.style[leftProp], 10) || 0;
+    const startTop = wtViewport.rowsRenderCalculator?.startPosition;
+    const startLeft = wtViewport.columnsRenderCalculator?.startPosition;
+
+    // Adjust scroll position while still active to prevent cascading renders.
+    const targetScrollTop = typeof startTop === 'number'
+      ? startTop - lastStickyTop : this.#getScrollTop();
+    const targetScrollLeft = typeof startLeft === 'number'
+      ? startLeft - lastStickyLeft : this.#getScrollLeft();
+
+    this.#setScrollPosition(targetScrollTop, targetScrollLeft);
+
+    // Deactivate and restore relative positioning.
+    this.#active = false;
+
+    this.#applySpreaderStyles('relative', 0, 0);
+
+    // Final render in normal mode at the corrected scroll position.
+    this.#deps.refreshAll();
+    this.#deps.applyToDOM();
+  }
+
+  /**
+   * Returns the current vertical scroll offset in the hider's coordinate system.
+   *
+   * @returns {number}
+   */
+  #getScrollTop() {
+    const topOverlay = this.#deps.getTopOverlay();
+
+    return topOverlay.getScrollPosition() - topOverlay.getTableParentOffset();
+  }
+
+  /**
+   * Returns the current horizontal scroll offset in the hider's coordinate system.
+   *
+   * @returns {number}
+   */
+  #getScrollLeft() {
+    const inlineStartOverlay = this.#deps.getInlineStartOverlay();
+
+    return Math.abs(inlineStartOverlay.getScrollPosition())
+      - inlineStartOverlay.getTableParentOffset();
+  }
+
+  /**
+   * Sets the scroll position, converting from hider coordinates back to absolute.
+   *
+   * @param {number} top Vertical offset (hider coordinates).
+   * @param {number} left Horizontal offset (hider coordinates).
+   */
+  #setScrollPosition(top: number, left: number): void {
+    if (this.#isWindowScroll()) {
+      const { rootWindow } = this.#deps;
+      // Hider coordinates run from the table's inline-start edge: add back the page's offset to it
+      // (the left one in LTR, the right margin in RTL), the one `#getScrollLeft` took off. The page's
+      // own direction sets the sign of `scrollX` (negative on an RTL page), not the grid's: an RTL grid
+      // on an LTR page scrolls into positive values.
+      const absoluteLeft = left + this.#deps.getInlineStartOverlay().getTableParentOffset();
+
+      rootWindow.scrollTo(
+        this.#isPageRtl() ? -absoluteLeft : absoluteLeft,
+        top + this.#deps.getTopOverlay().getTableParentOffset()
+      );
+    } else {
+      this.#deps.wtTable.holder.scrollTop = top;
+      this.#deps.wtTable.holder.scrollLeft = this.#isRtl() ? -left : left;
+    }
+  }
+
+  /**
+   * Clears inset offset inline styles so `position: relative` is not shifted
+   * by leftover `top` / `left` / `right` / `bottom` from sticky mode.
+   *
+   * @param {HTMLElement} element The spreader element.
+   */
+  #clearSpreaderInsetStyles(element: HTMLElement): void {
+    element.style.top = '';
+    element.style.bottom = '';
+    element.style.left = '';
+    element.style.right = '';
+  }
+
+  /**
+   * Applies position styles to the master spreader and (in element-scroll mode)
+   * the overlay clone spreaders.
+   *
+   * @param {'sticky'|'relative'} position The CSS position value.
+   * @param {number} stickyTop The vertical offset (only used for sticky).
+   * @param {number} stickyLeft The horizontal offset (only used for sticky).
+   */
+  #applySpreaderStyles(position: 'sticky' | 'relative', stickyTop: number, stickyLeft: number): void {
+    const spreader = this.#deps.wtTable.spreader;
+    const isRtl = this.#isRtl();
+    const leftProp = isRtl ? 'right' : 'left';
+    const isSticky = position === 'sticky';
+
+    // Master spreader. Sticky mode positions it through the insets alone, so the transform that
+    // places it otherwise (`../spreaderOffset.ts`) is lifted for the drag and put back on release.
+    spreader.style.position = position;
+
+    if (isSticky) {
+      spreader.style.top = `${stickyTop}px`;
+      spreader.style.bottom = '';
+      spreader.style[leftProp] = `${stickyLeft}px`;
+      spreader.style[isRtl ? 'left' : 'right'] = '';
+      clearSpreaderTransform(spreader);
+
+    } else {
+      this.#clearSpreaderInsetStyles(spreader);
+      applySpreaderTransform(spreader);
+    }
+
+    // Overlay clone spreaders — only in element scroll mode.
+    // In window scroll mode, clones use the overlay system's own
+    // absolute/fixed positioning which conflicts with sticky.
+    if (this.#isWindowScroll()) {
+      return;
+    }
+
+    this.#applyCloneSpreaderStyles(this.#deps.getInlineStartOverlay(), position, isSticky, stickyTop, null, isRtl);
+    // The end clone holds the same rows as the inline-start one, so it follows the same vertical offset.
+    this.#applyCloneSpreaderStyles(this.#deps.getInlineEndOverlay(), position, isSticky, stickyTop, null, isRtl);
+    this.#applyCloneSpreaderStyles(this.#deps.getTopOverlay(), position, isSticky, null, stickyLeft, isRtl);
+    this.#applyCloneSpreaderStyles(this.#deps.getBottomOverlay(), position, isSticky, null, stickyLeft, isRtl);
+  }
+
+  /**
+   * Applies position styles to a single overlay clone spreader when its overlay is fully rendered.
+   *
+   * @param {Overlay} overlay The overlay whose clone spreader to update.
+   * @param {'sticky'|'relative'} position The CSS position value.
+   * @param {boolean} isSticky Whether sticky mode is active.
+   * @param {number|null} stickyTop The vertical sticky offset, or null to skip.
+   * @param {number|null} stickyLeft The horizontal sticky offset, or null to skip.
+   * @param {boolean} isRtl Whether RTL mode is active.
+   */
+  #applyCloneSpreaderStyles(
+    overlay: Overlay,
+    position: 'sticky' | 'relative',
+    isSticky: boolean,
+    stickyTop: number | null,
+    stickyLeft: number | null,
+    isRtl: boolean
+  ): void {
+    if (!overlay.needFullRender || !overlay.clone) {
+      return;
+    }
+
+    const cloneSpreader = overlay.clone.wtTable.spreader;
+    const leftProp = isRtl ? 'right' : 'left';
+
+    cloneSpreader.style.position = position;
+
+    if (isSticky) {
+      if (stickyTop !== null) {
+        cloneSpreader.style.top = `${stickyTop}px`;
+      }
+
+      if (stickyLeft !== null) {
+        cloneSpreader.style[leftProp] = `${stickyLeft}px`;
+        cloneSpreader.style[isRtl ? 'left' : 'right'] = '';
+      }
+
+      clearSpreaderTransform(cloneSpreader);
+
+    } else {
+      this.#clearSpreaderInsetStyles(cloneSpreader);
+      applySpreaderTransform(cloneSpreader);
+    }
+  }
+
+  /**
+   * Returns whether the mousedown event originated from a native scrollbar.
+   *
+   * When a user clicks a native browser scrollbar, the event target is the
+   * scrollable container itself (the scrollbar is part of the element's
+   * rendering but not a child DOM node). Clicks on child elements (cells,
+   * headers, etc.) set a descendant as the target, so they are excluded.
+   * A scrollbar proxy counts too: its scrollbar is the one the user drags, and the
+   * drag scrolls the holder through it.
+   *
+   * @param {MouseEvent} event The mousedown event.
+   * @returns {boolean}
+   */
+  #isScrollbarTarget(event: MouseEvent): boolean {
+    if (this.#isWindowScroll()) {
+      return event.target === this.#deps.rootDocument.documentElement;
+    }
+
+    return event.target === this.#deps.getScrollableElement() || this.#deps.isScrollbarProxy(event.target);
+  }
+
+  /**
+   * Returns whether the scrollable element is the window.
+   *
+   * @returns {boolean}
+   */
+  #isWindowScroll() {
+    return this.#deps.getScrollableElement() === this.#deps.rootWindow;
+  }
+
+  /**
+   * Returns whether the page is scrolled into negative `window.scrollX`, which is what a page laid out
+   * right to left does. It can differ from the grid's own direction. A page at `scrollX` 0 reads as LTR,
+   * which is harmless: the scroll it gets back is 0 either way.
+   *
+   * @returns {boolean}
+   */
+  #isPageRtl(): boolean {
+    return this.#deps.rootWindow.scrollX < 0;
+  }
+
+  /**
+   * Returns whether the scrollable element is in RTL mode.
+   *
+   * @returns {boolean}
+   */
+  #isRtl(): boolean {
+    return this.#deps.wtSettings.getSetting<boolean>('rtlMode');
+  }
+}

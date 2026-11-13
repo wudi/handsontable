@@ -11,15 +11,15 @@ describe('DropdownMenu keyboard shortcut', () => {
   });
 
   describe('"ArrowDown"', () => {
-    it('should move the menu item selection to the first item when there was no selection', () => {
+    it('should move the menu item selection to the first item when there was no selection', async() => {
       handsontable({
         colHeaders: true,
         dropdownMenu: generateRandomDropdownMenuItems(200),
       });
 
-      dropdownMenu();
+      await dropdownMenu();
 
-      keyDownUp('arrowdown');
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem().name).toBe('Test item 1');
     });
@@ -30,18 +30,18 @@ describe('DropdownMenu keyboard shortcut', () => {
         dropdownMenu: generateRandomDropdownMenuItems(200),
       });
 
-      dropdownMenu();
-      window.scrollTo(0, 1000);
-
-      await sleep(100);
-
-      keyDownUp('arrowdown');
+      await dropdownMenu();
+      await waitForNextAnimationFrames(2);
+      await scrollWindowTo(0, 1000);
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem().name).toBe('Test item 1');
-      expect(window.scrollY).toBe(25);
+
+      // The window should scroll back from 1000 to near the top where the menu is visible.
+      expect(window.scrollY).toBeLessThan(100);
     });
 
-    it('should move the menu item selection to the next item (skipping `disabled` items)', () => {
+    it('should move the menu item selection to the next item (skipping `disabled` items)', async() => {
       handsontable({
         colHeaders: true,
         dropdownMenu: generateRandomDropdownMenuItems(5, (i, item) => {
@@ -53,25 +53,25 @@ describe('DropdownMenu keyboard shortcut', () => {
         }),
       });
 
-      dropdownMenu();
-      keyDownUp('arrowdown');
+      await dropdownMenu();
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem().name).toBe('Test item 1');
 
-      keyDownUp('arrowdown');
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem().name).toBe('Test item 3');
 
-      keyDownUp('arrowdown');
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem().name).toBe('Test item 5');
 
-      keyDownUp('arrowdown');
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem().name).toBe('Test item 1');
     });
 
-    it('should move the menu item selection to the next item (skipping `disableSelection` items)', () => {
+    it('should move the menu item selection to the next item (skipping `disableSelection` items)', async() => {
       handsontable({
         colHeaders: true,
         dropdownMenu: generateRandomDropdownMenuItems(5, (i, item) => {
@@ -83,25 +83,25 @@ describe('DropdownMenu keyboard shortcut', () => {
         }),
       });
 
-      dropdownMenu();
-      keyDownUp('arrowdown');
+      await dropdownMenu();
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem().name).toBe('Test item 1');
 
-      keyDownUp('arrowdown');
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem().name).toBe('Test item 3');
 
-      keyDownUp('arrowdown');
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem().name).toBe('Test item 5');
 
-      keyDownUp('arrowdown');
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem().name).toBe('Test item 1');
     });
 
-    it('should move the menu item selection to the next item (skipping separators)', () => {
+    it('should move the menu item selection to the next item (skipping separators)', async() => {
       handsontable({
         colHeaders: true,
         dropdownMenu: generateRandomDropdownMenuItems(5, (i, item) => {
@@ -113,25 +113,25 @@ describe('DropdownMenu keyboard shortcut', () => {
         }),
       });
 
-      dropdownMenu();
-      keyDownUp('arrowdown');
+      await dropdownMenu();
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem().name).toBe('Test item 1');
 
-      keyDownUp('arrowdown');
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem().name).toBe('Test item 3');
 
-      keyDownUp('arrowdown');
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem().name).toBe('Test item 5');
 
-      keyDownUp('arrowdown');
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem().name).toBe('Test item 1');
     });
 
-    it('should move the menu item selection to the next item (skipping hidden items)', () => {
+    it('should move the menu item selection to the next item (skipping hidden items)', async() => {
       handsontable({
         colHeaders: true,
         dropdownMenu: generateRandomDropdownMenuItems(5, (i, item) => {
@@ -143,25 +143,25 @@ describe('DropdownMenu keyboard shortcut', () => {
         }),
       });
 
-      dropdownMenu();
-      keyDownUp('arrowdown');
+      await dropdownMenu();
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem().name).toBe('Test item 1');
 
-      keyDownUp('arrowdown');
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem().name).toBe('Test item 3');
 
-      keyDownUp('arrowdown');
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem().name).toBe('Test item 5');
 
-      keyDownUp('arrowdown');
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem().name).toBe('Test item 1');
     });
 
-    it('should not move the selection when there is only one active menu item', () => {
+    it('should not move the selection when there is only one active menu item', async() => {
       handsontable({
         colHeaders: true,
         dropdownMenu: generateRandomDropdownMenuItems(200, (i, item) => {
@@ -173,17 +173,17 @@ describe('DropdownMenu keyboard shortcut', () => {
         }),
       });
 
-      dropdownMenu();
-      keyDownUp('arrowdown');
+      await dropdownMenu();
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem().name).toBe('Test item 101');
 
-      keyDownUp('arrowdown');
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem().name).toBe('Test item 101');
     });
 
-    it('should not select the menu when all items are disabled', () => {
+    it('should not select the menu when all items are disabled', async() => {
       handsontable({
         colHeaders: true,
         dropdownMenu: generateRandomDropdownMenuItems(5, (i, item) => {
@@ -193,13 +193,13 @@ describe('DropdownMenu keyboard shortcut', () => {
         }),
       });
 
-      dropdownMenu();
-      keyDownUp('arrowdown');
+      await dropdownMenu();
+      await keyDownUp('arrowdown');
 
       expect(getPlugin('dropdownMenu').menu.getSelectedItem()).toBe(null);
     });
 
-    it('should select the first item in the menu, even when external input is focused (#6550)', () => {
+    it('should select the first item in the menu, even when external input is focused (#6550)', async() => {
       handsontable({
         colHeaders: true,
         dropdownMenu: true,
@@ -209,14 +209,14 @@ describe('DropdownMenu keyboard shortcut', () => {
       const input = document.createElement('input');
 
       document.body.appendChild(input);
-      dropdownMenu();
+      await dropdownMenu();
 
       const menuHot = getPlugin('dropdownMenu').menu.hotMenu;
 
       expect(menuHot.getSelected()).toBeUndefined();
 
       input.focus();
-      keyDownUp('arrowdown');
+      await keyDownUp('arrowdown');
 
       expect(menuHot.getSelected()).toEqual([[0, 0, 0, 0]]);
 

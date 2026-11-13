@@ -20,21 +20,21 @@ describe('TextEditor (RTL mode)', () => {
       }
     });
 
-    it('should render an editable editor\'s element without messing with "dir" attribute', () => {
+    it('should render an editable editor\'s element without messing with "dir" attribute', async() => {
       handsontable({
         layoutDirection,
-        data: Handsontable.helper.createSpreadsheetData(2, 5),
+        data: createSpreadsheetData(2, 5),
         editor: 'text',
       });
 
-      selectCell(0, 0);
+      await selectCell(0, 0);
 
       const editableElement = getActiveEditor().TEXTAREA;
 
       expect(editableElement.getAttribute('dir')).toBeNull();
     });
 
-    it('should render an editor in specified position at cell 0, 0', () => {
+    it('should render an editor in specified position at cell 0, 0', async() => {
       handsontable({
         layoutDirection,
         columns: [
@@ -44,16 +44,16 @@ describe('TextEditor (RTL mode)', () => {
         ],
       });
 
-      selectCell(0, 0);
+      await selectCell(0, 0);
 
       const editor = $(getActiveEditor().TEXTAREA_PARENT);
 
-      keyDown('enter');
+      await keyDown('enter');
 
       expect(editor.offset()).toEqual($(getCell(0, 0)).offset());
     });
 
-    it('should render an editor in specified position at cell 0, 0 when all headers are selected', () => {
+    it('should render an editor in specified position at cell 0, 0 when all headers are selected', async() => {
       handsontable({
         layoutDirection,
         rowHeaders: true,
@@ -65,21 +65,31 @@ describe('TextEditor (RTL mode)', () => {
         ],
       });
 
-      selectAll();
-      listen();
+      await listen();
+
+      await selectAll();
 
       const editor = $(getActiveEditor().TEXTAREA_PARENT);
 
-      keyDown('enter');
+      await keyDown('F2');
 
       expect(editor.offset()).toEqual($(getCell(0, 0)).offset());
     });
 
-    it('should render an editor in specified position while opening an editor from top to bottom when ' +
-      'top and bottom overlays are enabled', () => {
+    it('should render the editor in the expected position when stepping top-to-bottom with top and bottom overlays', async() => {
+      // Keep the container sized to fit the same number of data rows across themes (matches
+      // the original main-theme 240px configuration). This guarantees that 3 top + 3 bottom
+      // overlay rows plus the scrollable middle region remain within the viewport on horizon,
+      // where the row height is larger than on main.
+      const overlayHeightPx = containerHeightForRows(7, 1);
+      const overlayWidthPx = 200;
+
+      spec().$container[0].style.height = `${overlayHeightPx}px`;
+      spec().$container[0].style.width = `${overlayWidthPx}px`;
+
       handsontable({
         layoutDirection,
-        data: Handsontable.helper.createSpreadsheetData(8, 2),
+        data: createSpreadsheetData(8, 2),
         rowHeaders: true,
         colHeaders: true,
         fixedRowsTop: 3,
@@ -92,16 +102,16 @@ describe('TextEditor (RTL mode)', () => {
         ],
       });
 
-      selectCell(0, 0);
+      await selectCell(0, 0);
 
       const editor = $(getActiveEditor().TEXTAREA_PARENT);
 
-      keyDown('enter');
+      await keyDown('enter');
 
       expect(editor.offset()).toEqual($(getCell(0, 0, true)).offset());
 
-      keyDown('enter');
-      keyDown('enter');
+      await keyDown('enter');
+      await keyDown('enter');
 
       // Cells that do not touch the edges of the table have an additional top border.
       const editorOffset = () => ({
@@ -111,59 +121,59 @@ describe('TextEditor (RTL mode)', () => {
 
       expect(editorOffset()).toEqual($(getCell(1, 0, true)).offset());
 
-      keyDown('enter');
-      keyDown('enter');
+      await keyDown('enter');
+      await keyDown('enter');
 
       expect(editorOffset()).toEqual($(getCell(2, 0, true)).offset());
 
-      keyDown('enter');
-      keyDown('enter');
+      await keyDown('enter');
+      await keyDown('enter');
 
       expect(editorOffset()).toEqual($(getCell(3, 0, true)).offset());
 
-      keyDown('enter');
-      keyDown('enter');
+      await keyDown('enter');
+      await keyDown('enter');
 
       expect(editorOffset()).toEqual($(getCell(4, 0, true)).offset());
 
-      keyDown('enter');
-      keyDown('enter');
+      await keyDown('enter');
+      await keyDown('enter');
 
       // The first row of the bottom overlay has different position, influenced by `innerBorderTop` CSS class.
       expect(editor.offset()).toEqual($(getCell(5, 0, true)).offset());
 
-      keyDown('enter');
-      keyDown('enter');
+      await keyDown('enter');
+      await keyDown('enter');
 
       expect(editorOffset()).toEqual($(getCell(6, 0, true)).offset());
 
-      keyDown('enter');
-      keyDown('enter');
+      await keyDown('enter');
+      await keyDown('enter');
 
       expect(editorOffset()).toEqual($(getCell(7, 0, true)).offset());
     });
 
     it('should render an editor in specified position while opening an editor from left to right when ' +
-      'left overlay is enabled', () => {
+      'left overlay is enabled', async() => {
       handsontable({
         layoutDirection,
-        data: Handsontable.helper.createSpreadsheetData(2, 5),
+        data: createSpreadsheetData(2, 5),
         rowHeaders: true,
         colHeaders: true,
         fixedColumnsStart: 3,
         type: 'text',
       });
 
-      selectCell(0, 0);
+      await selectCell(0, 0);
 
       const editor = $(getActiveEditor().TEXTAREA_PARENT);
 
-      keyDown('enter');
+      await keyDown('enter');
 
       expect(editor.offset()).toEqual($(getCell(0, 0, true)).offset());
 
-      selectCell(0, 1);
-      keyDown('enter');
+      await selectCell(0, 1);
+      await keyDown('enter');
 
       // Cells that do not touch the edges of the table have an additional left border.
       const editorOffset = () => ({
@@ -173,27 +183,35 @@ describe('TextEditor (RTL mode)', () => {
 
       expect(editorOffset()).toEqual($(getCell(0, 1, true)).offset());
 
-      selectCell(0, 2);
-      keyDown('enter');
+      await selectCell(0, 2);
+      await keyDown('enter');
 
       expect(editorOffset()).toEqual($(getCell(0, 2, true)).offset());
 
-      selectCell(0, 3);
-      keyDown('enter');
+      await selectCell(0, 3);
+      await keyDown('enter');
 
       expect(editorOffset()).toEqual($(getCell(0, 3, true)).offset());
 
-      selectCell(0, 4);
-      keyDown('enter');
+      await selectCell(0, 4);
+      await keyDown('enter');
 
       expect(editorOffset()).toEqual($(getCell(0, 4, true)).offset());
     });
 
-    it('should render an editor in specified position while opening an editor from top to bottom when ' +
-        'top and bottom overlays are enabled and the first row of the both overlays are hidden', () => {
+    it('should render the editor in the expected position when stepping top-to-bottom with top and bottom overlays ' +
+      'and the first row of each overlay is hidden', async() => {
+      // 2 rows hidden out of 8, so 6 visible rows. Match sizing across themes with
+      // `containerHeightForRows(6, 1)` so horizon's taller rows still fit.
+      const overlayHeightPx = containerHeightForRows(6, 1);
+      const overlayWidthPx = 200;
+
+      spec().$container[0].style.height = `${overlayHeightPx}px`;
+      spec().$container[0].style.width = `${overlayWidthPx}px`;
+
       handsontable({
         layoutDirection,
-        data: Handsontable.helper.createSpreadsheetData(8, 2),
+        data: createSpreadsheetData(8, 2),
         rowHeaders: true,
         colHeaders: true,
         fixedRowsTop: 3,
@@ -210,17 +228,17 @@ describe('TextEditor (RTL mode)', () => {
         ],
       });
 
-      selectCell(1, 0);
+      await selectCell(1, 0);
 
       const editor = $(getActiveEditor().TEXTAREA_PARENT);
 
-      keyDown('enter');
+      await keyDown('enter');
 
       // First renderable row index.
       expect(editor.offset()).toEqual($(getCell(1, 0, true)).offset());
 
-      keyDown('enter');
-      keyDown('enter');
+      await keyDown('enter');
+      await keyDown('enter');
 
       // Cells that do not touch the edges of the table have an additional top border.
       const editorOffset = () => ({
@@ -230,33 +248,33 @@ describe('TextEditor (RTL mode)', () => {
 
       expect(editorOffset()).toEqual($(getCell(2, 0, true)).offset());
 
-      keyDown('enter');
-      keyDown('enter');
+      await keyDown('enter');
+      await keyDown('enter');
 
       expect(editorOffset()).toEqual($(getCell(3, 0, true)).offset());
 
-      keyDown('enter');
-      keyDown('enter');
+      await keyDown('enter');
+      await keyDown('enter');
 
       expect(editorOffset()).toEqual($(getCell(4, 0, true)).offset());
 
-      keyDown('enter');
-      keyDown('enter');
+      await keyDown('enter');
+      await keyDown('enter');
 
       // The first row of the bottom overlay has different position, influenced by `innerBorderTop` CSS class.
       expect(editor.offset()).toEqual($(getCell(6, 0, true)).offset());
 
-      keyDown('enter');
-      keyDown('enter');
+      await keyDown('enter');
+      await keyDown('enter');
 
       expect(editorOffset()).toEqual($(getCell(7, 0, true)).offset());
     });
 
     it('should render an editor in specified position while opening an editor from left to right when ' +
-      'right overlay is enabled and the first column of the overlay is hidden', () => {
+      'right overlay is enabled and the first column of the overlay is hidden', async() => {
       handsontable({
         layoutDirection,
-        data: Handsontable.helper.createSpreadsheetData(2, 5),
+        data: createSpreadsheetData(2, 5),
         rowHeaders: true,
         colHeaders: true,
         fixedColumnsStart: 3,
@@ -267,17 +285,17 @@ describe('TextEditor (RTL mode)', () => {
         type: 'text',
       });
 
-      selectCell(0, 1);
+      await selectCell(0, 1);
 
       const editor = $(getActiveEditor().TEXTAREA_PARENT);
 
-      keyDown('enter');
+      await keyDown('enter');
 
       // First renderable column index.
       expect(editor.offset()).toEqual($(getCell(0, 1, true)).offset());
 
-      selectCell(0, 2);
-      keyDown('enter');
+      await selectCell(0, 2);
+      await keyDown('enter');
 
       // Cells that do not touch the edges of the table have an additional left border.
       const editorOffset = () => ({
@@ -287,25 +305,25 @@ describe('TextEditor (RTL mode)', () => {
 
       expect(editorOffset()).toEqual($(getCell(0, 2, true)).offset());
 
-      selectCell(0, 3);
-      keyDown('enter');
+      await selectCell(0, 3);
+      await keyDown('enter');
 
       expect(editorOffset()).toEqual($(getCell(0, 3, true)).offset());
 
-      selectCell(0, 4);
-      keyDown('enter');
+      await selectCell(0, 4);
+      await keyDown('enter');
 
       expect(editorOffset()).toEqual($(getCell(0, 4, true)).offset());
     });
 
-    it('should change editor\'s CSS properties during switching to being visible', () => {
+    it('should change editor\'s CSS properties during switching to being visible', async() => {
       handsontable({
         layoutDirection,
         editor: 'text',
       });
 
-      selectCell(0, 0);
-      keyDownUp('enter');
+      await selectCell(0, 0);
+      await keyDownUp('enter');
 
       const cell = getCell(0, 0);
       const master = getMaster();
@@ -331,43 +349,40 @@ describe('TextEditor (RTL mode)', () => {
     it('should hide editor when quick navigation by click scrollbar was triggered', async() => {
       handsontable({
         layoutDirection,
-        data: Handsontable.helper.createSpreadsheetData(50, 50),
+        data: createSpreadsheetData(50, 50),
         rowHeaders: true,
         colHeaders: true
       });
 
-      setDataAtCell(2, 2, 'string\nstring\nstring');
-      selectCell(2, 2);
+      await setDataAtCell(2, 2, 'string\nstring\nstring');
 
-      keyDown('enter');
-      keyUp('enter');
-      scrollViewportTo({ row: 49 });
-
-      await sleep(100);
+      await selectCell(2, 2);
+      await keyDown('enter');
+      await keyUp('enter');
+      await scrollViewportTo({ row: 49 });
 
       expect(isEditorVisible()).toBe(false);
     });
 
-    it('should scroll editor to a cell, if trying to edit cell that is outside of the viewport', () => {
-      const hot = handsontable({
+    it('should scroll editor to a cell, if trying to edit cell that is outside of the viewport', async() => {
+      handsontable({
         layoutDirection,
-        data: Handsontable.helper.createSpreadsheetData(20, 20),
+        data: createSpreadsheetData(20, 20),
         width: 100,
         height: 50
       });
 
-      selectCell(0, 0);
+      await selectCell(0, 0);
 
       expect(getCell(0, 0)).not.toBeNull();
       expect(getCell(19, 19)).toBeNull();
 
-      hot.view.scrollViewport({ row: 19, col: 19 });
-      hot.render();
+      await scrollViewportTo({ row: 19, col: 19 });
 
       expect(getCell(0, 0)).toBeNull();
       expect(getCell(19, 19)).not.toBeNull();
 
-      keyDown('enter');
+      await keyDown('enter');
 
       expect(getCell(0, 0)).not.toBeNull();
       expect(getCell(19, 19)).toBeNull();

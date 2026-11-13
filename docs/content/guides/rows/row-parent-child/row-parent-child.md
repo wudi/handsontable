@@ -1,0 +1,580 @@
+---
+type: how-to
+title: Row parent-child
+metaTitle: Row parent-child | Handsontable DataGrid for JavaScript
+description:
+  Reflect the parent-child relationship of your data, using Handsontable's interactive UI elements such as expand and collapse buttons or an extended context
+  menu.
+permalink: /row-parent-child
+canonicalUrl: /row-parent-child
+tags:
+  - nested rows
+  - nestedRows
+  - parent child
+  - tree grid
+  - grouping rows
+  - master detail
+react:
+  metaTitle: Row parent-child | Handsontable DataGrid for React
+angular:
+  metaTitle: Row parent-child | Handsontable DataGrid for Angular
+vue:
+  metaTitle: Row parent-child | Handsontable DataGrid for Vue
+searchCategory: Guides
+category: Rows
+menuTag: updated
+---
+Reflect the parent-child relationship of your data, using the [`NestedRows`](@/api/nestedRows.md) plugin's interactive UI elements such as expand and collapse
+buttons or an extended context menu.
+
+Handsontable DataGrid renders this structure as a tree grid. The same pattern is also called a master-detail view or grouping rows.
+
+[[toc]]
+
+## Quick setup
+
+To enable the [`NestedRows`](@/api/nestedRows.md) plugin, set the [`nestedRows`](@/api/options.md#nestedrows) option to `true`.
+
+::: only-for javascript
+
+```js
+const hot = new Handsontable(container, {
+  nestedRows: true,
+});
+```
+
+:::
+
+::: only-for react
+
+```jsx
+<HotTable nestedRows={true} />
+```
+
+:::
+
+::: only-for angular
+
+```ts
+import {GridSettings, HotTableModule} from '@handsontable/angular-wrapper';
+
+const configurationOptions: GridSettings = {
+  nestedRows: true,
+};
+```
+
+```html
+<hot-table [settings]="configurationOptions"></hot-table>
+```
+
+:::
+
+::: only-for vue
+
+```ts
+const hotSettings = {
+  nestedRows: true,
+};
+```
+
+:::
+
+Note that using all the functionalities provided by the plugin requires enabling the row headers and the Handsontable context menu. To do this set
+[`rowHeaders`](@/api/options.md#rowheaders) and [`contextMenu`](@/api/options.md#contextmenu) to `true`. The _collapse_ / _expand_ buttons are located in the
+row headers, and the row modification options _add row_, _insert child_, etc., are in the Context Menu.
+
+## Prepare the data source
+
+The data source must have a specific structure to be used with the _Nested Rows_ plugin.
+
+The plugin requires the data source to be an array of objects. Each object in the array represents a single _0-level_ entry. _0-level_ refers to an entry, which
+is not a child of any other entry. If an entry has any child entries, they need to be declared again as an _array of objects_. To assign them to a row, create a
+`__children` property in the parent element. Child objects can define their own `__children` arrays, so you can nest rows to any depth. Handsontable does not
+impose a fixed nesting limit -- the depth is determined by your data structure, and row header indentation grows with each level.
+
+Here's an example:
+
+::: only-for javascript
+
+::: example #example1 --js 1 --ts 2
+
+@[code](@/content/guides/rows/row-parent-child/javascript/example1.js)
+@[code](@/content/guides/rows/row-parent-child/javascript/example1.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example1 :react --js 1 --ts 2
+
+@[code](@/content/guides/rows/row-parent-child/react/example1.jsx)
+@[code](@/content/guides/rows/row-parent-child/react/example1.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example1 :angular --ts 1 --html 2
+
+@[code](@/content/guides/rows/row-parent-child/angular/example1.ts)
+@[code](@/content/guides/rows/row-parent-child/angular/example1.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example1 :vue3
+
+@[code](@/content/guides/rows/row-parent-child/vue/example1.vue)
+
+:::
+
+:::
+
+In the example above, we’ve created a data object consisting of 2016’s Grammy nominees of the “Rock” genre. Each _0-level_ entry declares a category. Under
+`Best Rock Performance`, nominees are grouped into subcategories (`Major label releases` and `Independent releases`) at the next level, with individual nominees
+nested one level deeper. The other categories use two levels: category and nominee, assigned under the `__children` properties.
+
+Note that the first 0-level object in the array needs to have all columns defined to display the table properly. They can be declared as `null` or an empty
+string `''`, but they need to be defined. This is optional for the other objects.
+
+### Nested data vs. a flat array
+
+A nested rows data source differs from a regular flat array of objects in one respect: child rows live inside their parent's `__children` property, instead of being separate top-level elements. For example, the same three records can be represented either way:
+
+```js
+// flat array -- three independent top-level rows
+const flatData = [
+  { category: 'Best Rock Performance', artist: null },
+  { category: null, artist: 'Twenty One Pilots' },
+  { category: null, artist: 'Coldplay' },
+];
+
+// nested rows -- two nominees grouped under one category
+const nestedData = [
+  {
+    category: 'Best Rock Performance',
+    artist: null,
+    __children: [
+      { category: null, artist: 'Twenty One Pilots' },
+      { category: null, artist: 'Coldplay' },
+    ],
+  },
+];
+```
+
+[`getSourceData()`](@/api/core.md#getsourcedata) returns this nested structure, `__children` arrays and all. [`getData()`](@/api/core.md#getdata) returns the flattened, currently visible rows -- collapsed child rows are excluded. For more on how Handsontable relates source data to what's displayed, see [Understanding data and indexes](@/guides/getting-started/understanding-data-and-indexes/understanding-data-and-indexes.md).
+
+## User interface
+
+The _Nested Rows_ plugin's user interface is placed in the row headers and the Handsontable’s context menu.
+
+### Row headers
+
+Each _parent_ row header contains a `+`/`-` button. It is used to collapse or expand its child rows.
+
+The child row headers have a bigger indentation, to enable the user to clearly recognize the child and parent elements. In the example above, the
+`Best Metal Performance` category loads collapsed so you can see the expand/collapse controls right away.
+
+### Context menu
+
+The context menu has been extended with a few Nested Rows related options, such as:
+
+- Insert child row
+- Detach from parent
+
+The “Insert row above” and “Insert row below” options were modified to work properly with the nested data structure.
+
+## Result
+
+After completing this guide, your grid displays rows in a parent-child hierarchy with collapse and expand toggle buttons in row headers and context menu options for inserting and detaching child rows.
+
+## Collapse and expand rows from your code
+
+The `NestedRows` plugin lets you collapse and expand parent rows from your own code, and tells you
+when it happens.
+
+### Methods
+
+Get the plugin instance first, from your Handsontable instance:
+
+```js
+const plugin = hot.getPlugin('nestedRows');
+```
+
+| Method | What it does |
+| --- | --- |
+| [`collapseAll()`](@/api/nestedRows.md#collapseall) | Collapses every top-level parent |
+| [`expandAll()`](@/api/nestedRows.md#expandall) | Expands every parent, at every level |
+| [`collapseParent(row)`](@/api/nestedRows.md#collapseparent) | Collapses one parent |
+| [`expandParent(row)`](@/api/nestedRows.md#expandparent) | Expands one parent |
+| [`toggleParent(row)`](@/api/nestedRows.md#toggleparent) | Collapses an expanded parent, or expands a collapsed one |
+| [`getCollapsedParents()`](@/api/nestedRows.md#getcollapsedparents) | Physical indexes of the collapsed parents |
+| [`isParentCollapsed(row)`](@/api/nestedRows.md#isparentcollapsed) | Checks one parent |
+| [`isParent(row)`](@/api/nestedRows.md#isparent) | Checks whether a row has children |
+| [`getRowLevel(row)`](@/api/nestedRows.md#getrowlevel) | How deeply a row is nested. Top-level rows are at level `0` |
+| [`getRowParent(row)`](@/api/nestedRows.md#getrowparent) | The parent of a row |
+| [`countChildren(row)`](@/api/nestedRows.md#countchildren) | How many children a row has |
+| [`expandToRow(row)`](@/api/nestedRows.md#expandtorow) | Expands every ancestor, to reveal a hidden row |
+| [`expandToLevel(level)`](@/api/nestedRows.md#expandtolevel) | Shows rows down to a nesting level, and collapses everything deeper |
+
+The example below calls four of them and prints what each one returns.
+
+::: only-for javascript
+
+::: example #example2 --html 1 --js 2 --ts 3
+
+@[code](@/content/guides/rows/row-parent-child/javascript/example2.html)
+@[code](@/content/guides/rows/row-parent-child/javascript/example2.js)
+@[code](@/content/guides/rows/row-parent-child/javascript/example2.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example2 :react --js 1 --ts 2
+
+@[code](@/content/guides/rows/row-parent-child/react/example2.jsx)
+@[code](@/content/guides/rows/row-parent-child/react/example2.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example2 :angular --ts 1 --html 2
+
+@[code](@/content/guides/rows/row-parent-child/angular/example2.ts)
+@[code](@/content/guides/rows/row-parent-child/angular/example2.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example2 :vue3
+
+@[code](@/content/guides/rows/row-parent-child/vue/example2.vue)
+
+:::
+
+:::
+
+### Which index type to pass
+
+Collapsing a parent *trims* its children, which removes them from the grid. A trimmed row has no
+visual index at all, so the plugin uses two index types:
+
+- Methods that act on a row you can see take a **visual** row index. That covers
+  `collapseParent()`, `expandParent()`, `toggleParent()`, `isParentCollapsed()`, `isParent()`,
+  `getRowLevel()`, `getRowParent()`, and `countChildren()`.
+- Methods that address a row the collapse itself hid take or return a **physical** row index. That
+  covers `getCollapsedParents()` and `expandToRow()`.
+
+Convert between the two with [`toVisualRow()`](@/api/core.md#tovisualrow) and
+[`toPhysicalRow()`](@/api/core.md#tophysicalrow).
+
+### Jump to a row inside a collapsed branch
+
+This is where the two index types earn their keep. To reveal a row the user cannot see, you need
+[`expandToRow()`](@/api/nestedRows.md#expandtorow), and you have to address that row by its
+**physical** index — a hidden row has no visual index to pass.
+
+The example starts fully collapsed. Each button looks up a task's physical row, expands whatever
+ancestors are hiding it, then selects it. Notice how the physical row stays the same while the
+visual row changes with whatever else is open.
+
+::: only-for javascript
+
+::: example #example3 --html 1 --js 2 --ts 3
+
+@[code](@/content/guides/rows/row-parent-child/javascript/example3.html)
+@[code](@/content/guides/rows/row-parent-child/javascript/example3.js)
+@[code](@/content/guides/rows/row-parent-child/javascript/example3.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example3 :react --js 1 --ts 2
+
+@[code](@/content/guides/rows/row-parent-child/react/example3.jsx)
+@[code](@/content/guides/rows/row-parent-child/react/example3.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example3 :angular --ts 1 --html 2
+
+@[code](@/content/guides/rows/row-parent-child/angular/example3.ts)
+@[code](@/content/guides/rows/row-parent-child/angular/example3.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example3 :vue3
+
+@[code](@/content/guides/rows/row-parent-child/vue/example3.vue)
+
+:::
+
+:::
+
+### Hooks
+
+Four hooks report every collapse and expand, whether it came from the row header button, the
+<kbd>**Enter**</kbd> shortcut, or one of the methods above:
+
+- [`beforeRowCollapse`](@/api/hooks.md#beforerowcollapse) and
+  [`afterRowCollapse`](@/api/hooks.md#afterrowcollapse)
+- [`beforeRowExpand`](@/api/hooks.md#beforerowexpand) and
+  [`afterRowExpand`](@/api/hooks.md#afterrowexpand)
+
+They carry **physical** row indexes. Return `false` from either `before` hook to block the action:
+
+```js
+const configurationOptions = {
+  // Stop the user from collapsing anything.
+  beforeRowCollapse() {
+    return false;
+  },
+};
+```
+
+One case fires no hooks: when [`updateData()`](@/api/core.md#updatedata) collapses the same parents
+again on the new data. That is not a new action, only the state the user already chose, so it stays
+silent. If you mirror the collapsed state somewhere, read it back with
+[`getCollapsedParents()`](@/api/nestedRows.md#getcollapsedparents) after `updateData()` instead of
+counting on a hook.
+
+### Save and restore the collapsed rows
+
+The two data methods treat the collapsed rows differently, and the difference decides whether you
+have to restore anything at all:
+
+- [`updateData()`](@/api/core.md#updatedata) **keeps** the collapsed parents. It matches them by
+  their position in the tree, so they stay collapsed even when the number of children changes. Do
+  not restore them yourself here. A saved list holds physical row indexes, and those move as soon as
+  a parent gains or loses a child, so replaying it collapses the wrong rows.
+- [`loadData()`](@/api/core.md#loaddata) **drops** them, along with every other row state.
+  [`getCollapsedParents()`](@/api/nestedRows.md#getcollapsedparents) returns an empty array
+  afterwards. Restore the state yourself if you want it back.
+
+The example below covers the `loadData()` case. The hooks carry physical indexes, which is what you
+want to store. Collapse the deepest parents first: collapsing a parent hides its children, so a
+nested parent has to be collapsed while it is still visible.
+
+```js
+const plugin = hot.getPlugin('nestedRows');
+let saved = [];
+
+hot.addHook('afterRowCollapse', (currentCollapsedRows, destinationCollapsedRows) => {
+  saved = destinationCollapsedRows;
+});
+
+hot.addHook('afterRowExpand', (currentCollapsedRows, destinationCollapsedRows) => {
+  saved = destinationCollapsedRows;
+});
+
+// Later, after replacing the whole data set:
+hot.loadData(nextDataSet);
+
+hot.batchExecution(() => {
+  [...saved]
+    .sort((a, b) => (plugin.getRowLevel(hot.toVisualRow(b)) ?? 0) - (plugin.getRowLevel(hot.toVisualRow(a)) ?? 0))
+    .forEach((physicalRow) => {
+      const visualRow = hot.toVisualRow(physicalRow);
+
+      if (visualRow !== null) {
+        plugin.collapseParent(visualRow);
+      }
+    });
+}, true);
+```
+
+## Filtering
+
+You can use the [`Filters`](@/api/filters.md) plugin together with the `NestedRows` plugin. Enable both the [`nestedRows`](@/api/options.md#nestedrows) and [`filters`](@/api/options.md#filters) options, and add the [`dropdownMenu`](@/api/options.md#dropdownmenu) option so users can open the filter menu.
+
+Filtering keeps the tree intact:
+
+- A row that matches the filter is shown together with all its parent rows.
+- A parent row that matches the filter is shown together with all its child rows, at every level, whether the children match or not.
+- A parent row that matches only because its filtered cells are empty (for example, with **(Blank cells)** selected) keeps its place in the tree, but not its other child rows.
+- Kept parent and child rows look like any other row. Nothing marks them as kept.
+
+The **Filter by value** list shows the values of every row that the other columns' filters keep: parents and children at every level, including rows inside collapsed parents.
+
+Because a filter keeps parents and children that don't match, the list can show a value that belongs only to a kept row. Clearing that value's checkbox may not hide the row, because the row stays as the parent of a match or as part of a matching parent's subtree.
+
+Collapsing and expanding rows work while a filter is on. When you collapse all rows, the kept top-level parents stay visible.
+
+For how screen readers count rows in a filtered tree, see [Screen readers](#screen-readers).
+
+## Notes
+
+### Known limitations
+
+When you use the parent-child row structure, the following Handsontable features are not supported:
+
+- [Data source as an array of arrays](@/guides/getting-started/binding-to-data/binding-to-data.md#array-of-arrays)
+- [Rows sorting](@/guides/rows/rows-sorting/rows-sorting.md)
+- [Manual row moving via `moveRows()`](@/api/manualRowMove.md#moverows) - use [`dragRows()`](@/api/manualRowMove.md#dragrows) instead
+
+When the `NestedRows` plugin is enabled, the `ManualRowMove` plugin's [`moveRows()`](@/api/manualRowMove.md#moverows) method has no effect and logs a console warning. To move rows programmatically, use [`dragRows()`](@/api/manualRowMove.md#dragrows) instead.
+
+### Rows added below the last row
+
+When [`fillHandle.autoInsertRow`](@/api/options.md#fillhandle) is enabled, dragging the fill handle
+past the last row adds new rows. The new rows continue the level of the last row you can see. If that
+row is a child, the new rows are added to the same parent. If it's a top-level row, or a collapsed
+parent at the top level, the new rows are top-level rows.
+
+When you call [`alter('insert_row_below', index)`](@/api/core.md#alter) with the index of the last row,
+and that row is not a collapsed parent, the new row is added to the same parent as the last row.
+Inserting a row by index below a collapsed parent isn't supported: expand the parent first. A call
+without an index, a row added by [`minSpareRows`](@/api/options.md#minsparerows), and a paste or an edit
+past the last row still add top-level rows.
+
+### Row header width with custom labels
+
+The `NestedRows` plugin sizes the row header column from the depth of your data, not from the text in
+the headers. It then spends part of that width on the indentation and on the collapse or expand
+button. If you pass your own labels through [`rowHeaders`](@/api/options.md#rowheaders), they can be
+cut off, and the indentation that separates parents from children gets squeezed.
+
+You have two ways to give the labels room:
+
+- Set [`rowHeaderWidth`](@/api/options.md#rowheaderwidth) to a fixed number of pixels. The plugin
+  treats the width it computes as a minimum, so a larger value of your own wins.
+- Enable the [`AutoRowHeaderSize`](@/api/autoRowHeaderSize.md) plugin by setting
+  [`autoRowHeaderSize`](@/api/options.md#autorowheadersize) to `true`. It measures the headers as they
+  are rendered, so the indentation and the button are counted, and it sizes the column to the longest
+  label.
+
+## Accessibility
+
+The `NestedRows` plugin follows the [WAI-ARIA treegrid pattern](https://www.w3.org/WAI/ARIA/apg/patterns/treegrid/): rows tell assistive technologies where they sit in the tree, and keyboard users can collapse or expand parent rows from a focused row header. To let keyboard users reach the row headers, enable [`navigableHeaders`](@/api/options.md#navigableheaders). As in the pattern's cell-only focus mode, the arrow keys keep moving the selection, and <kbd>**Enter**</kbd> toggles the row.
+
+### Screen readers
+
+With [`ariaTags`](@/api/options.md#ariatags) (the default) and [`rowHeaders`](@/api/options.md#rowheaders) enabled, each row element (`role="row"`) gets:
+
+- `aria-level`: the row's depth in the tree. A top-level row has level 1.
+- `aria-posinset` and `aria-setsize`: the row's position among its siblings, and the number of siblings.
+
+The row header of a parent row gets `aria-expanded`, set to `true` or `false`. Rows without children don't get this attribute.
+
+The attributes update when you collapse or expand a row and when you load new data. They are removed when you disable the plugin or switch off `rowHeaders`. Not every screen reader reads them: VoiceOver on macOS announces the expanded state but not the level or the position.
+
+The position and the number of siblings come from your data. Rows that the [`HiddenRows`](@/api/hiddenRows.md) plugin hides still count. Rows that a filter or the [`TrimRows`](@/api/trimRows.md) plugin removes don't, so the numbers describe the rows you can reach.
+
+When you collapse or expand a row with the keyboard or with the row header button, Handsontable announces the change through a polite live region: for example, "Expanded row 1, expanded rows shown: 5" or "Collapsed row 1". The row is named after the text its row header shows, the same label sighted users see next to the row, or after its row number when the header is empty. Changes made through the API methods are not announced, so your application can describe them in its own words. With `ariaTags` set to `false`, nothing is announced.
+
+The announcement text is translated. To change it, override the `NestedRows:announcement.expanded` and `NestedRows:announcement.collapsed` keys in your [language dictionary](@/guides/internationalization/language/language.md).
+
+### Keyboard shortcuts
+
+These header-focused shortcuts work only when a row header is focused. Enable [`navigableHeaders: true`](@/api/options.md#navigableheaders) to move focus onto headers with the arrow keys. For more details, see [Keyboard navigation](@/guides/accessibility/accessibility/accessibility.md#keyboard-navigation).
+
+| Windows              | macOS                | Action                                                                                                 |
+| -------------------- | -------------------- | ------------------------------------------------------------------------------------------------------ |
+| <kbd>**Enter**</kbd> | <kbd>**Enter**</kbd> | Collapse or expand the row group                                                                       |
+| <kbd>**Ctrl**</kbd>+<kbd>**→**</kbd> | <kbd>⌘</kbd>+<kbd>**→**</kbd> | Expand a collapsed parent row                                                                 |
+| <kbd>**Ctrl**</kbd>+<kbd>**←**</kbd> | <kbd>⌘</kbd>+<kbd>**←**</kbd> | Collapse an expanded parent row. Otherwise, move the focus to the header of the parent row, if any |
+
+In a right-to-left layout ([`layoutDirection: 'rtl'`](@/api/options.md#layoutdirection)), the <kbd>**←**</kbd> and <kbd>**→**</kbd> keys swap their actions. The arrow keys without a modifier move the selection, as they do in every grid. On a row header, <kbd>**Ctrl**</kbd>/<kbd>⌘</kbd>+<kbd>**←**</kbd> and <kbd>**→**</kbd> don't jump to the first or last cell of the row. To move along the row from a row header, use <kbd>**→**</kbd> or <kbd>**End**</kbd>.
+
+## Related articles
+
+**Related guides**
+
+<div class="boxes-list">
+
+- [Row header](@/guides/rows/row-header/row-header.md)
+
+</div>
+
+**Configuration options**
+
+<div class="boxes-list">
+
+- [bindRowsWithHeaders](@/api/options.md#bindrowswithheaders)
+- [contextMenu](@/api/options.md#contextmenu)
+- [nestedRows](@/api/options.md#nestedrows)
+- [rowHeaders](@/api/options.md#rowheaders)
+
+</div>
+
+**Core methods**
+
+<div class="boxes-list">
+
+- [getRowHeader()](@/api/core.md#getrowheader)
+- [toPhysicalRow()](@/api/core.md#tophysicalrow)
+- [toVisualRow()](@/api/core.md#tovisualrow)
+
+</div>
+
+**Plugin methods**
+
+<div class="boxes-list">
+
+- [collapseAll()](@/api/nestedRows.md#collapseall)
+- [collapseParent()](@/api/nestedRows.md#collapseparent)
+- [countChildren()](@/api/nestedRows.md#countchildren)
+- [expandAll()](@/api/nestedRows.md#expandall)
+- [expandParent()](@/api/nestedRows.md#expandparent)
+- [expandToLevel()](@/api/nestedRows.md#expandtolevel)
+- [expandToRow()](@/api/nestedRows.md#expandtorow)
+- [getCollapsedParents()](@/api/nestedRows.md#getcollapsedparents)
+- [getRowLevel()](@/api/nestedRows.md#getrowlevel)
+- [getRowParent()](@/api/nestedRows.md#getrowparent)
+- [isParent()](@/api/nestedRows.md#isparent)
+- [isParentCollapsed()](@/api/nestedRows.md#isparentcollapsed)
+- [toggleParent()](@/api/nestedRows.md#toggleparent)
+
+</div>
+
+**Hooks**
+
+<div class="boxes-list">
+
+- [afterAddChild](@/api/hooks.md#afteraddchild)
+- [afterDetachChild](@/api/hooks.md#afterdetachchild)
+- [afterRowCollapse](@/api/hooks.md#afterrowcollapse)
+- [afterRowExpand](@/api/hooks.md#afterrowexpand)
+- [beforeAddChild](@/api/hooks.md#beforeaddchild)
+- [beforeDetachChild](@/api/hooks.md#beforedetachchild)
+- [beforeRowCollapse](@/api/hooks.md#beforerowcollapse)
+- [beforeRowExpand](@/api/hooks.md#beforerowexpand)
+
+</div>
+
+**Plugins**
+
+<div class="boxes-list">
+
+- [BindRowsWithHeaders](@/api/bindRowsWithHeaders.md)
+- [ContextMenu](@/api/contextMenu.md)
+- [NestedRows](@/api/nestedRows.md)
+
+</div>

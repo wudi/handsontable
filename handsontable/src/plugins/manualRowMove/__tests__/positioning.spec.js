@@ -11,7 +11,7 @@ describe('manualRowMove', () => {
   });
 
   describe('positioning', () => {
-    it('should draw backlight element properly using Handsontable default settings', () => {
+    it('should draw backlight element properly using Handsontable default settings', async() => {
       handsontable({
         data: createSpreadsheetData(10, 5),
         manualRowMove: true,
@@ -31,7 +31,7 @@ describe('manualRowMove', () => {
       expect(backlight.offset().top).toBe(TH.offset().top);
     });
 
-    it('should draw backlight element properly when target element points to header\'s child element', () => {
+    it('should draw backlight element properly when target element points to header\'s child element', async() => {
       handsontable({
         data: createSpreadsheetData(10, 5),
         manualRowMove: true,
@@ -45,10 +45,10 @@ describe('manualRowMove', () => {
         .simulate('mousedown')
         .simulate('mouseup')
         .simulate('mousedown', {
-          clientX: TH.offset().top + (TH.outerHeight() / 2)
+          clientY: TH.offset().top + (TH.outerHeight() / 2)
         })
         .simulate('mousemove', {
-          clientX: TH.offset().top + (TH.outerHeight() / 2)
+          clientY: TH.offset().top + (TH.outerHeight() / 2)
         });
 
       const backlight = spec().$container.find('.ht__manualRowMove--backlight');
@@ -57,7 +57,7 @@ describe('manualRowMove', () => {
       expect(backlight.offset().top).toBe(TH.offset().top);
     });
 
-    it('should move backlight and guideline element with the movement of the mouse (move top)', () => {
+    it('should move backlight and guideline element with the movement of the mouse (move top)', async() => {
       handsontable({
         data: createSpreadsheetData(10, 5),
         manualRowMove: true,
@@ -83,11 +83,11 @@ describe('manualRowMove', () => {
 
       expect(backlight.outerHeight()).toBe(TH.outerHeight());
       expect(backlight.offset().top).toBe(THNext.offset().top);
-      expect(guideline.outerHeight()).toBe(2);
-      expect(guideline.offset().top).toBe(THNext.offset().top - 2);
+      expect(guideline.outerHeight()).toBe(1);
+      expect(guideline.offset().top).toBe(THNext.offset().top - 1);
     });
 
-    it('should move backlight and guideline element with the movement of the mouse (move bottom)', () => {
+    it('should move backlight and guideline element with the movement of the mouse (move bottom)', async() => {
       handsontable({
         data: createSpreadsheetData(10, 5),
         manualRowMove: true,
@@ -113,11 +113,11 @@ describe('manualRowMove', () => {
 
       expect(backlight.outerHeight()).toBe(TH.outerHeight());
       expect(backlight.offset().top).toBe(THNext.offset().top);
-      expect(guideline.outerHeight()).toBe(2);
-      expect(guideline.offset().top).toBe(THNext.offset().top - 2);
+      expect(guideline.outerHeight()).toBe(1);
+      expect(guideline.offset().top).toBe(THNext.offset().top - 1);
     });
 
-    it('should move guideline element to the last header when the mouse exceeds half of the height of that header', () => {
+    it('should move guideline element to the last header when the mouse exceeds half of the height of that header', async() => {
       handsontable({
         data: createSpreadsheetData(10, 5),
         manualRowMove: true,
@@ -145,8 +145,8 @@ describe('manualRowMove', () => {
 
       expect(backlight.outerHeight()).toBe(TH.outerHeight());
       expect(backlight.offset().top).toBe(THLast.offset().top - dropOffset);
-      expect(guideline.outerHeight()).toBe(2);
-      expect(guideline.offset().top).toBe(THLast.offset().top - 2);
+      expect(guideline.outerHeight()).toBe(1);
+      expect(guideline.offset().top).toBe(THLast.offset().top - 1);
     });
 
     it('should draw backlight element properly when the table is scrolled (overflow: hidden)', async() => {
@@ -159,14 +159,12 @@ describe('manualRowMove', () => {
         colHeaders: true,
       });
 
-      scrollViewportTo({
+      await scrollViewportTo({
         row: 20,
         col: 0,
         verticalSnap: 'top',
         horizontalSnap: 'start',
       });
-
-      await sleep(100);
 
       const TH = $(getCell(22, -1));
 
@@ -191,14 +189,12 @@ describe('manualRowMove', () => {
         colHeaders: true,
       });
 
-      scrollViewportTo({
+      await scrollViewportTo({
         row: 20,
         col: 0,
         verticalSnap: 'top',
         horizontalSnap: 'start',
       });
-
-      await sleep(100);
 
       const TH = $(getCell(22, -1));
       const THNext = $(getCell(20, -1));
@@ -218,8 +214,8 @@ describe('manualRowMove', () => {
 
       expect(backlight.outerHeight()).toBe(TH.outerHeight());
       expect(backlight.offset().top).toBe(THNext.offset().top);
-      expect(guideline.outerHeight()).toBe(2);
-      expect(guideline.offset().top).toBe(THNext.offset().top - 2);
+      expect(guideline.outerHeight()).toBe(1);
+      expect(guideline.offset().top).toBe(THNext.offset().top - 1);
     });
 
     it('should move backlight and guideline element with the movement of the mouse when the table is scrolled ' +
@@ -233,14 +229,12 @@ describe('manualRowMove', () => {
         colHeaders: true,
       });
 
-      scrollViewportTo({
+      await scrollViewportTo({
         row: 20,
         col: 0,
         verticalSnap: 'top',
         horizontalSnap: 'start',
       });
-
-      await sleep(100);
 
       const TH = $(getCell(20, -1));
       const THNext = $(getCell(22, -1));
@@ -260,8 +254,8 @@ describe('manualRowMove', () => {
 
       expect(backlight.outerHeight()).toBe(TH.outerHeight());
       expect(backlight.offset().top).toBe(THNext.offset().top);
-      expect(guideline.outerHeight()).toBe(2);
-      expect(guideline.offset().top).toBe(THNext.offset().top - 2);
+      expect(guideline.outerHeight()).toBe(1);
+      expect(guideline.offset().top).toBe(THNext.offset().top - 1);
     });
 
     it('should draw backlight element properly when the table is scrolled (window as scrollable element)', async() => {
@@ -272,14 +266,12 @@ describe('manualRowMove', () => {
         colHeaders: true,
       });
 
-      scrollViewportTo({
+      await scrollViewportTo({
         row: 20,
         col: 0,
         verticalSnap: 'top',
         horizontalSnap: 'start',
       });
-
-      await sleep(100);
 
       const TH = $(getCell(22, -1));
 
@@ -302,14 +294,12 @@ describe('manualRowMove', () => {
         colHeaders: true,
       });
 
-      scrollViewportTo({
+      await scrollViewportTo({
         row: 20,
         col: 0,
         verticalSnap: 'top',
         horizontalSnap: 'start',
       });
-
-      await sleep(100);
 
       const TH = $(getCell(26, -1));
       const THNext = $(getCell(24, -1));
@@ -329,8 +319,8 @@ describe('manualRowMove', () => {
 
       expect(backlight.outerHeight()).toBe(TH.outerHeight());
       expect(backlight.offset().top).toBe(THNext.offset().top);
-      expect(guideline.outerHeight()).toBe(2);
-      expect(guideline.offset().top).toBe(THNext.offset().top - 2);
+      expect(guideline.outerHeight()).toBe(1);
+      expect(guideline.offset().top).toBe(THNext.offset().top - 1);
     });
 
     it('should move backlight and guideline element with the movement of the mouse when the table is scrolled ' +
@@ -342,14 +332,12 @@ describe('manualRowMove', () => {
         colHeaders: true,
       });
 
-      scrollViewportTo({
+      await scrollViewportTo({
         row: 20,
         col: 0,
         verticalSnap: 'top',
         horizontalSnap: 'start',
       });
-
-      await sleep(100);
 
       const TH = $(getCell(24, -1));
       const THNext = $(getCell(26, -1));
@@ -369,11 +357,11 @@ describe('manualRowMove', () => {
 
       expect(backlight.outerHeight()).toBe(TH.outerHeight());
       expect(backlight.offset().top).toBe(THNext.offset().top);
-      expect(guideline.outerHeight()).toBe(2);
-      expect(guideline.offset().top).toBe(THNext.offset().top - 2);
+      expect(guideline.outerHeight()).toBe(1);
+      expect(guideline.offset().top).toBe(THNext.offset().top - 1);
     });
 
-    it('should draw backlight element properly when rowHeights is defined', () => {
+    it('should draw backlight element properly when rowHeights is defined', async() => {
       handsontable({
         data: createSpreadsheetData(10, 5),
         manualRowMove: true,
@@ -394,7 +382,7 @@ describe('manualRowMove', () => {
       expect(backlight.offset().top).toBe(TH.offset().top);
     });
 
-    it('should draw backlight element properly when there are hidden rows', () => {
+    it('should draw backlight element properly when there are hidden rows', async() => {
       handsontable({
         data: createSpreadsheetData(5, 5),
         manualRowMove: true,
@@ -405,7 +393,7 @@ describe('manualRowMove', () => {
         }
       });
 
-      selectRows(1, 4);
+      await selectRows(1, 4);
 
       const TH = $(getCell(1, -1));
 
@@ -415,7 +403,7 @@ describe('manualRowMove', () => {
 
       const backlight = spec().$container.find('.ht__manualRowMove--backlight');
 
-      expect(backlight.outerHeight()).toBe(46);
+      expect(backlight.outerHeight()).toBe((2 * getThemeLayout().defaultDataRowHeight));
       expect(backlight.offset().top).toBe(TH.offset().top);
     });
   });

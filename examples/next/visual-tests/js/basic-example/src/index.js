@@ -1,6 +1,6 @@
 import Handsontable from "handsontable";
-import 'handsontable/dist/handsontable.full.css';
 import "./styles.css";
+import { TEST_LICENSE_KEY } from "./test-license-key";
 
 const data = [
     ['', 'Tesla', 'Volvo', 'Toyota', 'Ford'],
@@ -14,10 +14,10 @@ const container = document.getElementById('example');
 const hot = new Handsontable(container, {
     data,
     width: '100%',
-    height: '100%',
+    height: 'auto',
     rowHeaders: true,
     colHeaders: true,
-    licenseKey: 'non-commercial-and-evaluation'
+    licenseKey: TEST_LICENSE_KEY
 });
 
 console.log(`Handsontable: v${Handsontable.version} (${Handsontable.buildDate})`);

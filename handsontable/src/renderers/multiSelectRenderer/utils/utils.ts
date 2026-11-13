@@ -1,0 +1,521 @@
+import type { HotInstance } from '../../../core/types';
+import type { CellProperties } from '../../../settings';
+import { isKeyValueObject } from '../../../helpers/object';
+import { A11Y_HIDDEN } from '../../../helpers/a11y';
+import { addClass, eventTargetEl, hasClass, isHTMLElement } from '../../../helpers/dom/element';
+import { isImmediatePropagationStopped, isLeftClick, stopImmediatePropagation } from '../../../helpers/dom/event';
+import EventManager from '../../../eventManager';
+import { createIcon } from '../../../themes/engine/icons';
+
+export const CLASS_PREFIX = 'ht-multi-select';
+export const CHIP_CLASS = `${CLASS_PREFIX}-chip`;
+export const CHIP_REMOVE_CLASS = `${CLASS_PREFIX}-chip-remove`;
+export const ARROW_CLASS = `${CLASS_PREFIX}-arrow`;
+
+const CHIP_LABEL_CLASS = `${CLASS_PREFIX}-chip-label`;
+const OVERFLOW_INDICATOR_CLASS = `${CLASS_PREFIX}-overflow`;
+const beforeColumnResizeHookRegistered = new WeakSet<object>();
+const latestColumnWidthCache = new WeakMap<object, Record<number, { width: number }>>();
+const chipsEventManagers = new WeakMap<object, EventManager>();
+const arrowEventManagers = new WeakMap<object, EventManager>();
+
+/**
+ * Checks whether the user may remove chips from a cell.
+ *
+ * The remove button writes through `setDataAtCell`, which does not check `readOnly` itself, so the
+ * button has to. A cell that names no editor (`editor: false` or `null`) refuses edits as well,
+ * matching the checkbox renderer. The `editor` meta is read directly rather than resolved through
+ * `Core#getCellEditor()`, which throws on an unknown editor name and would turn a misconfigured
+ * column into a render-time failure.
+ *
+ * @param {CellProperties} cellProperties The cell meta object.
+ * @returns {boolean} `true` when the chips can be removed.
+ */
+export function isChipRemovable(cellProperties: CellProperties): boolean {
+  return !cellProperties.readOnly
+    && cellProperties.editor !== false
+    && cellProperties.editor !== null;
+}
+
+/**
+ * Checks whether the chips of a cell are drawn with a remove button.
+ *
+ * A cell that refuses edits draws none, unless `readOnlyStyling` is `false`: the cell must then look
+ * exactly like an editable one, so the button stays, and the press-time check keeps it inert. The
+ * checkbox renderer splits its look from its behavior the same way.
+ *
+ * @param {CellProperties} cellProperties The cell meta object.
+ * @returns {boolean} `true` when the chips get a remove button.
+ */
+export function hasChipRemoveButton(cellProperties: CellProperties): boolean {
+  return isChipRemovable(cellProperties) || cellProperties.readOnlyStyling === false;
+}
+
+/**
+ * Returns the chip whose remove button a pointer event targets.
+ *
+ * The button is found by ancestor, not by the target's own class: it hosts a real icon element
+ * whose markup a theme `icons` renderer may extend, and the press may then target that.
+ *
+ * @param {Event} event The pointer event.
+ * @returns {HTMLElement | null} The chip, or `null` when the event does not target a remove button.
+ */
+function getChipOfRemoveButton(event: Event): HTMLElement | null {
+  const target = eventTargetEl(event);
+
+  if (!target || target.closest(`.${CHIP_REMOVE_CLASS}`) === null) {
+    return null;
+  }
+
+  return target.closest<HTMLElement>(`.${CHIP_CLASS}`);
+}
+
+/**
+ * Checks, at press time, whether the cell a chip belongs to accepts the removal.
+ *
+ * The meta is read when the user presses rather than taken from the render, so a button still drawn
+ * after `setCellMeta` made the cell refuse edits (it does not re-render), or one drawn because
+ * `readOnlyStyling` is `false`, stays inert. A chip that does not name its cell removes nothing.
+ *
+ * @param {HotInstance} hotInstance The Handsontable instance.
+ * @param {HTMLElement} chip The chip element, carrying its cell's visual coordinates.
+ * @returns {boolean} `true` when the chip can be removed.
+ */
+function canRemoveChip(hotInstance: HotInstance, chip: HTMLElement): boolean {
+  const { row, col } = chip.dataset;
+
+  if (row === undefined || col === undefined) {
+    return false;
+  }
+
+  return isChipRemovable(hotInstance.getCellMetaTransient(Number(row), Number(col)));
+}
+
+/**
+ *
+ */
+export function getItemProperty(item: string | Record<string, string>, property: string): string {
+  return isKeyValueObject(item) ? (item as Record<string, string>)[property] : (item as string);
+}
+
+/**
+ *
+ */
+export function parseValue(value: unknown): (string | Record<string, string>)[] {
+  if (value === null || value === undefined || value === '') {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value as (string | Record<string, string>)[];
+  }
+
+  if (typeof value === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(value);
+
+      const parsedArray = parsed as (string | Record<string, string>)[];
+
+      return Array.isArray(parsed) ? parsedArray : [parsed as string | Record<string, string>];
+    } catch {
+      return value.trim() ? [value] : [];
+    }
+  }
+
+  return [value] as (string | Record<string, string>)[];
+}
+
+/**
+ * Creates the chip element for one selected item.
+ *
+ * @param {Document} rootDocument The document that owns the grid.
+ * @param {string|object} item The selected item: a plain value, or a `key` and `value` object.
+ * @param {boolean} isAriaEnabled `true` when the `ariaTags` option is enabled.
+ * @param {number} row The visual row index.
+ * @param {number} col The visual column index.
+ * @param {string|number} prop The column property.
+ * @param {HotInstance} hotInstance The Handsontable instance, used to render the remove icon.
+ * @param {boolean} [hasRemoveButton=true] `false` to draw the chip without its remove button.
+ * @returns {HTMLElement} The chip element.
+ */
+export function createChipElement(
+  rootDocument: Document,
+  item: string | Record<string, string>,
+  isAriaEnabled: boolean,
+  row: number,
+  col: number,
+  prop: string | number,
+  hotInstance: HotInstance,
+  hasRemoveButton = true
+): HTMLElement {
+  const chip = rootDocument.createElement('span');
+  const textContent = getItemProperty(item, 'value');
+
+  addClass(chip, CHIP_CLASS);
+  chip.dataset.row = String(row);
+  chip.dataset.col = String(col);
+  chip.dataset.prop = String(prop);
+  chip.title = textContent;
+
+  const label = rootDocument.createElement('span');
+
+  addClass(label, CHIP_LABEL_CLASS);
+  label.textContent = textContent;
+  chip.appendChild(label);
+  chip.dataset.key = getItemProperty(item, 'key');
+
+  // A cell that refuses edits draws no remove button: a button that does nothing would still offer
+  // the action, with its pointer cursor and hover state.
+  if (!hasRemoveButton) {
+    return chip;
+  }
+
+  const removeBtn = rootDocument.createElement('span');
+
+  addClass(removeBtn, CHIP_REMOVE_CLASS);
+
+  if (isAriaEnabled) {
+    removeBtn.setAttribute(...A11Y_HIDDEN());
+  }
+
+  // Interactive: `registerChipRemovingEvents` below reads `event.target` for the `CHIP_REMOVE_CLASS`
+  // itself, and the base `.ht-icon` rule's `pointer-events: none` (`_icon.scss`) is what lets a click
+  // on the glyph still land on this span rather than being intercepted by the icon - same reasoning
+  // as the dropdown indicator's arrow below.
+  removeBtn.appendChild(createIcon(hotInstance, 'chipClose'));
+  chip.appendChild(removeBtn);
+
+  return chip;
+}
+
+/**
+ *
+ */
+export function createOverflowIndicator(rootDocument: Document, count: number): HTMLElement {
+  const indicator = rootDocument.createElement('span');
+
+  addClass(indicator, OVERFLOW_INDICATOR_CLASS);
+  indicator.textContent = `+${count}`;
+
+  return indicator;
+}
+
+/**
+ * Creates the dropdown indicator shown at the cell's trailing edge.
+ *
+ * The indicator carries the edited cell's coordinates in its dataset so a single delegated listener
+ * can serve every cell in the column — see `registerDropdownIndicatorEvents`.
+ *
+ * @param {Document} rootDocument The document that owns the grid.
+ * @param {boolean} isAriaEnabled `true` when the `ariaTags` option is enabled.
+ * @param {number} row The visual row index.
+ * @param {number} col The visual column index.
+ * @param {HotInstance} hotInstance The Handsontable instance, used to render the arrow icon.
+ * @returns {HTMLElement} The indicator element.
+ */
+export function createDropdownIndicator(
+  rootDocument: Document,
+  isAriaEnabled: boolean,
+  row: number,
+  col: number,
+  hotInstance: HotInstance
+): HTMLElement {
+  const indicator = rootDocument.createElement('span');
+
+  addClass(indicator, ARROW_CLASS);
+  indicator.dataset.row = String(row);
+  indicator.dataset.col = String(col);
+
+  // Decorative: the cell already announces its value and the editor announces the option list.
+  if (isAriaEnabled) {
+    indicator.setAttribute(...A11Y_HIDDEN());
+  }
+
+  // Mirrors `.htAutocompleteArrow` (`autocompleteRenderer.ts`): the glyph is a real element, not
+  // this indicator's own `::after`. Unlike the autocomplete arrow, this one has no text-node
+  // fallback glyph, so with no theme applied the `.ht-icon` element renders as an empty box
+  // rather than a visible arrow. `.ht-icon`'s base `pointer-events: none` lets the `mousedown`
+  // listener registered below still see this span, not the icon, as `event.target`.
+  indicator.appendChild(createIcon(hotInstance, 'selectArrow'));
+
+  return indicator;
+}
+
+/**
+ * Opens the editor when the dropdown indicator is clicked once, matching the autocomplete and
+ * dropdown cell types. Registers one delegated listener per Handsontable instance.
+ *
+ * @param {HotInstance} hotInstance The Handsontable instance.
+ */
+export function registerDropdownIndicatorEvents(hotInstance: HotInstance): void {
+  if (arrowEventManagers.has(hotInstance)) {
+    return;
+  }
+
+  const eventManager = new EventManager(hotInstance);
+
+  arrowEventManagers.set(hotInstance, eventManager);
+
+  // Core's teardown clears the shared `eventListeners` array this manager writes into, so this is
+  // belt-and-braces today. It is here because `EventManager` carries a standing TODO to track
+  // listeners per instance, and on that day the shared sweep stops covering us — leaving a
+  // `mousedown` handler on the user's element that calls into a destroyed instance.
+  hotInstance.addHookOnce('afterDestroy', () => {
+    eventManager.destroy();
+    arrowEventManagers.delete(hotInstance);
+  });
+
+  eventManager.addEventListener(hotInstance.rootElement, 'mousedown', (event: Event) => {
+    const target = eventTargetEl(event);
+
+    // Only the left button opens the list. Without the check, a right-click on the indicator would
+    // open the editor alongside the context menu.
+    if (!isHTMLElement(target) || !hasClass(target, ARROW_CLASS) || !isLeftClick(event)) {
+      return;
+    }
+
+    // A press an earlier listener claimed (the FormulaBuilder plugin picks the cell as a formula
+    // reference) must not open the cell's own editor; see `autocompleteRenderer`.
+    if (isImmediatePropagationStopped(event)) {
+      return;
+    }
+
+    // Read the coordinates from the indicator itself rather than from a closure captured at render
+    // time. `autocompleteRenderer` captures `row`/`col` from whichever cell rendered first, which is
+    // one reason its class is not reused here.
+    const visualRow = Number(target.dataset.row);
+    const visualColumn = Number(target.dataset.col);
+    // Take the cell from the clicked element, never `getCell()`. Without its `topmost` flag that
+    // reads the master table, and a frozen cell scrolled past the master's rendered range returns
+    // `null` there while its overlay clone — the one the user actually sees and clicks — renders
+    // fine, so a guard on the result silently dropped the click on frozen columns and rows.
+    // `onCellDblClick` ignores this element anyway (`editorManager` names the parameter `_elem`);
+    // it is passed to match the shape `autocompleteRenderer` uses.
+    const td = target.closest<HTMLTableCellElement>('td');
+
+    // The `null` event is load-bearing, not laziness: `EditorManager#openEditor` only applies its
+    // "no editor for a multi-cell selection" default when the event is a `MouseEvent`, so forwarding
+    // the real one would stop the indicator from opening the list after a shift-drag range.
+    hotInstance.view._wt.getSetting(
+      'onCellDblClick',
+      null,
+      hotInstance._createCellCoords(visualRow, visualColumn),
+      td
+    );
+  });
+}
+
+/**
+ *
+ */
+export function registerChipRemovingEvents(
+  hotInstance: HotInstance,
+  rendererType: string
+): void {
+  if (chipsEventManagers.has(hotInstance)) {
+    return;
+  }
+
+  chipsEventManagers.set(hotInstance, new EventManager(hotInstance));
+
+  const eventManager = chipsEventManagers.get(hotInstance)!;
+
+  eventManager.addEventListener(hotInstance.rootElement, 'click', (event: Event) => {
+    const chip = getChipOfRemoveButton(event);
+
+    if (!chip) {
+      return;
+    }
+
+    // Stopped even when the removal is refused: a grid nested inside another grid's root element
+    // must not hand the click to the outer grid's listener, which would read this chip's
+    // coordinates against its own cells.
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (!canRemoveChip(hotInstance, chip)) {
+      return;
+    }
+
+    const visualRow = Number(chip.dataset.row ?? 0);
+    const visualColumn = Number(chip.dataset.col ?? 0);
+    const physicalRow = hotInstance.toPhysicalRow(visualRow);
+    // Read the raw source array, not `getDataAtCell` — the multiselect `valueGetter` turns the
+    // stored array into a display string, which `parseValue` cannot split back into items.
+    const currentData = hotInstance.getSourceDataAtCell(physicalRow, visualColumn);
+    const keyToRemove = chip.dataset.key;
+    const newData = removeValueByKey(parseValue(currentData), keyToRemove);
+
+    // Route the removal through `setDataAtCell` so it runs the standard change and validation
+    // pipeline (`beforeChange` / `afterChange`), matching the editor's deselect path. Writing via
+    // `setSourceDataAtCell` bypassed those hooks and left the two removal paths inconsistent.
+    hotInstance.setDataAtCell(visualRow, visualColumn, newData, `${rendererType}-renderer`);
+  });
+
+  hotInstance.addHook('beforeOnCellMouseDown', (event: MouseEvent) => {
+    const chip = getChipOfRemoveButton(event);
+
+    // Only a press that removes a chip keeps the cell from being selected. A press on a button the
+    // cell refuses selects the cell like a press anywhere else in it.
+    if (chip !== null && canRemoveChip(hotInstance, chip)) {
+      stopImmediatePropagation(event);
+    }
+  });
+}
+
+/**
+ *
+ */
+export function cacheColumnWidthAndRegisterResizeHook(
+  hotInstance: HotInstance,
+  col: number
+): number {
+  const currentWidth = hotInstance.getColWidth(col);
+
+  if (!latestColumnWidthCache.has(hotInstance)) {
+    latestColumnWidthCache.set(hotInstance, { [col]: { width: currentWidth } });
+  } else {
+    const cache = latestColumnWidthCache.get(hotInstance)!;
+
+    if (cache[col]?.width !== currentWidth) {
+      latestColumnWidthCache.set(hotInstance, { ...cache, [col]: { width: currentWidth } });
+    }
+  }
+
+  if (!beforeColumnResizeHookRegistered.has(hotInstance)) {
+    hotInstance.addHook('beforeColumnResize', (...args: unknown[]) => {
+      const newSize = args[0] as number;
+      const columnIndex = args[1] as number;
+      const cache = latestColumnWidthCache.get(hotInstance);
+
+      if (cache?.[columnIndex]?.width !== newSize) {
+        latestColumnWidthCache.set(
+          hotInstance,
+          { ...cache, [columnIndex]: { width: newSize } }
+        );
+      }
+    });
+
+    beforeColumnResizeHookRegistered.add(hotInstance);
+  }
+
+  return latestColumnWidthCache.get(hotInstance)?.[col]?.width ?? currentWidth;
+}
+
+/**
+ * Returns the horizontal space the dropdown indicator takes up in the cell, including its margins.
+ *
+ * Both margins are summed, so the physical `marginLeft`/`marginRight` pair works for LTR and RTL
+ * alike and does not depend on logical-property support.
+ *
+ * @param {HTMLElement} chipsContainer The chips container whose cell holds the indicator, already
+ *   appended to its cell by the caller.
+ * @param {Document} rootDocument The document that owns the grid.
+ * @returns {number} The reserved width in pixels, or `0` when no indicator is rendered.
+ */
+function getDropdownIndicatorReserve(chipsContainer: HTMLElement, rootDocument: Document): number {
+  const indicator = chipsContainer.parentElement!.querySelector<HTMLElement>(`.${ARROW_CLASS}`);
+
+  if (!indicator) {
+    return 0;
+  }
+
+  const styles = rootDocument.defaultView!.getComputedStyle(indicator);
+
+  return indicator.offsetWidth
+    + (parseFloat(styles.marginLeft) || 0)
+    + (parseFloat(styles.marginRight) || 0);
+}
+
+/**
+ *
+ */
+function recalculateChipsVisibility(
+  columnWidth: number | null,
+  chipsContainer: HTMLElement,
+  rootDocument: Document
+): void {
+  // Subtract the indicator so the last visible chip and the `+N` badge stop short of it. This
+  // narrows the overlap band rather than closing it: `columnWidth` is a border-box width from
+  // `getColWidth`, and the cell's own horizontal padding is still not subtracted — a pre-existing
+  // gap. Closing it means measuring the container's content box instead of deriving the budget from
+  // the column width, which changes how many chips every multiselect cell shows.
+  const containerWidth = columnWidth === null
+    ? null
+    : columnWidth - getDropdownIndicatorReserve(chipsContainer, rootDocument);
+  const chips = chipsContainer.querySelectorAll<HTMLElement>(`.${CHIP_CLASS}`);
+
+  for (let i = 0; i < chips.length; i++) {
+    chips[i].style.display = '';
+  }
+
+  if (containerWidth === null || chips.length === 0) {
+    return;
+  }
+
+  let indicator = chipsContainer.querySelector<HTMLElement>(`.${OVERFLOW_INDICATOR_CLASS}`);
+
+  if (!indicator) {
+    indicator = createOverflowIndicator(rootDocument, chips.length);
+    indicator.style.visibility = 'hidden';
+    chipsContainer.appendChild(indicator);
+  } else {
+    indicator.style.display = '';
+    indicator.style.visibility = 'hidden';
+  }
+
+  const containerStyles = rootDocument.defaultView!.getComputedStyle(chipsContainer);
+  const gap = parseFloat(containerStyles.gap) || 0;
+  const indicatorWidth = indicator.offsetWidth;
+  let totalWidth = 0;
+  let visibleCount = 0;
+
+  for (let i = 0; i < chips.length; i++) {
+    const chipWidth = chips[i].offsetWidth;
+    const chipGap = i < chips.length - 1 ? gap : 0;
+    const nextWidth = totalWidth + chipWidth + chipGap;
+    const needsIndicatorSpace = i < chips.length - 1;
+    const availableWidth = containerWidth - (needsIndicatorSpace ? indicatorWidth + gap : 0);
+
+    if (nextWidth <= availableWidth) {
+      totalWidth = nextWidth;
+      visibleCount += 1;
+    } else {
+      break;
+    }
+  }
+
+  const hiddenCount = chips.length - visibleCount;
+
+  if (hiddenCount > 0) {
+    for (let i = visibleCount; i < chips.length; i++) {
+      chips[i].style.display = 'none';
+    }
+
+    indicator.textContent = `+${hiddenCount}`;
+    indicator.style.visibility = 'visible';
+  } else {
+    indicator.style.display = 'none';
+  }
+}
+
+/**
+ *
+ */
+export function handleChipsOverflow(
+  columnWidth: number,
+  chipsContainer: HTMLElement,
+  rootDocument: Document
+): void {
+  recalculateChipsVisibility(columnWidth, chipsContainer, rootDocument);
+}
+
+/**
+ *
+ */
+export function removeValueByKey(
+  array: (string | Record<string, string>)[],
+  keyToRemove: string | undefined
+): (string | Record<string, string>)[] {
+  return array.filter(item => getItemProperty(item, 'key') !== keyToRemove);
+}

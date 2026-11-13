@@ -1,0 +1,216 @@
+import Handsontable from 'handsontable';
+import type {
+  ExportFileSettings,
+  ExportOptions,
+  SheetOptions,
+  ConditionalFormattingDescriptor,
+} from 'handsontable/plugins/exportFile';
+
+// Plugin configuration in GridSettings.
+new Handsontable(document.createElement('div'), {
+  exportFile: {
+    engines: { xlsx: {} },
+  },
+});
+
+// Settings object is assignable to ExportFileSettings.
+const settings: ExportFileSettings = { engines: { xlsx: {} } };
+// A `null` entry selects the built-in engine (e.g. `xlsx: useExcelJs ? ExcelJS : null`).
+const nullEngineSettings: ExportFileSettings = { engines: { xlsx: null } };
+
+new Handsontable(document.createElement('div'), { exportFile: nullEngineSettings });
+new Handsontable(document.createElement('div'), { exportFile: true });
+new Handsontable(document.createElement('div'), { exportFile: false });
+
+// `undefined` is read like `null` at runtime, so an optional engine (`xlsx: props.engine`) compiles.
+const optionalEngine: object | undefined = Math.random() > 0.5 ? {} : undefined;
+const undefinedEngineSettings: ExportFileSettings = { engines: { xlsx: optionalEngine } };
+
+new Handsontable(document.createElement('div'), { exportFile: { engines: { xlsx: undefined } } });
+new Handsontable(document.createElement('div'), { exportFile: undefinedEngineSettings });
+
+// `GridSettings` declares `exportFile`, so a wrong shape no longer falls into the index signature.
+// @ts-expect-error a number is neither a boolean nor the settings object
+new Handsontable(document.createElement('div'), { exportFile: 42 });
+// @ts-expect-error an engine is a module object, not a string
+new Handsontable(document.createElement('div'), { exportFile: { engines: { xlsx: 'a string, not an engine' } } });
+
+const hot = new Handsontable(document.createElement('div'), {});
+const hot2 = new Handsontable(document.createElement('div'), {});
+const exportPlugin = hot.getPlugin('exportFile');
+
+// ─── CSV — synchronous ───────────────────────────────
+
+const csvOptions = {
+  mimeType: 'text/csv',
+  fileExtension: 'csv',
+  filename: 'export.csv',
+  encoding: 'utf-8',
+  bom: true,
+  columnDelimiter: ';',
+  rowDelimiter: '\r\n',
+  colHeaders: true,
+  rowHeaders: true,
+  exportHiddenColumns: true,
+  exportHiddenRows: true,
+  range: [1, 1, 6, 6],
+  sanitizeValues: true,
+};
+
+const csvText: string = exportPlugin.exportAsString('csv');
+const csvTextWithOptions: string = exportPlugin.exportAsString('csv', csvOptions);
+
+const csvBlob: Blob = exportPlugin.exportAsBlob('csv');
+const csvBlobWithOptions: Blob = exportPlugin.exportAsBlob('csv', csvOptions);
+
+exportPlugin.downloadFile('csv');
+exportPlugin.downloadFile('csv', csvOptions);
+
+// ─── XLSX — asynchronous ───────────────────────────────────────────────────
+
+const xlsxOptions = {
+  filename: 'report',
+  colHeaders: true,
+  rowHeaders: true,
+  exportHiddenColumns: false,
+  exportHiddenRows: false,
+  exportFormulas: true,
+  compression: true,
+  range: [0, 0, 5, 4],
+};
+
+// 'hide' is a valid value for exportHiddenColumns and exportHiddenRows.
+exportPlugin.downloadFileAsync('xlsx', { exportHiddenColumns: 'hide', exportHiddenRows: 'hide' });
+
+const csvDownload: void = exportPlugin.downloadFile('csv');
+const csvDownloadWithOptions: void = exportPlugin.downloadFile('csv', csvOptions);
+
+// ─── Conditional formatting ────────────────────────────────────────────────
+
+const cf: ConditionalFormattingDescriptor = {
+  rows: [0, 4],
+  cols: [2, 2],
+  rules: [{ type: 'cellIs', operator: 'greaterThan', formulae: [100000] }],
+};
+
+const cfMinimal: ConditionalFormattingDescriptor = {
+  rules: [],
+};
+
+exportPlugin.downloadFileAsync('xlsx', {
+  conditionalFormatting: [cf, cfMinimal],
+});
+
+// ─── Multi-sheet export ────────────────────────────────────────────────────
+
+const sheet1: SheetOptions = {
+  instance: hot,
+  name: 'Q1 Sales',
+  colHeaders: true,
+  rowHeaders: true,
+  exportFormulas: true,
+  exportHiddenColumns: 'hide',
+  exportHiddenRows: 'hide',
+};
+
+const sheet2: SheetOptions = {
+  instance: hot2,
+  name: 'Q2 Sales',
+};
+
+exportPlugin.downloadFileAsync('xlsx', {
+  filename: 'annual-report',
+  sheets: [sheet1, sheet2],
+});
+
+// ─── SheetOptions: name is optional ───────────────────────────────────────
+// name should be optional — implementation uses `sheetConfig.name || 'Sheet'`
+const sheetWithoutName: SheetOptions = {
+  instance: hot,
+  colHeaders: true,
+};
+
+// ─── ExportOptions: headerStyle (XLSX) ────────────────────────────────────
+exportPlugin.downloadFileAsync('xlsx', {
+  headerStyle: { backgroundColor: '#f2f2f2', border: { style: 'thin' } },
+});
+exportPlugin.downloadFileAsync('xlsx', {
+  headerStyle: { backgroundColor: 'whitesmoke', border: { style: 'thin', color: 'rgb(68, 114, 196)' } },
+});
+exportPlugin.downloadFileAsync('xlsx', { headerStyle: null });
+
+// ─── ExportOptions: protection (XLSX) ─────────────────────────────────────
+exportPlugin.downloadFileAsync('xlsx', { protection: { password: 'x' } });
+exportPlugin.exportAsBlobAsync('xlsx', { protection: {} });
+exportPlugin.downloadFileAsync('xlsx', { protection: null });
+const passwordProtection: ExportOptions = { protection: { password: 'x' } };
+const noProtection: ExportOptions = { protection: null };
+const passwordlessProtection: ExportOptions = { protection: {} };
+// The methods also take a plain record, so the password type is pinned on `ExportOptions` itself.
+// @ts-expect-error a password is a string
+const numericPassword: ExportOptions = { protection: { password: 1 } };
+
+// ─── ExportOptions: engine (per-call override) ────────────────────────────
+exportPlugin.downloadFileAsync('xlsx', { engine: {} });
+exportPlugin.exportAsBlobAsync('xlsx', { engine: {} });
+// A `null` override means "no override", as an absent key does.
+exportPlugin.downloadFileAsync('xlsx', { engine: null });
+exportPlugin.exportAsBlobAsync('xlsx', { engine: null });
+const nullEngineExportOptions: ExportOptions = { engine: null };
+const objectEngineExportOptions: ExportOptions = { engine: {} };
+
+// A variable typed `ExportOptions` is accepted by every export method, and an inline literal with a
+// key the interface does not declare still is too.
+const typedExportOptions: ExportOptions = { filename: 'report', colHeaders: true };
+
+exportPlugin.exportAsBlobAsync('xlsx', nullEngineExportOptions);
+exportPlugin.exportAsBlobAsync('xlsx', objectEngineExportOptions);
+exportPlugin.downloadFileAsync('xlsx', typedExportOptions);
+exportPlugin.exportAsString('csv', typedExportOptions);
+exportPlugin.exportAsBlob('csv', typedExportOptions);
+exportPlugin.downloadFile('csv', typedExportOptions);
+exportPlugin.exportAsBlobAsync('xlsx', { sheetName: 1, nonsense: true });
+
+// ─── sanitizeValues variants ───────────────────────────────────────────────
+
+exportPlugin.exportAsString('csv', { sanitizeValues: false });
+exportPlugin.exportAsString('csv', { sanitizeValues: /^[+=@-]/ });
+exportPlugin.exportAsString('csv', { sanitizeValues: (val: string) => val.replace(/^=/, '') });
+
+// ─── downloadFileAsync ────────────────────────────────────────────────────
+
+// Basic call — returns Promise<void>.
+const asyncDownload: Promise<void> = exportPlugin.downloadFileAsync('xlsx');
+const asyncCsvDownload: Promise<void> = exportPlugin.downloadFileAsync('csv');
+
+// With options.
+const asyncDownloadWithOpts: Promise<void> = exportPlugin.downloadFileAsync('xlsx', xlsxOptions);
+
+// Can be awaited in an async context.
+/**
+ *
+ */
+async function testDownloadFileAsync(): Promise<void> {
+  await exportPlugin.downloadFileAsync('xlsx', { filename: 'async-report' });
+  await exportPlugin.downloadFileAsync('csv');
+}
+
+// ─── supportsExportFormat ─────────────────────────────────────────────────
+
+const supportsXlsx: boolean = exportPlugin.supportsExportFormat('xlsx');
+const supportsCsv: boolean = exportPlugin.supportsExportFormat('csv');
+
+// ─── exportAsBlobAsync ────────────────────────────────────────────────────
+
+const asyncCsvBlob: Promise<Blob> = exportPlugin.exportAsBlobAsync('csv');
+const asyncXlsxBlob: Promise<Blob> = exportPlugin.exportAsBlobAsync('xlsx');
+const asyncBlobWithOpts: Promise<Blob> = exportPlugin.exportAsBlobAsync('xlsx', xlsxOptions);
+
+/**
+ *
+ */
+async function testExportAsBlobAsync(): Promise<void> {
+  const blob: Blob = await exportPlugin.exportAsBlobAsync('xlsx');
+  const _size: number = blob.size;
+}
+

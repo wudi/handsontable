@@ -9,7 +9,7 @@ describe('Smoke check', () => {
   beforeEach(async () => {
     jasmine.DEFAULT_TIMEOUT_INTERVAL = 100000;
     // browser = await puppeteer.launch({ headless: false, slowMo: 250, devtools: true });
-    browser = await puppeteer.launch();
+    browser = await puppeteer.launch({ args: ["--no-sandbox", "--disable-setuid-sandbox"] });
     page = await browser.newPage();
     await page.goto(BASE_URL);
   }, 90000);
@@ -23,17 +23,5 @@ describe('Smoke check', () => {
 
     // assertion
     await expect(hotCell).toBeTruthy();
-  });
-
-  it('should use progressBarRenderer', async () => {
-    const progressBarRendererCell = await page.$('.handsontable tbody tr td:nth-child(7) .progressBar');
-    const progressBarRendererCellContent = await progressBarRendererCell.evaluate(el => el.getAttribute('style'));
-    await expect(progressBarRendererCellContent).toBe('width: 10px;');
-  });
-
-  it('should use startRenderer', async () => {
-    const startRendererCell = await page.$('.handsontable tbody tr td:nth-child(8)');
-    const startRendererCellContent = await startRendererCell.evaluate(el => el.textContent);
-    await expect(startRendererCellContent).toBe('★★★');
   });
 });

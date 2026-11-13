@@ -1,22 +1,16 @@
 import HyperFormula from 'hyperformula';
 
-const fillHandleSelector = '.wtBorder.current.corner';
-
 const autofill = (endRow, endCol) => {
-  spec().$container.find(fillHandleSelector).simulate('mousedown');
+  const target = spec().$container.find(`tbody tr:eq(${endRow}) td:eq(${endCol})`);
 
-  spec().$container
-    .find(`tbody tr:eq(${endRow}) td:eq(${endCol})`)
-    .simulate('mouseover')
-    .simulate('mouseup');
+  simulateFillHandleDrag(target);
 };
 
 describe('Formulas general', () => {
   const debug = false;
-  const id = 'testContainer';
 
   beforeEach(function() {
-    this.$container = $(`<div id="${id}"></div>`).appendTo('body');
+    this.$container = $('<div id="testContainer"></div>').appendTo('body');
   });
 
   afterEach(function() {
@@ -30,19 +24,19 @@ describe('Formulas general', () => {
     }
   });
 
-  it('should initialize the plugin properly with an array of arrays', () => {
-    const hot = handsontable({
+  it('should initialize the plugin properly with an array of arrays', async() => {
+    handsontable({
       data: [['10', '=A1 * 2']],
       formulas: {
         engine: HyperFormula
       }
     });
 
-    expect(hot.getSourceData()).toEqual([['10', '=A1 * 2']]);
+    expect(getSourceData()).toEqual([['10', '=A1 * 2']]);
   });
 
-  it('should initialize the plugin properly with an array of objects', () => {
-    const hot = handsontable({
+  it('should initialize the plugin properly with an array of objects', async() => {
+    handsontable({
       data: [
         { num: 1, double: '=A1 * 2' },
         { num: 2, double: '=A2 * 2' },
@@ -56,7 +50,7 @@ describe('Formulas general', () => {
       columns: [{ data: 'num' }, { data: 'double' }]
     });
 
-    expect(hot.getSourceDataArray()).toEqual([
+    expect(getSourceDataArray()).toEqual([
       [1, '=A1 * 2'],
       [2, '=A2 * 2'],
       [3, '=A3 * 2'],
@@ -64,9 +58,9 @@ describe('Formulas general', () => {
       [5, '=A5 * 2']
     ]);
 
-    hot.setDataAtCell(0, 0, 10);
+    await setDataAtCell(0, 0, 10);
 
-    expect(hot.getSourceDataArray()).toEqual([
+    expect(getSourceDataArray()).toEqual([
       [10, '=A1 * 2'],
       [2, '=A2 * 2'],
       [3, '=A3 * 2'],
@@ -75,8 +69,8 @@ describe('Formulas general', () => {
     ]);
   });
 
-  it('should calculate table (simple example)', () => {
-    const hot = handsontable({
+  it('should calculate table (simple example)', async() => {
+    handsontable({
       data: getDataSimpleExampleFormulas(),
       formulas: {
         engine: HyperFormula
@@ -85,15 +79,15 @@ describe('Formulas general', () => {
       height: 300
     });
 
-    expect(hot.getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
-    expect(hot.getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-    expect(hot.getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
-    expect(hot.getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-    expect(hot.getDataAtRow(4)).toEqual([2012, 8042, 10058, '#DIV/0!', 12, '=SUM(E5)']);
+    expect(getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
+    expect(getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
+    expect(getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
+    expect(getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+    expect(getDataAtRow(4)).toEqual([2012, 8042, 10058, '#DIV/0!', 12, '=SUM(E5)']);
   });
 
-  it('should calculate table (advanced example)', () => {
-    const hot = handsontable({
+  it('should calculate table (advanced example)', async() => {
+    handsontable({
       data: getDataAdvancedExampleFormulas(),
       formulas: {
         engine: HyperFormula
@@ -102,33 +96,33 @@ describe('Formulas general', () => {
       height: 300
     });
 
-    expect(hot.getDataAtRow(0)).toEqual(['Example #1', '', '', '', '', '', '', '']);
-    expect(hot.getDataAtRow(1)).toEqual(['Text', 'yellow', 'red', 'blue', 'green', 'pink', 'gray', '']);
-    expect(hot.getDataAtRow(2)).toEqual(['Yellow dog on green grass', 'yellow', '', '', 'green', '', '', '']);
-    expect(hot.getDataAtRow(3)).toEqual(['Gray sweater with blue stripes', '', '', 'blue', '', '', 'gray', '']);
-    expect(hot.getDataAtRow(4)).toEqual(['A red sun on a pink horizon', '', 'red', '', '', 'pink', '', '']);
-    expect(hot.getDataAtRow(5)).toEqual(['Blue neon signs everywhere', '', '', 'blue', '', '', '', '']);
-    expect(hot.getDataAtRow(6)).toEqual(['Waves of blue and green', '', '', 'blue', 'green', '', '', '']);
-    expect(hot.getDataAtRow(7)).toEqual(['Hot pink socks and gray socks', '', '', '', '', 'pink', 'gray', '']);
-    expect(hot.getDataAtRow(8)).toEqual(['Deep blue eyes', '', '', 'blue', '', '', '', '']);
-    expect(hot.getDataAtRow(9)).toEqual(['Count of colors', 1, 1, 4, 2, 2, 2, 'SUM: 12']);
-    expect(hot.getDataAtRow(10)).toEqual(['', '', '', '', '', '', '', '']);
-    expect(hot.getDataAtRow(11)).toEqual(['Example #2', '', '', '', '', '', '', '']);
-    expect(hot.getDataAtRow(12)).toEqual(['Name', 'Email', 'Email domain', '', '', '', '', '']);
-    expect(hot.getDataAtRow(13)).toEqual(['Ann Chang', 'achang@maaker.com', 'maaker.com', '', '', '', '', '']);
-    expect(hot.getDataAtRow(14)).toEqual(['Jan Siuk', 'jan@yahoo.com', 'yahoo.com', '', '', '', '', '']);
-    expect(hot.getDataAtRow(15)).toEqual(['Ken Siuk', 'ken@gmail.com', 'gmail.com', '', '', '', '', '']);
-    expect(hot.getDataAtRow(16)).toEqual(['Marcin Kowalski', 'ken@syndex.pl', 'syndex.pl', '', '', '', '', '']);
+    expect(getDataAtRow(0)).toEqual(['Example #1', '', '', '', '', '', '', '']);
+    expect(getDataAtRow(1)).toEqual(['Text', 'yellow', 'red', 'blue', 'green', 'pink', 'gray', '']);
+    expect(getDataAtRow(2)).toEqual(['Yellow dog on green grass', 'yellow', '', '', 'green', '', '', '']);
+    expect(getDataAtRow(3)).toEqual(['Gray sweater with blue stripes', '', '', 'blue', '', '', 'gray', '']);
+    expect(getDataAtRow(4)).toEqual(['A red sun on a pink horizon', '', 'red', '', '', 'pink', '', '']);
+    expect(getDataAtRow(5)).toEqual(['Blue neon signs everywhere', '', '', 'blue', '', '', '', '']);
+    expect(getDataAtRow(6)).toEqual(['Waves of blue and green', '', '', 'blue', 'green', '', '', '']);
+    expect(getDataAtRow(7)).toEqual(['Hot pink socks and gray socks', '', '', '', '', 'pink', 'gray', '']);
+    expect(getDataAtRow(8)).toEqual(['Deep blue eyes', '', '', 'blue', '', '', '', '']);
+    expect(getDataAtRow(9)).toEqual(['Count of colors', 1, 1, 4, 2, 2, 2, 'SUM: 12']);
+    expect(getDataAtRow(10)).toEqual(['', '', '', '', '', '', '', '']);
+    expect(getDataAtRow(11)).toEqual(['Example #2', '', '', '', '', '', '', '']);
+    expect(getDataAtRow(12)).toEqual(['Name', 'Email', 'Email domain', '', '', '', '', '']);
+    expect(getDataAtRow(13)).toEqual(['Ann Chang', 'achang@maaker.com', 'maaker.com', '', '', '', '', '']);
+    expect(getDataAtRow(14)).toEqual(['Jan Siuk', 'jan@yahoo.com', 'yahoo.com', '', '', '', '', '']);
+    expect(getDataAtRow(15)).toEqual(['Ken Siuk', 'ken@gmail.com', 'gmail.com', '', '', '', '', '']);
+    expect(getDataAtRow(16)).toEqual(['Marcin Kowalski', 'ken@syndex.pl', 'syndex.pl', '', '', '', '', '']);
   });
 
   // TODO was semicolon, now comma?
-  it('should calculate table with comma as separator of formula arguments', () => {
+  it('should calculate table with comma as separator of formula arguments', async() => {
     const data = getDataSimpleExampleFormulas();
 
     data[2][4] = '=SUM(A4,2,3)';
     data[4][2] = '=SUM(B5,E3)';
 
-    const hot = handsontable({
+    handsontable({
       data,
       formulas: {
         engine: HyperFormula
@@ -137,16 +131,17 @@ describe('Formulas general', () => {
       height: 300
     });
 
-    expect(hot.getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
-    expect(hot.getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-    expect(hot.getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
-    expect(hot.getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-    expect(hot.getDataAtRow(4)).toEqual([2012, 8042, 10058, '#DIV/0!', 12, '=SUM(E5)']);
+    expect(getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
+    expect(getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
+    expect(getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
+    expect(getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+    expect(getDataAtRow(4)).toEqual([2012, 8042, 10058, '#DIV/0!', 12, '=SUM(E5)']);
   });
 
-  it('should recalculate table with formulas defined where the next cell is depend on the previous cell', () => {
+  it('should recalculate table with formulas defined where the next cell is depend on the previous cell', async() => {
     const afterChange = jasmine.createSpy();
-    const hot = handsontable({
+
+    handsontable({
       data: getDataSimpleExampleFormulas(),
       formulas: {
         engine: HyperFormula
@@ -156,28 +151,28 @@ describe('Formulas general', () => {
       afterChange,
     });
 
-    hot.setDataAtCell(0, 1, '=B5');
-    hot.setDataAtCell(0, 2, '=B1');
-    hot.setDataAtCell(0, 3, '=C1');
-    hot.setDataAtCell(4, 5, '=D1');
+    await setDataAtCell(0, 1, '=B5');
+    await setDataAtCell(0, 2, '=B1');
+    await setDataAtCell(0, 3, '=C1');
+    await setDataAtCell(4, 5, '=D1');
 
-    expect(hot.getDataAtRow(0)).toEqual([0, 8042, 8042, 8042, 'Mini', 0]);
-    expect(hot.getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-    expect(hot.getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 8042]);
-    expect(hot.getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-    expect(hot.getDataAtRow(4)).toEqual([2012, 8042, 10058, '#DIV/0!', 12, 8042]);
+    expect(getDataAtRow(0)).toEqual([0, 8042, 8042, 8042, 'Mini', 0]);
+    expect(getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
+    expect(getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 8042]);
+    expect(getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+    expect(getDataAtRow(4)).toEqual([2012, 8042, 10058, '#DIV/0!', 12, 8042]);
 
-    hot.setDataAtCell(1, 0, 10);
+    await setDataAtCell(1, 0, 10);
 
-    expect(hot.getDataAtRow(0)).toEqual([0, 6043, 6043, 6043, 'Mini', 0]);
-    expect(hot.getDataAtRow(1)).toEqual([10, 0, 2941, 4303, 354, 5814]);
-    expect(hot.getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 6043]);
-    expect(hot.getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-    expect(hot.getDataAtRow(4)).toEqual([2012, 6043, 8059, '#DIV/0!', 12, 6043]);
+    expect(getDataAtRow(0)).toEqual([0, 6043, 6043, 6043, 'Mini', 0]);
+    expect(getDataAtRow(1)).toEqual([10, 0, 2941, 4303, 354, 5814]);
+    expect(getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 6043]);
+    expect(getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+    expect(getDataAtRow(4)).toEqual([2012, 6043, 8059, '#DIV/0!', 12, 6043]);
   });
 
-  it('should omit leading apostrophe characters from `getData`, but not `getSourceData`', () => {
-    const hot = handsontable({
+  it('should omit leading apostrophe characters from `getData`, but not `getSourceData`', async() => {
+    handsontable({
       data: getDataSimpleExampleFormulas(),
       formulas: {
         engine: HyperFormula
@@ -186,20 +181,20 @@ describe('Formulas general', () => {
       height: 300
     });
 
-    expect(hot.getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
-    expect(hot.getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-    expect(hot.getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
-    expect(hot.getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-    expect(hot.getDataAtRow(4)).toEqual([2012, 8042, 10058, '#DIV/0!', 12, '=SUM(E5)']);
+    expect(getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
+    expect(getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
+    expect(getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
+    expect(getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+    expect(getDataAtRow(4)).toEqual([2012, 8042, 10058, '#DIV/0!', 12, '=SUM(E5)']);
 
-    expect(hot.getSourceDataAtRow(0)).toEqual(['=$B$2', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
-    expect(hot.getSourceDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-    expect(hot.getSourceDataAtRow(2)).toEqual([2010, 5, 2905, 2867, '=SUM(A4,2,3)', '=$B1']);
-    expect(hot.getSourceDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-    expect(hot.getSourceDataAtRow(4)).toEqual([2012, '=SUM(A2:A5)', '=SUM(B5,E3)', '=A2/B2', 12, '\'=SUM(E5)']);
+    expect(getSourceDataAtRow(0)).toEqual(['=$B$2', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
+    expect(getSourceDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
+    expect(getSourceDataAtRow(2)).toEqual([2010, 5, 2905, 2867, '=SUM(A4,2,3)', '=$B1']);
+    expect(getSourceDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+    expect(getSourceDataAtRow(4)).toEqual([2012, '=SUM(A2:A5)', '=SUM(B5,E3)', '=A2/B2', 12, '\'=SUM(E5)']);
   });
 
-  it('should throw error while parsing invalid cell coordinates syntax', () => {
+  it('should throw error while parsing invalid cell coordinates syntax', async() => {
     const data = getDataSimpleExampleFormulas();
 
     data[0][0] = '=SUM($$A4;2;3)';
@@ -207,7 +202,7 @@ describe('Formulas general', () => {
     data[0][2] = '=A1$';
     data[0][3] = '=SUM(A2:D2$)';
 
-    const hot = handsontable({
+    handsontable({
       data,
       formulas: {
         engine: HyperFormula
@@ -216,33 +211,34 @@ describe('Formulas general', () => {
       height: 300
     });
 
-    hot.setDataAtCell(2, 0, '=A1$');
-    hot.setDataAtCell(3, 0, '=$A$$1');
+    await setDataAtCell(2, 0, '=A1$');
+    await setDataAtCell(3, 0, '=$A$$1');
 
-    expect(hot.getDataAtRow(0)).toEqual(['#ERROR!', '#ERROR!', '#ERROR!', '#ERROR!', 'Mini', '#ERROR!']);
-    expect(hot.getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-    expect(hot.getDataAtRow(2)).toEqual(['#ERROR!', 5, 2905, 2867, '#ERROR!', '#ERROR!']);
-    expect(hot.getDataAtRow(3)).toEqual(['#ERROR!', 4, 2517, 4822, 552, 6127]);
-    expect(hot.getDataAtRow(4)).toEqual([2012, '#ERROR!', '#ERROR!', '#DIV/0!', 12, '=SUM(E5)']);
+    expect(getDataAtRow(0)).toEqual(['#ERROR!', '#ERROR!', '#ERROR!', '#ERROR!', 'Mini', '#ERROR!']);
+    expect(getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
+    expect(getDataAtRow(2)).toEqual(['#ERROR!', 5, 2905, 2867, '#ERROR!', '#ERROR!']);
+    expect(getDataAtRow(3)).toEqual(['#ERROR!', 4, 2517, 4822, 552, 6127]);
+    expect(getDataAtRow(4)).toEqual([2012, '#ERROR!', '#ERROR!', '#DIV/0!', 12, '=SUM(E5)']);
   });
 
-  it('should not throw on `updateSettings` with an object that doesn\'t contain an `engine` key', () => {
-    const hot = handsontable({
+  it('should not throw on `updateSettings` with an object that doesn\'t contain an `engine` key', async() => {
+    handsontable({
       data: [[]],
       formulas: {
         engine: HyperFormula
       }
     });
 
-    expect(() => hot.updateSettings({
+    // eslint-disable-next-line handsontable/require-await
+    expect(() => updateSettings({
       colWidths() {
         return 400;
       }
     })).not.toThrow();
   });
 
-  it('should return correct values according to plugin state updated by updateSettings()', () => {
-    const hot = handsontable({
+  it('should return correct values according to plugin state updated by updateSettings()', async() => {
+    handsontable({
       data: getDataSimpleExampleFormulas(),
       formulas: {
         engine: HyperFormula
@@ -251,29 +247,29 @@ describe('Formulas general', () => {
       height: 300
     });
 
-    hot.updateSettings({ formulas: false });
+    await updateSettings({ formulas: false });
 
-    expect(hot.getDataAtRow(0)).toEqual(['=$B$2', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
-    expect(hot.getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-    expect(hot.getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, '=SUM(A4,2,3)', '=$B1']);
-    expect(hot.getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-    expect(hot.getDataAtRow(4)).toEqual([2012, '=Sum(a2:a5)', '=SUM(B5,E3)', '=A2/B2', 12, '\'=SUM(E5)']);
+    expect(getDataAtRow(0)).toEqual(['=$B$2', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
+    expect(getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
+    expect(getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, '=SUM(A4,2,3)', '=$B1']);
+    expect(getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+    expect(getDataAtRow(4)).toEqual([2012, '=Sum(a2:a5)', '=SUM(B5,E3)', '=A2/B2', 12, '\'=SUM(E5)']);
 
-    hot.updateSettings({
+    await updateSettings({
       formulas: {
         engine: HyperFormula
       }
     });
 
-    expect(hot.getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
-    expect(hot.getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-    expect(hot.getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
-    expect(hot.getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-    expect(hot.getDataAtRow(4)).toEqual([2012, 8042, 10058, '#DIV/0!', 12, '=SUM(E5)']);
+    expect(getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
+    expect(getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
+    expect(getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
+    expect(getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+    expect(getDataAtRow(4)).toEqual([2012, 8042, 10058, '#DIV/0!', 12, '=SUM(E5)']);
   });
 
-  it('should return correct values according to plugin state updated by disablePlugin/enablePlugin methods', () => {
-    const hot = handsontable({
+  it('should return correct values according to plugin state updated by disablePlugin/enablePlugin methods', async() => {
+    handsontable({
       data: getDataSimpleExampleFormulas(),
       formulas: {
         engine: HyperFormula
@@ -282,28 +278,29 @@ describe('Formulas general', () => {
       height: 300
     });
 
-    hot.getPlugin('formulas').disablePlugin();
-    hot.render();
+    getPlugin('formulas').disablePlugin();
+    await render();
 
-    expect(hot.getDataAtRow(0)).toEqual(['=$B$2', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
-    expect(hot.getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-    expect(hot.getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, '=SUM(A4,2,3)', '=$B1']);
-    expect(hot.getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-    expect(hot.getDataAtRow(4)).toEqual([2012, '=Sum(a2:a5)', '=SUM(B5,E3)', '=A2/B2', 12, '\'=SUM(E5)']);
+    expect(getDataAtRow(0)).toEqual(['=$B$2', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
+    expect(getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
+    expect(getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, '=SUM(A4,2,3)', '=$B1']);
+    expect(getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+    expect(getDataAtRow(4)).toEqual([2012, '=Sum(a2:a5)', '=SUM(B5,E3)', '=A2/B2', 12, '\'=SUM(E5)']);
 
-    hot.getPlugin('formulas').enablePlugin();
-    hot.render();
+    getPlugin('formulas').enablePlugin();
+    await render();
 
-    expect(hot.getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
-    expect(hot.getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-    expect(hot.getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
-    expect(hot.getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-    expect(hot.getDataAtRow(4)).toEqual([2012, 8042, 10058, '#DIV/0!', 12, '=SUM(E5)']);
+    expect(getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
+    expect(getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
+    expect(getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
+    expect(getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+    expect(getDataAtRow(4)).toEqual([2012, 8042, 10058, '#DIV/0!', 12, '=SUM(E5)']);
   });
 
-  it('should recalculate table after changing cell value (setDataAtCell)', () => {
+  it('should recalculate table after changing cell value (setDataAtCell)', async() => {
     const afterChange = jasmine.createSpy();
-    const hot = handsontable({
+
+    handsontable({
       data: getDataSimpleExampleFormulas(),
       formulas: {
         engine: HyperFormula
@@ -313,18 +310,18 @@ describe('Formulas general', () => {
       afterChange,
     });
 
-    hot.setDataAtCell(1, 1, 20);
+    await setDataAtCell(1, 1, 20);
 
-    expect(hot.getDataAtRow(0)).toEqual([20, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 20]);
-    expect(hot.getDataAtRow(1)).toEqual([2009, 20, 2941, 4303, 354, 5814]);
-    expect(hot.getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
-    expect(hot.getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-    expect(hot.getDataAtRow(4)).toEqual([2012, 8042, 10058, 100.45, 12, '=SUM(E5)']);
+    expect(getDataAtRow(0)).toEqual([20, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 20]);
+    expect(getDataAtRow(1)).toEqual([2009, 20, 2941, 4303, 354, 5814]);
+    expect(getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
+    expect(getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+    expect(getDataAtRow(4)).toEqual([2012, 8042, 10058, 100.45, 12, '=SUM(E5)']);
     expect(afterChange.calls.argsFor(1)).toEqual([[[1, 1, 0, 20]], 'edit']);
   });
 
-  it('should recalculate table after changing source cell value (setSourceDataAtCell)', () => {
-    const hot = handsontable({
+  it('should recalculate table after changing source cell value (setSourceDataAtCell)', async() => {
+    handsontable({
       data: getDataSimpleExampleFormulas(),
       formulas: {
         engine: HyperFormula
@@ -333,18 +330,19 @@ describe('Formulas general', () => {
       height: 300
     });
 
-    hot.setSourceDataAtCell(1, 1, 20);
+    await setSourceDataAtCell(1, 1, 20);
 
-    expect(hot.getDataAtRow(0)).toEqual([20, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 20]);
-    expect(hot.getDataAtRow(1)).toEqual([2009, 20, 2941, 4303, 354, 5814]);
-    expect(hot.getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
-    expect(hot.getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-    expect(hot.getDataAtRow(4)).toEqual([2012, 8042, 10058, 100.45, 12, '=SUM(E5)']);
+    expect(getDataAtRow(0)).toEqual([20, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 20]);
+    expect(getDataAtRow(1)).toEqual([2009, 20, 2941, 4303, 354, 5814]);
+    expect(getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
+    expect(getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+    expect(getDataAtRow(4)).toEqual([2012, 8042, 10058, 100.45, 12, '=SUM(E5)']);
   });
 
-  it('should recalculate table after changing cell value into formula expression written in lower case', () => {
+  it('should recalculate table after changing cell value into formula expression written in lower case', async() => {
     const afterChange = jasmine.createSpy();
-    const hot = handsontable({
+
+    handsontable({
       data: getDataSimpleExampleFormulas(),
       formulas: {
         engine: HyperFormula
@@ -354,19 +352,20 @@ describe('Formulas general', () => {
       afterChange,
     });
 
-    hot.setDataAtCell(1, 1, '=Sum(a2:A4)');
+    await setDataAtCell(1, 1, '=Sum(a2:A4)');
 
-    expect(hot.getDataAtRow(0)).toEqual([6030, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 6030]);
-    expect(hot.getDataAtRow(1)).toEqual([2009, 6030, 2941, 4303, 354, 5814]);
-    expect(hot.getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
-    expect(hot.getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-    expect(hot.getDataAtRow(4)).toEqual([2012, 8042, 10058, 0.333167495854063, 12, '=SUM(E5)']);
+    expect(getDataAtRow(0)).toEqual([6030, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 6030]);
+    expect(getDataAtRow(1)).toEqual([2009, 6030, 2941, 4303, 354, 5814]);
+    expect(getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
+    expect(getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+    expect(getDataAtRow(4)).toEqual([2012, 8042, 10058, 0.333167495854063, 12, '=SUM(E5)']);
     expect(afterChange.calls.argsFor(1)).toEqual([[[1, 1, 0, '=Sum(a2:A4)']], 'edit']);
   });
 
-  it('should prevent recalculate table after changing cell value into escaped formula expression', () => {
+  it('should prevent recalculate table after changing cell value into escaped formula expression', async() => {
     const afterChange = jasmine.createSpy();
-    const hot = handsontable({
+
+    handsontable({
       data: getDataSimpleExampleFormulas(),
       formulas: {
         engine: HyperFormula
@@ -376,21 +375,22 @@ describe('Formulas general', () => {
       afterChange,
     });
 
-    hot.setDataAtCell(1, 1, '\'=SUM(A2:A4)');
+    await setDataAtCell(1, 1, '\'=SUM(A2:A4)');
 
-    expect(hot.getDataAtRow(0)).toEqual(['=SUM(A2:A4)', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=SUM(A2:A4)']);
-    expect(hot.getDataAtRow(1)).toEqual([2009, '=SUM(A2:A4)', 2941, 4303, 354, 5814]);
-    expect(hot.getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
-    expect(hot.getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-    expect(hot.getDataAtRow(4)).toEqual([2012, 8042, 10058, '#VALUE!', 12, '=SUM(E5)']);
+    expect(getDataAtRow(0)).toEqual(['=SUM(A2:A4)', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=SUM(A2:A4)']);
+    expect(getDataAtRow(1)).toEqual([2009, '=SUM(A2:A4)', 2941, 4303, 354, 5814]);
+    expect(getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
+    expect(getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+    expect(getDataAtRow(4)).toEqual([2012, 8042, 10058, '#VALUE!', 12, '=SUM(E5)']);
     expect(afterChange.calls.argsFor(1))
       .toEqual([[[1, 1, 0, '\'=SUM(A2:A4)']], 'edit']);
   });
 
   it('should recalculate table after changing cell value from escaped formula expression into valid formula expression',
-    () => {
+    async() => {
       const afterChange = jasmine.createSpy();
-      const hot = handsontable({
+
+      handsontable({
         data: getDataSimpleExampleFormulas(),
         formulas: {
           engine: HyperFormula
@@ -400,20 +400,21 @@ describe('Formulas general', () => {
         afterChange,
       });
 
-      hot.setDataAtCell(4, 5, hot.getDataAtCell(4, 5));
+      await setDataAtCell(4, 5, getDataAtCell(4, 5));
 
-      expect(hot.getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
-      expect(hot.getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-      expect(hot.getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
-      expect(hot.getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getDataAtRow(4)).toEqual([2012, 8042, 10058, '#DIV/0!', 12, 12]);
+      expect(getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
+      expect(getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
+      expect(getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
+      expect(getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+      expect(getDataAtRow(4)).toEqual([2012, 8042, 10058, '#DIV/0!', 12, 12]);
       expect(afterChange.calls.argsFor(1))
         .toEqual([[[4, 5, '\'=SUM(E5)', '=SUM(E5)']], 'edit']);
     });
 
-  it('should recalculate table after changing cell value from primitive value into formula expression', () => {
+  it('should recalculate table after changing cell value from primitive value into formula expression', async() => {
     const afterChange = jasmine.createSpy();
-    const hot = handsontable({
+
+    handsontable({
       data: getDataSimpleExampleFormulas(),
       formulas: {
         engine: HyperFormula
@@ -423,19 +424,20 @@ describe('Formulas general', () => {
       afterChange,
     });
 
-    hot.setDataAtCell(1, 1, '=SUM(A2:A4)');
+    await setDataAtCell(1, 1, '=SUM(A2:A4)');
 
-    expect(hot.getDataAtRow(0)).toEqual([6030, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 6030]);
-    expect(hot.getDataAtRow(1)).toEqual([2009, 6030, 2941, 4303, 354, 5814]);
-    expect(hot.getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
-    expect(hot.getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-    expect(hot.getDataAtRow(4)).toEqual([2012, 8042, 10058, 0.333167495854063, 12, '=SUM(E5)']);
+    expect(getDataAtRow(0)).toEqual([6030, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 6030]);
+    expect(getDataAtRow(1)).toEqual([2009, 6030, 2941, 4303, 354, 5814]);
+    expect(getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
+    expect(getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+    expect(getDataAtRow(4)).toEqual([2012, 8042, 10058, 0.333167495854063, 12, '=SUM(E5)']);
     expect(afterChange.calls.argsFor(1)).toEqual([[[1, 1, 0, '=SUM(A2:A4)']], 'edit']);
   });
 
-  it('should recalculate table after changing cell value from formula expression into primitive value', () => {
+  it('should recalculate table after changing cell value from formula expression into primitive value', async() => {
     const afterChange = jasmine.createSpy();
-    const hot = handsontable({
+
+    handsontable({
       data: getDataSimpleExampleFormulas(),
       formulas: {
         engine: HyperFormula
@@ -445,21 +447,22 @@ describe('Formulas general', () => {
       afterChange,
     });
 
-    hot.setDataAtCell(4, 1, 15);
+    await setDataAtCell(4, 1, 15);
 
-    expect(hot.getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
-    expect(hot.getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-    expect(hot.getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
-    expect(hot.getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-    expect(hot.getDataAtRow(4)).toEqual([2012, 15, 2031, '#DIV/0!', 12, '=SUM(E5)']);
+    expect(getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
+    expect(getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
+    expect(getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
+    expect(getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+    expect(getDataAtRow(4)).toEqual([2012, 15, 2031, '#DIV/0!', 12, '=SUM(E5)']);
     expect(afterChange.calls.argsFor(1))
       .toEqual([[[4, 1, '=SUM(A2:A5)', 15]], 'edit']);
   });
 
   it('should recalculate table after changing cell value from formula expression into another formula expression',
-    () => {
+    async() => {
       const afterChange = jasmine.createSpy();
-      const hot = handsontable({
+
+      handsontable({
         data: getDataSimpleExampleFormulas(),
         formulas: {
           engine: HyperFormula
@@ -469,19 +472,19 @@ describe('Formulas general', () => {
         afterChange,
       });
 
-      hot.setDataAtCell(4, 1, '=SUM(A2:A4)');
+      await setDataAtCell(4, 1, '=SUM(A2:A4)');
 
-      expect(hot.getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
-      expect(hot.getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-      expect(hot.getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
-      expect(hot.getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getDataAtRow(4)).toEqual([2012, 6030, 8046, '#DIV/0!', 12, '=SUM(E5)']);
+      expect(getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
+      expect(getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
+      expect(getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
+      expect(getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+      expect(getDataAtRow(4)).toEqual([2012, 6030, 8046, '#DIV/0!', 12, '=SUM(E5)']);
       expect(afterChange.calls.argsFor(1))
         .toEqual([[[4, 1, '=SUM(A2:A5)', '=SUM(A2:A4)']], 'edit']);
     });
 
-  it('should correctly recalculate formulas when precedents cells are located out of table viewport', () => {
-    const hot = handsontable({
+  it('should correctly recalculate formulas when precedents cells are located out of table viewport', async() => {
+    handsontable({
       data: getDataForFormulas(0, 'name', ['=B39']),
       columns: getColumnsForFormulas(),
       formulas: {
@@ -491,13 +494,13 @@ describe('Formulas general', () => {
       height: 200
     });
 
-    hot.setDataAtCell(38, 1, 'foo bar');
+    await setDataAtCell(38, 1, 'foo bar');
 
-    expect(hot.getDataAtCell(0, 1)).toBe('foo bar');
+    expect(getDataAtCell(0, 1)).toBe('foo bar');
   });
 
-  it('should mark cell with circular dependency as #CYCLE!', () => {
-    const hot = handsontable({
+  it('should mark cell with circular dependency as #CYCLE!', async() => {
+    handsontable({
       data: getDataForFormulas(0, 'name', ['=B1']),
       columns: getColumnsForFormulas(),
       formulas: {
@@ -507,14 +510,67 @@ describe('Formulas general', () => {
       height: 300
     });
 
-    expect(hot.getDataAtCell(0, 1)).toBe('#CYCLE!');
+    expect(getDataAtCell(0, 1)).toBe('#CYCLE!');
+  });
+
+  it('should get dates in proper format and do not throw an error while using `getDataAtCell` inside `cells` method', async() => {
+    const data = [];
+
+    // Creating bigger dataset. Some of cells won't be rendered.
+    for (let i = 0; i < 50; i += 1) {
+      data.push(['28/02/1900', '=A1']);
+    }
+
+    handsontable({
+      data,
+      formulas: {
+        engine: HyperFormula
+      },
+      cells(row, col) {
+        const cellProperties = {};
+
+        expect(this.instance.getDataAtCell(row, col)).toBe('28/02/1900');
+
+        return cellProperties;
+      },
+      columns: [{
+        type: 'date',
+        dateFormat: { year: 'numeric', month: '2-digit', day: '2-digit' }
+      }, {
+        type: 'date',
+        dateFormat: { year: 'numeric', month: '2-digit', day: '2-digit' }
+      }],
+      width: 500,
+      height: 300
+    });
+  });
+
+  it('should return a correctly formatted date while using `getDataAtCell` inside `cells` method with ISO date format', async() => {
+    const data = [['1900-02-28', '1900-03-01', '=DATEDIF(A1, B1, "D")']];
+
+    handsontable({
+      data,
+      formulas: {
+        engine: HyperFormula
+      },
+      cells(row, col) {
+        if (col === 2) {
+          expect(this.instance.getDataAtCell(row, col)).toBe(1);
+        }
+      },
+      columns: [
+        { type: 'date' },
+        { type: 'date' },
+        { type: 'numeric' }
+      ]
+    });
   });
 
   // Discussion on why `null` instead of `#REF!` at
   // https://github.com/handsontable/handsontable/issues/7668
   describe('Out of range cells', () => {
-    it('should return null for columns', () => {
-      const hot = handsontable({
+    it('should return null for columns', async() => {
+      handsontable({
         data: getDataForFormulas(0, 'name', ['=K1']),
         columns: getColumnsForFormulas(),
         formulas: {
@@ -525,11 +581,11 @@ describe('Formulas general', () => {
       });
 
       // evaluateNullToZero is enabled by default
-      expect(hot.getDataAtCell(0, 1)).toBe(0);
+      expect(getDataAtCell(0, 1)).toBe(0);
     });
 
-    it('should return null for rows', () => {
-      const hot = handsontable({
+    it('should return null for rows', async() => {
+      handsontable({
         data: getDataForFormulas(0, 'name', ['=A1000']),
         columns: getColumnsForFormulas(),
         formulas: {
@@ -540,12 +596,12 @@ describe('Formulas general', () => {
       });
 
       // evaluateNullToZero is enabled by default
-      expect(hot.getDataAtCell(0, 1)).toBe(0);
+      expect(getDataAtCell(0, 1)).toBe(0);
     });
   });
 
-  it('should recalculate volatile functions upon data changes', () => {
-    const hot = handsontable({
+  it('should recalculate volatile functions upon data changes', async() => {
+    handsontable({
       data: getDataSimpleExampleFormulas(),
       formulas: {
         engine: HyperFormula
@@ -554,32 +610,32 @@ describe('Formulas general', () => {
       height: 300
     });
 
-    hot.setDataAtCell(0, 0, '=RAND()');
+    await setDataAtCell(0, 0, '=RAND()');
 
-    const firstCellBefore = hot.getDataAtCell(0, 0);
+    const firstCellBefore = getDataAtCell(0, 0);
 
-    expect(hot.getDataAtRow(0)).toEqual([firstCellBefore, 'Maserati', 'Mazda', 'Mercedes', 'Mini', firstCellBefore]);
-    expect(hot.getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-    expect(hot.getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
-    expect(hot.getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-    expect(hot.getDataAtRow(4)).toEqual([2012, 8042, 10058, '#DIV/0!', 12, '=SUM(E5)']);
+    expect(getDataAtRow(0)).toEqual([firstCellBefore, 'Maserati', 'Mazda', 'Mercedes', 'Mini', firstCellBefore]);
+    expect(getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
+    expect(getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
+    expect(getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+    expect(getDataAtRow(4)).toEqual([2012, 8042, 10058, '#DIV/0!', 12, '=SUM(E5)']);
 
-    hot.setDataAtCell(1, 1, 10);
+    await setDataAtCell(1, 1, 10);
 
-    const firstCellAfter = hot.getDataAtCell(0, 0);
+    const firstCellAfter = getDataAtCell(0, 0);
 
     expect(firstCellBefore).not.toEqual(firstCellAfter);
 
-    expect(hot.getDataAtRow(0)).toEqual([firstCellAfter, 'Maserati', 'Mazda', 'Mercedes', 'Mini', firstCellAfter]);
-    expect(hot.getDataAtRow(1)).toEqual([2009, 10, 2941, 4303, 354, 5814]);
-    expect(hot.getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
-    expect(hot.getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-    expect(hot.getDataAtRow(4)).toEqual([2012, 8042, 10058, 200.9, 12, '=SUM(E5)']);
+    expect(getDataAtRow(0)).toEqual([firstCellAfter, 'Maserati', 'Mazda', 'Mercedes', 'Mini', firstCellAfter]);
+    expect(getDataAtRow(1)).toEqual([2009, 10, 2941, 4303, 354, 5814]);
+    expect(getDataAtRow(2)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
+    expect(getDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+    expect(getDataAtRow(4)).toEqual([2012, 8042, 10058, 200.9, 12, '=SUM(E5)']);
   });
 
   describe('alter table (insert row)', () => {
-    it('should recalculate table after added new empty rows', () => {
-      const hot = handsontable({
+    it('should recalculate table after added new empty rows', async() => {
+      handsontable({
         data: getDataSimpleExampleFormulas(),
         formulas: {
           engine: HyperFormula
@@ -588,19 +644,19 @@ describe('Formulas general', () => {
         height: 300,
       });
 
-      hot.alter('insert_row_above', 1, 2);
+      await alter('insert_row_above', 1, 2);
 
-      expect(hot.getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
-      expect(hot.getDataAtRow(1)).toEqual([null, null, null, null, null, null]);
-      expect(hot.getDataAtRow(2)).toEqual([null, null, null, null, null, null]);
-      expect(hot.getDataAtRow(3)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-      expect(hot.getDataAtRow(4)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
-      expect(hot.getDataAtRow(5)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getDataAtRow(6)).toEqual([2012, 8042, 10058, '#DIV/0!', 12, '=SUM(E5)']);
+      expect(getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
+      expect(getDataAtRow(1)).toEqual([null, null, null, null, null, null]);
+      expect(getDataAtRow(2)).toEqual([null, null, null, null, null, null]);
+      expect(getDataAtRow(3)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
+      expect(getDataAtRow(4)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
+      expect(getDataAtRow(5)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+      expect(getDataAtRow(6)).toEqual([2012, 8042, 10058, '#DIV/0!', 12, '=SUM(E5)']);
     });
 
-    it('should recalculate table after changing values into newly added row', () => {
-      const hot = handsontable({
+    it('should recalculate table after changing values into newly added row', async() => {
+      handsontable({
         data: getDataSimpleExampleFormulas(),
         formulas: {
           engine: HyperFormula
@@ -609,23 +665,23 @@ describe('Formulas general', () => {
         height: 300
       });
 
-      hot.alter('insert_row_above', 2, 3);
-      hot.setDataAtCell(3, 0, 2234);
+      await alter('insert_row_above', 2, 3);
+      await setDataAtCell(3, 0, 2234);
 
-      expect(hot.getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
-      expect(hot.getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-      expect(hot.getDataAtRow(2)).toEqual([null, null, null, null, null, null]);
-      expect(hot.getDataAtRow(3)).toEqual([2234, null, null, null, null, null]);
-      expect(hot.getDataAtRow(4)).toEqual([null, null, null, null, null, null]);
-      expect(hot.getDataAtRow(5)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
-      expect(hot.getDataAtRow(6)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getDataAtRow(7)).toEqual([2012, 10276, 12292, '#DIV/0!', 12, '=SUM(E5)']);
+      expect(getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
+      expect(getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
+      expect(getDataAtRow(2)).toEqual([null, null, null, null, null, null]);
+      expect(getDataAtRow(3)).toEqual([2234, null, null, null, null, null]);
+      expect(getDataAtRow(4)).toEqual([null, null, null, null, null, null]);
+      expect(getDataAtRow(5)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
+      expect(getDataAtRow(6)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+      expect(getDataAtRow(7)).toEqual([2012, 10276, 12292, '#DIV/0!', 12, '=SUM(E5)']);
     });
   });
 
   describe('alter table (insert column)', () => {
-    it('should recalculate table after added new empty columns', () => {
-      const hot = handsontable({
+    it('should recalculate table after added new empty columns', async() => {
+      handsontable({
         data: getDataSimpleExampleFormulas(),
         formulas: {
           engine: HyperFormula
@@ -635,17 +691,17 @@ describe('Formulas general', () => {
         contextMenu: true,
       });
 
-      hot.alter('insert_col_start', 1, 2);
+      await alter('insert_col_start', 1, 2);
 
-      expect(hot.getDataAtRow(0)).toEqual([0, null, null, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
-      expect(hot.getDataAtRow(1)).toEqual([2009, null, null, 0, 2941, 4303, 354, 5814]);
-      expect(hot.getDataAtRow(2)).toEqual([2010, null, null, 5, 2905, 2867, 2016, 'Maserati']);
-      expect(hot.getDataAtRow(3)).toEqual([2011, null, null, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getDataAtRow(4)).toEqual([2012, null, null, 8042, 10058, '#DIV/0!', 12, '=SUM(E5)']);
+      expect(getDataAtRow(0)).toEqual([0, null, null, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
+      expect(getDataAtRow(1)).toEqual([2009, null, null, 0, 2941, 4303, 354, 5814]);
+      expect(getDataAtRow(2)).toEqual([2010, null, null, 5, 2905, 2867, 2016, 'Maserati']);
+      expect(getDataAtRow(3)).toEqual([2011, null, null, 4, 2517, 4822, 552, 6127]);
+      expect(getDataAtRow(4)).toEqual([2012, null, null, 8042, 10058, '#DIV/0!', 12, '=SUM(E5)']);
     });
 
-    it('should recalculate table after changing values into newly added column', () => {
-      const hot = handsontable({
+    it('should recalculate table after changing values into newly added column', async() => {
+      handsontable({
         data: getDataSimpleExampleFormulas(),
         formulas: {
           engine: HyperFormula
@@ -655,20 +711,20 @@ describe('Formulas general', () => {
         contextMenu: true,
       });
 
-      hot.alter('insert_col_start', 1, 2);
-      hot.setDataAtCell(1, 3, 2);
+      await alter('insert_col_start', 1, 2);
+      await setDataAtCell(1, 3, 2);
 
-      expect(hot.getDataAtRow(0)).toEqual([2, null, null, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 2]);
-      expect(hot.getDataAtRow(1)).toEqual([2009, null, null, 2, 2941, 4303, 354, 5814]);
-      expect(hot.getDataAtRow(2)).toEqual([2010, null, null, 5, 2905, 2867, 2016, 'Maserati']);
-      expect(hot.getDataAtRow(3)).toEqual([2011, null, null, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getDataAtRow(4)).toEqual([2012, null, null, 8042, 10058, 1004.5, 12, '=SUM(E5)']);
+      expect(getDataAtRow(0)).toEqual([2, null, null, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 2]);
+      expect(getDataAtRow(1)).toEqual([2009, null, null, 2, 2941, 4303, 354, 5814]);
+      expect(getDataAtRow(2)).toEqual([2010, null, null, 5, 2905, 2867, 2016, 'Maserati']);
+      expect(getDataAtRow(3)).toEqual([2011, null, null, 4, 2517, 4822, 552, 6127]);
+      expect(getDataAtRow(4)).toEqual([2012, null, null, 8042, 10058, 1004.5, 12, '=SUM(E5)']);
     });
   });
 
   describe('alter table (remove row)', () => {
-    it('should recalculate table after removed rows', () => {
-      const hot = handsontable({
+    it('should recalculate table after removed rows', async() => {
+      handsontable({
         data: getDataSimpleExampleFormulas(),
         formulas: {
           engine: HyperFormula
@@ -677,17 +733,90 @@ describe('Formulas general', () => {
         height: 300
       });
 
-      hot.alter('remove_row', 1, 1);
+      await alter('remove_row', 1, 1);
 
-      expect(hot.getDataAtRow(0)).toEqual(['#REF!', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '#REF!']);
-      expect(hot.getDataAtRow(1)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
-      expect(hot.getDataAtRow(2)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getDataAtRow(3)).toEqual([2012, 6033, 8049, '#REF!', 12, '=SUM(E5)']);
+      expect(getDataAtRow(0)).toEqual(['#REF!', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '#REF!']);
+      expect(getDataAtRow(1)).toEqual([2010, 5, 2905, 2867, 2016, 'Maserati']);
+      expect(getDataAtRow(2)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+      expect(getDataAtRow(3)).toEqual([2012, 6033, 8049, '#REF!', 12, '=SUM(E5)']);
     });
 
-    it('should recalculate table and replace coordinates in formula expressions into #REF! value (removing 2 rows)',
-      () => {
-        const hot = handsontable({
+    it('should correctly remove rows with bigger index than 10 (#dev-1841)', async() => {
+      handsontable({
+        data: createSpreadsheetData(20, 5),
+        formulas: {
+          engine: HyperFormula,
+        },
+      });
+
+      const engine = getPlugin('formulas').engine;
+
+      spyOn(engine, 'removeRows').and.callThrough();
+      await alter('remove_row', 9, 3);
+
+      expect(engine.removeRows.calls.count()).toBe(1);
+      expect(engine.removeRows.calls.argsFor(0)).toEqual([0, [9, 3]]);
+    });
+
+    it('should remove rows with non-contiguous engine indexes (trimmed rows in between) within a single engine call', async() => {
+      handsontable({
+        data: [
+          [1, null],
+          [2, null],
+          [3, null],
+          [4, null],
+          [5, null],
+          [6, '=SUM(A1:A6)'],
+        ],
+        trimRows: [2],
+        formulas: {
+          engine: HyperFormula,
+        },
+      });
+
+      const engine = getPlugin('formulas').engine;
+
+      spyOn(engine, 'removeRows').and.callThrough();
+
+      // Visual rows 0-3 map to physical (and engine) rows 0, 1, 3, 4 — the trimmed
+      // physical row 2 splits them into two spans.
+      await alter('remove_row', 0, 4);
+
+      expect(engine.removeRows.calls.count()).toBe(1);
+      expect(engine.removeRows.calls.argsFor(0)).toEqual([0, [0, 2], [3, 2]]);
+      expect(countRows()).toBe(1);
+      expect(getDataAtRow(0)).toEqual([6, 9]);
+    });
+
+    it('should restore values with a single undo after a coalesced multi-row removal', async() => {
+      handsontable({
+        data: [
+          [1, '=SUM(A1:A5)'],
+          [2, null],
+          [3, null],
+          [4, null],
+          [5, null],
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+      });
+
+      await alter('remove_row', 1, 3);
+
+      expect(countRows()).toBe(2);
+      expect(getDataAtCell(0, 1)).toBe(6);
+
+      getPlugin('undoRedo').undo();
+
+      expect(countRows()).toBe(5);
+      expect(getDataAtCol(0)).toEqual([1, 2, 3, 4, 5]);
+      expect(getDataAtCell(0, 1)).toBe(15);
+    });
+
+    it('should not throw an error after removing all rows', async() => {
+      expect(async() => {
+        handsontable({
           data: getDataSimpleExampleFormulas(),
           formulas: {
             engine: HyperFormula
@@ -696,20 +825,50 @@ describe('Formulas general', () => {
           height: 300
         });
 
-        hot.alter('remove_row', 1, 2);
+        await alter('remove_row', 0, 5);
+      }).not.toThrow();
+    });
 
-        expect(hot.getSourceDataAtRow(0)).toEqual(['=#REF!', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
-        expect(hot.getSourceDataAtRow(1)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-        expect(hot.getSourceDataAtRow(2))
+    it('should not throw an error after removing all columns', async() => {
+      expect(async() => {
+        handsontable({
+          data: getDataSimpleExampleFormulas(),
+          formulas: {
+            engine: HyperFormula
+          },
+          width: 500,
+          height: 300
+        });
+
+        await alter('remove_col', 0, 6);
+      }).not.toThrow();
+    });
+
+    it('should recalculate table and replace coordinates in formula expressions into #REF! value (removing 2 rows)',
+      async() => {
+        handsontable({
+          data: getDataSimpleExampleFormulas(),
+          formulas: {
+            engine: HyperFormula
+          },
+          width: 500,
+          height: 300
+        });
+
+        await alter('remove_row', 1, 2);
+
+        expect(getSourceDataAtRow(0)).toEqual(['=#REF!', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
+        expect(getSourceDataAtRow(1)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+        expect(getSourceDataAtRow(2))
           .toEqual([2012, '=SUM(A2:A3)', '=SUM(B3,#REF!)', '=#REF!/#REF!', 12, '\'=SUM(E5)']);
-        expect(hot.getDataAtRow(0)).toEqual(['#REF!', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '#REF!']);
-        expect(hot.getDataAtRow(1)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-        expect(hot.getDataAtRow(2)).toEqual([2012, 4023, '#REF!', '#REF!', 12, '=SUM(E5)']);
+        expect(getDataAtRow(0)).toEqual(['#REF!', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '#REF!']);
+        expect(getDataAtRow(1)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+        expect(getDataAtRow(2)).toEqual([2012, 4023, '#REF!', '#REF!', 12, '=SUM(E5)']);
       });
 
     it('should recalculate table and replace coordinates in formula expressions ' +
-      'into #REF! value (removing first 4 rows)', () => {
-      const hot = handsontable({
+      'into #REF! value (removing first 4 rows)', async() => {
+      handsontable({
         data: getDataSimpleExampleFormulas(),
         formulas: {
           engine: HyperFormula
@@ -718,16 +877,16 @@ describe('Formulas general', () => {
         height: 300
       });
 
-      hot.alter('remove_row', 0, 4);
+      await alter('remove_row', 0, 4);
 
-      expect(hot.getSourceDataAtRow(0))
+      expect(getSourceDataAtRow(0))
         .toEqual([2012, '=SUM(A1:A1)', '=SUM(B1,#REF!)', '=#REF!/#REF!', 12, '\'=SUM(E5)']);
-      expect(hot.getDataAtRow(0)).toEqual([2012, 2012, '#REF!', '#REF!', 12, '=SUM(E5)']);
+      expect(getDataAtRow(0)).toEqual([2012, 2012, '#REF!', '#REF!', 12, '=SUM(E5)']);
     });
 
     it('should recalculate table and update formula expression after removing rows ' +
-      'intersected on the bottom of cell range', () => {
-      const hot = handsontable({
+      'intersected on the bottom of cell range', async() => {
+      handsontable({
         data: getDataSimpleExampleFormulas(),
         formulas: {
           engine: HyperFormula
@@ -736,24 +895,24 @@ describe('Formulas general', () => {
         height: 300
       });
 
-      hot.alter('insert_row_above', 3, 2);
-      hot.setDataAtCell(6, 1, '=SUM(A2:A4)');
+      await alter('insert_row_above', 3, 2);
+      await setDataAtCell(6, 1, '=SUM(A2:A4)');
 
-      hot.alter('remove_row', 2, 3);
+      await alter('remove_row', 2, 3);
 
-      expect(hot.getSourceDataAtRow(0)).toEqual(['=$B$2', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-      expect(hot.getSourceDataAtRow(2)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getSourceDataAtRow(3)).toEqual([2012, '=SUM(A2:A2)', '=SUM(B4,#REF!)', '=A2/B2', 12, '\'=SUM(E5)']);
-      expect(hot.getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
-      expect(hot.getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-      expect(hot.getDataAtRow(2)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getDataAtRow(3)).toEqual([2012, 2009, '#REF!', '#DIV/0!', 12, '=SUM(E5)']);
+      expect(getSourceDataAtRow(0)).toEqual(['=$B$2', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
+      expect(getSourceDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
+      expect(getSourceDataAtRow(2)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+      expect(getSourceDataAtRow(3)).toEqual([2012, '=SUM(A2:A2)', '=SUM(B4,#REF!)', '=A2/B2', 12, '\'=SUM(E5)']);
+      expect(getDataAtRow(0)).toEqual([0, 'Maserati', 'Mazda', 'Mercedes', 'Mini', 0]);
+      expect(getDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
+      expect(getDataAtRow(2)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+      expect(getDataAtRow(3)).toEqual([2012, 2009, '#REF!', '#DIV/0!', 12, '=SUM(E5)']);
     });
 
     it('should recalculate table and update formula expression after removing rows intersected ' +
-      'on the top of cell range', () => {
-      const hot = handsontable({
+      'on the top of cell range', async() => {
+      handsontable({
         data: getDataSimpleExampleFormulas(),
         formulas: {
           engine: HyperFormula
@@ -762,21 +921,21 @@ describe('Formulas general', () => {
         height: 300
       });
 
-      hot.setDataAtCell(4, 1, '=SUM(A2:A4)');
+      await setDataAtCell(4, 1, '=SUM(A2:A4)');
 
-      hot.alter('remove_row', 0, 2);
+      await alter('remove_row', 0, 2);
 
-      expect(hot.getSourceDataAtRow(0)).toEqual([2010, 5, 2905, 2867, '=SUM(A2,2,3)', '=#REF!']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getSourceDataAtRow(2))
+      expect(getSourceDataAtRow(0)).toEqual([2010, 5, 2905, 2867, '=SUM(A2,2,3)', '=#REF!']);
+      expect(getSourceDataAtRow(1)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+      expect(getSourceDataAtRow(2))
         .toEqual([2012, '=SUM(A1:A2)', '=SUM(B3,E1)', '=#REF!/#REF!', 12, '\'=SUM(E5)']);
-      expect(hot.getDataAtRow(0)).toEqual([2010, 5, 2905, 2867, 2016, '#REF!']);
-      expect(hot.getDataAtRow(1)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getDataAtRow(2)).toEqual([2012, 4021, 6037, '#REF!', 12, '=SUM(E5)']);
+      expect(getDataAtRow(0)).toEqual([2010, 5, 2905, 2867, 2016, '#REF!']);
+      expect(getDataAtRow(1)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+      expect(getDataAtRow(2)).toEqual([2012, 4021, 6037, '#REF!', 12, '=SUM(E5)']);
     });
 
-    it('should recalculate table and update formula expression after removing rows contains whole cell range', () => {
-      const hot = handsontable({
+    it('should recalculate table and update formula expression after removing rows contains whole cell range', async() => {
+      handsontable({
         data: getDataSimpleExampleFormulas(),
         formulas: {
           engine: HyperFormula
@@ -785,24 +944,24 @@ describe('Formulas general', () => {
         height: 300
       });
 
-      hot.alter('insert_row_above', 3, 2);
-      hot.setDataAtCell(6, 1, '=SUM(A2:A4)');
+      await alter('insert_row_above', 3, 2);
+      await setDataAtCell(6, 1, '=SUM(A2:A4)');
 
-      hot.alter('remove_row', 0, 4);
+      await alter('remove_row', 0, 4);
 
-      expect(hot.getSourceDataAtRow(0)).toEqual([null, null, null, null, null, null]);
-      expect(hot.getSourceDataAtRow(1)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getSourceDataAtRow(2))
+      expect(getSourceDataAtRow(0)).toEqual([null, null, null, null, null, null]);
+      expect(getSourceDataAtRow(1)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+      expect(getSourceDataAtRow(2))
         .toEqual([2012, '=SUM(#REF!)', '=SUM(B3,#REF!)', '=#REF!/#REF!', 12, '\'=SUM(E5)']);
-      expect(hot.getDataAtRow(0)).toEqual([null, null, null, null, null, null]);
-      expect(hot.getDataAtRow(1)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getDataAtRow(2)).toEqual([2012, '#REF!', '#REF!', '#REF!', 12, '=SUM(E5)']);
+      expect(getDataAtRow(0)).toEqual([null, null, null, null, null, null]);
+      expect(getDataAtRow(1)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
+      expect(getDataAtRow(2)).toEqual([2012, '#REF!', '#REF!', '#REF!', 12, '=SUM(E5)']);
     });
   });
 
   describe('alter table (remove column)', () => {
-    it('should recalculate table after removed columns', () => {
-      const hot = handsontable({
+    it('should recalculate table after removed columns', async() => {
+      handsontable({
         data: getDataSimpleExampleFormulas(),
         formulas: {
           engine: HyperFormula
@@ -811,23 +970,40 @@ describe('Formulas general', () => {
         height: 300
       });
 
-      hot.alter('remove_col', 1, 1);
+      await alter('remove_col', 1, 1);
 
-      expect(hot.getSourceDataAtRow(0)).toEqual(['=#REF!', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([2009, 2941, 4303, 354, 5814]);
-      expect(hot.getSourceDataAtRow(2)).toEqual([2010, 2905, 2867, '=SUM(A4,2,3)', '=#REF!']);
-      expect(hot.getSourceDataAtRow(3)).toEqual([2011, 2517, 4822, 552, 6127]);
-      expect(hot.getSourceDataAtRow(4)).toEqual([2012, '=SUM(#REF!,D3)', '=A2/#REF!', 12, '\'=SUM(E5)']);
-      expect(hot.getDataAtRow(0)).toEqual(['#REF!', 'Mazda', 'Mercedes', 'Mini', '#REF!']);
-      expect(hot.getDataAtRow(1)).toEqual([2009, 2941, 4303, 354, 5814]);
-      expect(hot.getDataAtRow(2)).toEqual([2010, 2905, 2867, 2016, '#REF!']);
-      expect(hot.getDataAtRow(3)).toEqual([2011, 2517, 4822, 552, 6127]);
-      expect(hot.getDataAtRow(4)).toEqual([2012, '#REF!', '#REF!', 12, '=SUM(E5)']);
+      expect(getSourceDataAtRow(0)).toEqual(['=#REF!', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
+      expect(getSourceDataAtRow(1)).toEqual([2009, 2941, 4303, 354, 5814]);
+      expect(getSourceDataAtRow(2)).toEqual([2010, 2905, 2867, '=SUM(A4,2,3)', '=#REF!']);
+      expect(getSourceDataAtRow(3)).toEqual([2011, 2517, 4822, 552, 6127]);
+      expect(getSourceDataAtRow(4)).toEqual([2012, '=SUM(#REF!,D3)', '=A2/#REF!', 12, '\'=SUM(E5)']);
+      expect(getDataAtRow(0)).toEqual(['#REF!', 'Mazda', 'Mercedes', 'Mini', '#REF!']);
+      expect(getDataAtRow(1)).toEqual([2009, 2941, 4303, 354, 5814]);
+      expect(getDataAtRow(2)).toEqual([2010, 2905, 2867, 2016, '#REF!']);
+      expect(getDataAtRow(3)).toEqual([2011, 2517, 4822, 552, 6127]);
+      expect(getDataAtRow(4)).toEqual([2012, '#REF!', '#REF!', 12, '=SUM(E5)']);
+    });
+
+    it('should correctly remove columns with bigger index than 10 (#dev-1841)', async() => {
+      handsontable({
+        data: createSpreadsheetData(5, 20),
+        formulas: {
+          engine: HyperFormula,
+        },
+      });
+
+      const engine = getPlugin('formulas').engine;
+
+      spyOn(engine, 'removeColumns').and.callThrough();
+      await alter('remove_col', 9, 3);
+
+      expect(engine.removeColumns.calls.count()).toBe(1);
+      expect(engine.removeColumns.calls.argsFor(0)).toEqual([0, [9, 3]]);
     });
 
     it('should recalculate table and replace coordinates in formula expressions into #REF! ' +
-      'value (removing 2 columns)', () => {
-      const hot = handsontable({
+      'value (removing 2 columns)', async() => {
+      handsontable({
         data: getDataSimpleExampleFormulas(),
         formulas: {
           engine: HyperFormula
@@ -836,23 +1012,23 @@ describe('Formulas general', () => {
         height: 300
       });
 
-      hot.alter('remove_col', 1, 2);
+      await alter('remove_col', 1, 2);
 
-      expect(hot.getSourceDataAtRow(0)).toEqual(['=#REF!', 'Mercedes', 'Mini', '=A$1']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([2009, 4303, 354, 5814]);
-      expect(hot.getSourceDataAtRow(2)).toEqual([2010, 2867, '=SUM(A4,2,3)', '=#REF!']);
-      expect(hot.getSourceDataAtRow(3)).toEqual([2011, 4822, 552, 6127]);
-      expect(hot.getSourceDataAtRow(4)).toEqual([2012, '=A2/#REF!', 12, '\'=SUM(E5)']);
-      expect(hot.getDataAtRow(0)).toEqual(['#REF!', 'Mercedes', 'Mini', '#REF!']);
-      expect(hot.getDataAtRow(1)).toEqual([2009, 4303, 354, 5814]);
-      expect(hot.getDataAtRow(2)).toEqual([2010, 2867, 2016, '#REF!']);
-      expect(hot.getDataAtRow(3)).toEqual([2011, 4822, 552, 6127]);
-      expect(hot.getDataAtRow(4)).toEqual([2012, '#REF!', 12, '=SUM(E5)']);
+      expect(getSourceDataAtRow(0)).toEqual(['=#REF!', 'Mercedes', 'Mini', '=A$1']);
+      expect(getSourceDataAtRow(1)).toEqual([2009, 4303, 354, 5814]);
+      expect(getSourceDataAtRow(2)).toEqual([2010, 2867, '=SUM(A4,2,3)', '=#REF!']);
+      expect(getSourceDataAtRow(3)).toEqual([2011, 4822, 552, 6127]);
+      expect(getSourceDataAtRow(4)).toEqual([2012, '=A2/#REF!', 12, '\'=SUM(E5)']);
+      expect(getDataAtRow(0)).toEqual(['#REF!', 'Mercedes', 'Mini', '#REF!']);
+      expect(getDataAtRow(1)).toEqual([2009, 4303, 354, 5814]);
+      expect(getDataAtRow(2)).toEqual([2010, 2867, 2016, '#REF!']);
+      expect(getDataAtRow(3)).toEqual([2011, 4822, 552, 6127]);
+      expect(getDataAtRow(4)).toEqual([2012, '#REF!', 12, '=SUM(E5)']);
     });
 
     it('should recalculate table and replace coordinates in formula expressions into #REF! value ' +
-      '(removing first 4 columns)', () => {
-      const hot = handsontable({
+      '(removing first 4 columns)', async() => {
+      handsontable({
         data: getDataSimpleExampleFormulas(),
         formulas: {
           engine: HyperFormula
@@ -861,23 +1037,23 @@ describe('Formulas general', () => {
         height: 300
       });
 
-      hot.alter('remove_col', 0, 4);
+      await alter('remove_col', 0, 4);
 
-      expect(hot.getSourceDataAtRow(0)).toEqual(['Mini', '=#REF!']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([354, 5814]);
-      expect(hot.getSourceDataAtRow(2)).toEqual(['=SUM(#REF!,2,3)', '=#REF!']);
-      expect(hot.getSourceDataAtRow(3)).toEqual([552, 6127]);
-      expect(hot.getSourceDataAtRow(4)).toEqual([12, '\'=SUM(E5)']);
-      expect(hot.getDataAtRow(0)).toEqual(['Mini', '#REF!']);
-      expect(hot.getDataAtRow(1)).toEqual([354, 5814]);
-      expect(hot.getDataAtRow(2)).toEqual(['#REF!', '#REF!']);
-      expect(hot.getDataAtRow(3)).toEqual([552, 6127]);
-      expect(hot.getDataAtRow(4)).toEqual([12, '=SUM(E5)']);
+      expect(getSourceDataAtRow(0)).toEqual(['Mini', '=#REF!']);
+      expect(getSourceDataAtRow(1)).toEqual([354, 5814]);
+      expect(getSourceDataAtRow(2)).toEqual(['=SUM(#REF!,2,3)', '=#REF!']);
+      expect(getSourceDataAtRow(3)).toEqual([552, 6127]);
+      expect(getSourceDataAtRow(4)).toEqual([12, '\'=SUM(E5)']);
+      expect(getDataAtRow(0)).toEqual(['Mini', '#REF!']);
+      expect(getDataAtRow(1)).toEqual([354, 5814]);
+      expect(getDataAtRow(2)).toEqual(['#REF!', '#REF!']);
+      expect(getDataAtRow(3)).toEqual([552, 6127]);
+      expect(getDataAtRow(4)).toEqual([12, '=SUM(E5)']);
     });
 
     it('should recalculate table and update formula expression after removing columns intersected ' +
-      'on the right of cell range', () => {
-      const hot = handsontable({
+      'on the right of cell range', async() => {
+      handsontable({
         data: getDataSimpleExampleFormulas(),
         formulas: {
           engine: HyperFormula
@@ -886,25 +1062,25 @@ describe('Formulas general', () => {
         height: 300
       });
 
-      hot.setDataAtCell(1, 5, '=Sum(B2:D2)');
+      await setDataAtCell(1, 5, '=Sum(B2:D2)');
 
-      hot.alter('remove_col', 2, 3);
+      await alter('remove_col', 2, 3);
 
-      expect(hot.getSourceDataAtRow(0)).toEqual(['=$B$2', 'Maserati', '=A$1']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([2009, 0, '=SUM(B2:B2)']);
-      expect(hot.getSourceDataAtRow(2)).toEqual([2010, 5, '=$B1']);
-      expect(hot.getSourceDataAtRow(3)).toEqual([2011, 4, 6127]);
-      expect(hot.getSourceDataAtRow(4)).toEqual([2012, '=SUM(A2:A5)', '\'=SUM(E5)']);
-      expect(hot.getDataAtRow(0)).toEqual([0, 'Maserati', 0]);
-      expect(hot.getDataAtRow(1)).toEqual([2009, 0, 0]);
-      expect(hot.getDataAtRow(2)).toEqual([2010, 5, 'Maserati']);
-      expect(hot.getDataAtRow(3)).toEqual([2011, 4, 6127]);
-      expect(hot.getDataAtRow(4)).toEqual([2012, 8042, '=SUM(E5)']);
+      expect(getSourceDataAtRow(0)).toEqual(['=$B$2', 'Maserati', '=A$1']);
+      expect(getSourceDataAtRow(1)).toEqual([2009, 0, '=SUM(B2:B2)']);
+      expect(getSourceDataAtRow(2)).toEqual([2010, 5, '=$B1']);
+      expect(getSourceDataAtRow(3)).toEqual([2011, 4, 6127]);
+      expect(getSourceDataAtRow(4)).toEqual([2012, '=SUM(A2:A5)', '\'=SUM(E5)']);
+      expect(getDataAtRow(0)).toEqual([0, 'Maserati', 0]);
+      expect(getDataAtRow(1)).toEqual([2009, 0, 0]);
+      expect(getDataAtRow(2)).toEqual([2010, 5, 'Maserati']);
+      expect(getDataAtRow(3)).toEqual([2011, 4, 6127]);
+      expect(getDataAtRow(4)).toEqual([2012, 8042, '=SUM(E5)']);
     });
 
     it('should recalculate table and update formula expression after removing columns intersected ' +
-      'on the left of cell range', () => {
-      const hot = handsontable({
+      'on the left of cell range', async() => {
+      handsontable({
         data: getDataSimpleExampleFormulas(),
         formulas: {
           engine: HyperFormula
@@ -913,25 +1089,25 @@ describe('Formulas general', () => {
         height: 300
       });
 
-      hot.setDataAtCell(1, 5, '=Sum(B2:D2)');
+      await setDataAtCell(1, 5, '=Sum(B2:D2)');
 
-      hot.alter('remove_col', 0, 3);
+      await alter('remove_col', 0, 3);
 
-      expect(hot.getSourceDataAtRow(0)).toEqual(['Mercedes', 'Mini', '=#REF!']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([4303, 354, '=SUM(A2:A2)']);
-      expect(hot.getSourceDataAtRow(2)).toEqual([2867, '=SUM(#REF!,2,3)', '=#REF!']);
-      expect(hot.getSourceDataAtRow(3)).toEqual([4822, 552, 6127]);
-      expect(hot.getSourceDataAtRow(4)).toEqual(['=#REF!/#REF!', 12, '\'=SUM(E5)']);
-      expect(hot.getDataAtRow(0)).toEqual(['Mercedes', 'Mini', '#REF!']);
-      expect(hot.getDataAtRow(1)).toEqual([4303, 354, 4303]);
-      expect(hot.getDataAtRow(2)).toEqual([2867, '#REF!', '#REF!']);
-      expect(hot.getDataAtRow(3)).toEqual([4822, 552, 6127]);
-      expect(hot.getDataAtRow(4)).toEqual(['#REF!', 12, '=SUM(E5)']);
+      expect(getSourceDataAtRow(0)).toEqual(['Mercedes', 'Mini', '=#REF!']);
+      expect(getSourceDataAtRow(1)).toEqual([4303, 354, '=SUM(A2:A2)']);
+      expect(getSourceDataAtRow(2)).toEqual([2867, '=SUM(#REF!,2,3)', '=#REF!']);
+      expect(getSourceDataAtRow(3)).toEqual([4822, 552, 6127]);
+      expect(getSourceDataAtRow(4)).toEqual(['=#REF!/#REF!', 12, '\'=SUM(E5)']);
+      expect(getDataAtRow(0)).toEqual(['Mercedes', 'Mini', '#REF!']);
+      expect(getDataAtRow(1)).toEqual([4303, 354, 4303]);
+      expect(getDataAtRow(2)).toEqual([2867, '#REF!', '#REF!']);
+      expect(getDataAtRow(3)).toEqual([4822, 552, 6127]);
+      expect(getDataAtRow(4)).toEqual(['#REF!', 12, '=SUM(E5)']);
     });
 
     it('should recalculate table and update formula expression after removing columns ' +
-      'contains whole cell range', () => {
-      const hot = handsontable({
+      'contains whole cell range', async() => {
+      handsontable({
         data: getDataSimpleExampleFormulas(),
         formulas: {
           engine: HyperFormula
@@ -940,26 +1116,26 @@ describe('Formulas general', () => {
         height: 300
       });
 
-      hot.setDataAtCell(1, 5, '=Sum(B2:D2)');
+      await setDataAtCell(1, 5, '=Sum(B2:D2)');
 
-      hot.alter('remove_col', 0, 4);
+      await alter('remove_col', 0, 4);
 
-      expect(hot.getSourceDataAtRow(0)).toEqual(['Mini', '=#REF!']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([354, '=SUM(#REF!)']);
-      expect(hot.getSourceDataAtRow(2)).toEqual(['=SUM(#REF!,2,3)', '=#REF!']);
-      expect(hot.getSourceDataAtRow(3)).toEqual([552, 6127]);
-      expect(hot.getSourceDataAtRow(4)).toEqual([12, '\'=SUM(E5)']);
-      expect(hot.getDataAtRow(0)).toEqual(['Mini', '#REF!']);
-      expect(hot.getDataAtRow(1)).toEqual([354, '#REF!']);
-      expect(hot.getDataAtRow(2)).toEqual(['#REF!', '#REF!']);
-      expect(hot.getDataAtRow(3)).toEqual([552, 6127]);
-      expect(hot.getDataAtRow(4)).toEqual([12, '=SUM(E5)']);
+      expect(getSourceDataAtRow(0)).toEqual(['Mini', '=#REF!']);
+      expect(getSourceDataAtRow(1)).toEqual([354, '=SUM(#REF!)']);
+      expect(getSourceDataAtRow(2)).toEqual(['=SUM(#REF!,2,3)', '=#REF!']);
+      expect(getSourceDataAtRow(3)).toEqual([552, 6127]);
+      expect(getSourceDataAtRow(4)).toEqual([12, '\'=SUM(E5)']);
+      expect(getDataAtRow(0)).toEqual(['Mini', '#REF!']);
+      expect(getDataAtRow(1)).toEqual([354, '#REF!']);
+      expect(getDataAtRow(2)).toEqual(['#REF!', '#REF!']);
+      expect(getDataAtRow(3)).toEqual([552, 6127]);
+      expect(getDataAtRow(4)).toEqual([12, '=SUM(E5)']);
     });
   });
 
   describe('alter table (mixed operations)', () => {
-    it('should recalculate table and replace coordinates in formula expressions', () => {
-      const hot = handsontable({
+    it('should recalculate table and replace coordinates in formula expressions', async() => {
+      handsontable({
         data: getDataSimpleExampleFormulas(),
         formulas: {
           engine: HyperFormula
@@ -968,728 +1144,409 @@ describe('Formulas general', () => {
         height: 300
       });
 
-      hot.alter('remove_col', 3);
-      hot.alter('remove_row', 2);
-      hot.alter('remove_row', 2);
-      hot.alter('insert_row_above', 0);
-      hot.alter('remove_col', 3);
-      hot.alter('insert_col_start', 3);
+      await alter('remove_col', 3);
+      await alter('remove_row', 2);
+      await alter('remove_row', 2);
+      await alter('insert_row_above', 0);
+      await alter('remove_col', 3);
+      await alter('insert_col_start', 3);
 
-      expect(hot.getSourceDataAtRow(0)).toEqual([null, null, null, null, null]);
-      expect(hot.getSourceDataAtRow(1)).toEqual(['=$B$3', 'Maserati', 'Mazda', null, '=A$2']);
-      expect(hot.getSourceDataAtRow(2)).toEqual([2009, 0, 2941, null, 5814]);
-      expect(hot.getSourceDataAtRow(3)).toEqual([2012, '=SUM(A3:A4)', '=SUM(B4,#REF!)', null, '\'=SUM(E5)']);
-      expect(hot.getDataAtRow(0)).toEqual([null, null, null, null, null]);
-      expect(hot.getDataAtRow(1)).toEqual([0, 'Maserati', 'Mazda', null, 0]);
-      expect(hot.getDataAtRow(2)).toEqual([2009, 0, 2941, null, 5814]);
-      expect(hot.getDataAtRow(3)).toEqual([2012, 4021, '#REF!', null, '=SUM(E5)']);
+      expect(getSourceDataAtRow(0)).toEqual([null, null, null, null, null]);
+      expect(getSourceDataAtRow(1)).toEqual(['=$B$3', 'Maserati', 'Mazda', null, '=A$2']);
+      expect(getSourceDataAtRow(2)).toEqual([2009, 0, 2941, null, 5814]);
+      expect(getSourceDataAtRow(3)).toEqual([2012, '=SUM(A3:A4)', '=SUM(B4,#REF!)', null, '\'=SUM(E5)']);
+      expect(getDataAtRow(0)).toEqual([null, null, null, null, null]);
+      expect(getDataAtRow(1)).toEqual([0, 'Maserati', 'Mazda', null, 0]);
+      expect(getDataAtRow(2)).toEqual([2009, 0, 2941, null, 5814]);
+      expect(getDataAtRow(3)).toEqual([2012, 4021, '#REF!', null, '=SUM(E5)']);
     });
   });
 
-  describe('undo/redo', () => {
-    it('should restore previous edited formula expression and recalculate table after that', () => {
-      const hot = handsontable({
-        data: getDataSimpleExampleFormulas(),
-        formulas: {
-          engine: HyperFormula
-        },
-        width: 500,
-        height: 300
-      });
+  describe('persisting engine-rewritten formulas in the source data (#10388)', () => {
+    // A structural change makes HyperFormula rewrite every reference that points at the moved
+    // range. Until that rewrite reaches the array the developer handed to Handsontable, an outside
+    // owner of that array (a Redux store, a React `data` prop) keeps the old formula and reverts it
+    // the moment the array is loaded back in.
+    const getDataWithFormula = () => [
+      [10, '=SUM(A1:A3)'],
+      [20, null],
+      [30, null],
+    ];
 
-      hot.setDataAtCell(0, 5, '=B5');
-      hot.undo();
+    it('should write the rewritten formula into the passed data array after inserting a row', async() => {
+      const data = getDataWithFormula();
 
-      expect(hot.getSourceDataAtCell(0, 5)).toBe('=A$1');
-      expect(hot.getDataAtCell(0, 5)).toBe(0);
-
-      hot.redo();
-
-      expect(hot.getSourceDataAtCell(0, 5)).toBe('=B5');
-      expect(hot.getDataAtCell(0, 5)).toBe(8042);
-    });
-
-    it('should restore previous state after alter table (mixed insert operations)', () => {
-      const hot = handsontable({
-        data: getDataSimpleExampleFormulas(),
-        formulas: {
-          engine: HyperFormula
-        },
-        width: 500,
-        height: 300,
-        contextMenu: true,
-      });
-
-      hot.alter('insert_row_above', 1, 3);
-      hot.alter('insert_col_start', 1);
-      hot.alter('insert_col_start', 4, 2);
-      hot.alter('insert_row_above', 5);
-      hot.undo();
-
-      expect(hot.getSourceDataAtRow(0))
-        .toEqual(['=$C$5', null, 'Maserati', 'Mazda', null, null, 'Mercedes', 'Mini', '=A$1']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([null, null, null, null, null, null, null, null, null]);
-      expect(hot.getSourceDataAtRow(2)).toEqual([null, null, null, null, null, null, null, null, null]);
-      expect(hot.getSourceDataAtRow(3)).toEqual([null, null, null, null, null, null, null, null, null]);
-      expect(hot.getSourceDataAtRow(4)).toEqual([2009, null, 0, 2941, null, null, 4303, 354, 5814]);
-      expect(hot.getSourceDataAtRow(5)).toEqual([2010, null, 5, 2905, null, null, 2867, '=SUM(A7,2,3)', '=$C1']);
-      expect(hot.getSourceDataAtRow(6)).toEqual([2011, null, 4, 2517, null, null, 4822, 552, 6127]);
-      expect(hot.getSourceDataAtRow(7))
-        .toEqual([2012, null, '=SUM(A5:A8)', '=SUM(C8,H6)', null, null, '=A5/C5', 12, '\'=SUM(E5)']);
-
-      hot.undo();
-
-      expect(hot.getSourceDataAtRow(0)).toEqual(['=$C$5', null, 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([null, null, null, null, null, null, null]);
-      expect(hot.getSourceDataAtRow(2)).toEqual([null, null, null, null, null, null, null]);
-      expect(hot.getSourceDataAtRow(3)).toEqual([null, null, null, null, null, null, null]);
-      expect(hot.getSourceDataAtRow(4)).toEqual([2009, null, 0, 2941, 4303, 354, 5814]);
-      expect(hot.getSourceDataAtRow(5)).toEqual([2010, null, 5, 2905, 2867, '=SUM(A7,2,3)', '=$C1']);
-      expect(hot.getSourceDataAtRow(6)).toEqual([2011, null, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getSourceDataAtRow(7))
-        .toEqual([2012, null, '=SUM(A5:A8)', '=SUM(C8,F6)', '=A5/C5', 12, '\'=SUM(E5)']);
-
-      hot.undo();
-
-      expect(hot.getSourceDataAtRow(0)).toEqual(['=$B$5', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([null, null, null, null, null, null]);
-      expect(hot.getSourceDataAtRow(2)).toEqual([null, null, null, null, null, null]);
-      expect(hot.getSourceDataAtRow(3)).toEqual([null, null, null, null, null, null]);
-      expect(hot.getSourceDataAtRow(4)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-      expect(hot.getSourceDataAtRow(5)).toEqual([2010, 5, 2905, 2867, '=SUM(A7,2,3)', '=$B1']);
-      expect(hot.getSourceDataAtRow(6)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getSourceDataAtRow(7))
-        .toEqual([2012, '=SUM(A5:A8)', '=SUM(B8,E6)', '=A5/B5', 12, '\'=SUM(E5)']);
-
-      hot.undo();
-
-      expect(hot.getSourceDataAtRow(0)).toEqual(['=$B$2', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-      expect(hot.getSourceDataAtRow(2)).toEqual([2010, 5, 2905, 2867, '=SUM(A4,2,3)', '=$B1']);
-      expect(hot.getSourceDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getSourceDataAtRow(4))
-        .toEqual([2012, '=SUM(A2:A5)', '=SUM(B5,E3)', '=A2/B2', 12, '\'=SUM(E5)']);
-    });
-
-    it('should redo into the next state after alter table (mixed insert operations)', () => {
-      const hot = handsontable({
-        data: getDataSimpleExampleFormulas(),
-        formulas: {
-          engine: HyperFormula
-        },
-        width: 500,
-        height: 300,
-        contextMenu: true,
-      });
-
-      hot.alter('insert_row_above', 1, 3);
-      hot.alter('insert_col_start', 1);
-      hot.alter('insert_col_start', 4, 2);
-      hot.alter('insert_row_above', 5);
-      hot.undo();
-      hot.undo();
-      hot.undo();
-      hot.undo();
-
-      expect(hot.getSourceDataAtRow(0)).toEqual(['=$B$2', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-      expect(hot.getSourceDataAtRow(2)).toEqual([2010, 5, 2905, 2867, '=SUM(A4,2,3)', '=$B1']);
-      expect(hot.getSourceDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getSourceDataAtRow(4)).toEqual([2012, '=SUM(A2:A5)', '=SUM(B5,E3)', '=A2/B2', 12, '\'=SUM(E5)']);
-
-      hot.redo();
-
-      expect(hot.getSourceDataAtRow(0)).toEqual(['=$B$5', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([null, null, null, null, null, null]);
-      expect(hot.getSourceDataAtRow(2)).toEqual([null, null, null, null, null, null]);
-      expect(hot.getSourceDataAtRow(3)).toEqual([null, null, null, null, null, null]);
-      expect(hot.getSourceDataAtRow(4)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-      expect(hot.getSourceDataAtRow(5)).toEqual([2010, 5, 2905, 2867, '=SUM(A7,2,3)', '=$B1']);
-      expect(hot.getSourceDataAtRow(6)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getSourceDataAtRow(7)).toEqual([2012, '=SUM(A5:A8)', '=SUM(B8,E6)', '=A5/B5', 12, '\'=SUM(E5)']);
-
-      hot.redo();
-
-      expect(hot.getSourceDataAtRow(0)).toEqual(['=$C$5', null, 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([null, null, null, null, null, null, null]);
-      expect(hot.getSourceDataAtRow(2)).toEqual([null, null, null, null, null, null, null]);
-      expect(hot.getSourceDataAtRow(3)).toEqual([null, null, null, null, null, null, null]);
-      expect(hot.getSourceDataAtRow(4)).toEqual([2009, null, 0, 2941, 4303, 354, 5814]);
-      expect(hot.getSourceDataAtRow(5)).toEqual([2010, null, 5, 2905, 2867, '=SUM(A7,2,3)', '=$C1']);
-      expect(hot.getSourceDataAtRow(6)).toEqual([2011, null, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getSourceDataAtRow(7)).toEqual([2012, null, '=SUM(A5:A8)', '=SUM(C8,F6)', '=A5/C5', 12, '\'=SUM(E5)']);
-
-      hot.redo();
-
-      expect(hot.getSourceDataAtRow(0))
-        .toEqual(['=$C$5', null, 'Maserati', 'Mazda', null, null, 'Mercedes', 'Mini', '=A$1']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([null, null, null, null, null, null, null, null, null]);
-      expect(hot.getSourceDataAtRow(2)).toEqual([null, null, null, null, null, null, null, null, null]);
-      expect(hot.getSourceDataAtRow(3)).toEqual([null, null, null, null, null, null, null, null, null]);
-      expect(hot.getSourceDataAtRow(4)).toEqual([2009, null, 0, 2941, null, null, 4303, 354, 5814]);
-      expect(hot.getSourceDataAtRow(5)).toEqual([2010, null, 5, 2905, null, null, 2867, '=SUM(A7,2,3)', '=$C1']);
-      expect(hot.getSourceDataAtRow(6)).toEqual([2011, null, 4, 2517, null, null, 4822, 552, 6127]);
-      expect(hot.getSourceDataAtRow(7))
-        .toEqual([2012, null, '=SUM(A5:A8)', '=SUM(C8,H6)', null, null, '=A5/C5', 12, '\'=SUM(E5)']);
-    });
-
-    xit('should restore previous state after alter table (mixed remove operations)', () => {
-      const hot = handsontable({
-        data: getDataSimpleExampleFormulas(),
-        formulas: {
-          engine: HyperFormula
-        },
-        width: 500,
-        height: 300,
-        contextMenu: true,
-      });
-
-      hot.alter('remove_row', 2);
-      hot.alter('remove_col', 2, 2);
-      hot.alter('remove_row', 0, 2);
-      hot.alter('remove_col', 3);
-      hot.undo();
-
-      expect(hot.getSourceDataAtRow(0)).toEqual([2011, 4, 552, 6127]);
-      expect(hot.getSourceDataAtRow(1)).toEqual([2012, '=SUM(A1:A2)', 12, '=SUM(E5)']);
-
-      hot.undo();
-
-      expect(hot.getSourceDataAtRow(0)).toEqual(['=$B$2', 'Maserati', 'Mini', '=A$1']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([2009, 0, 354, 5814]);
-      expect(hot.getSourceDataAtRow(2)).toEqual([2011, 4, 552, 6127]);
-      expect(hot.getSourceDataAtRow(3)).toEqual([2012, '=SUM(A2:A4)', 12, '=SUM(E5)']);
-
-      hot.undo();
-
-      expect(hot.getSourceDataAtRow(0)).toEqual(['=$B$2', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-      expect(hot.getSourceDataAtRow(2)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getSourceDataAtRow(3)).toEqual([2012, '=SUM(A2:A4)', '=SUM(B4,#REF!)', '=A2/B2', 12, '=SUM(E5)']);
-
-      hot.undo();
-
-      expect(hot.getSourceDataAtRow(0)).toEqual(['=$B$2', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-      expect(hot.getSourceDataAtRow(2)).toEqual([2010, 5, 2905, 2867, '=SUM(A4,2,3)', '=$B1']);
-      expect(hot.getSourceDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getSourceDataAtRow(4)).toEqual([2012, '=Sum(a2:a5)', '=SUM(B5,E3)', '=A2/B2', 12, '=SUM(E5)']);
-    });
-
-    xit('should redo into the next state after alter table (mixed remove operations)', () => {
-      const hot = handsontable({
-        data: getDataSimpleExampleFormulas(),
-        formulas: {
-          engine: HyperFormula
-        },
-        width: 500,
-        height: 300,
-        contextMenu: true,
-      });
-
-      hot.alter('remove_row', 2);
-      hot.alter('remove_col', 2, 2);
-      hot.alter('remove_row', 0, 2);
-      hot.alter('remove_col', 3);
-      hot.undo();
-      hot.undo();
-      hot.undo();
-      hot.undo();
-
-      expect(hot.getSourceDataAtRow(0)).toEqual(['=$B$2', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-      expect(hot.getSourceDataAtRow(2)).toEqual([2010, 5, 2905, 2867, '=SUM(A4,2,3)', '=$B1']);
-      expect(hot.getSourceDataAtRow(3)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getSourceDataAtRow(4)).toEqual([2012, '=Sum(a2:a5)', '=SUM(B5,E3)', '=A2/B2', 12, '=SUM(E5)']);
-
-      hot.redo();
-
-      expect(hot.getSourceDataAtRow(0)).toEqual(['=$B$2', 'Maserati', 'Mazda', 'Mercedes', 'Mini', '=A$1']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([2009, 0, 2941, 4303, 354, 5814]);
-      expect(hot.getSourceDataAtRow(2)).toEqual([2011, 4, 2517, 4822, 552, 6127]);
-      expect(hot.getSourceDataAtRow(3)).toEqual([2012, '=SUM(A2:A4)', '=SUM(B4,#REF!)', '=A2/B2', 12, '=SUM(E5)']);
-
-      hot.redo();
-
-      expect(hot.getSourceDataAtRow(0)).toEqual(['=$B$2', 'Maserati', 'Mini', '=A$1']);
-      expect(hot.getSourceDataAtRow(1)).toEqual([2009, 0, 354, 5814]);
-      expect(hot.getSourceDataAtRow(2)).toEqual([2011, 4, 552, 6127]);
-      expect(hot.getSourceDataAtRow(3)).toEqual([2012, '=SUM(A2:A4)', 12, '=SUM(E5)']);
-
-      hot.redo();
-
-      expect(hot.getSourceDataAtRow(0)).toEqual([2011, 4, 552, 6127]);
-      expect(hot.getSourceDataAtRow(1)).toEqual([2012, '=SUM(A1:A2)', 12, '=SUM(E5)']);
-    });
-
-    it('should work properly while doing cell used by some formula empty', () => {
       handsontable({
-        data: [
-          [5, '=A1+1', '=B1+1'],
-        ],
-        contextMenu: true,
-        colHeaders: true,
+        data,
         formulas: {
           engine: HyperFormula
-        }
+        },
       });
 
-      setDataAtCell(0, 0, null);
+      await alter('insert_row_above', 1, 1);
 
-      expect(getSourceData()).toEqual([
-        [null, '=A1+1', '=B1+1'],
-      ]);
-      expect(getData()).toEqual([
-        [null, 1, 2],
-      ]);
-
-      undo();
-
-      expect(getSourceData()).toEqual([
-        [5, '=A1+1', '=B1+1'],
-      ]);
-      expect(getData()).toEqual([
-        [5, 6, 7],
-      ]);
-
-      redo();
-
-      expect(getSourceData()).toEqual([
-        [null, '=A1+1', '=B1+1'],
-      ]);
-      expect(getData()).toEqual([
-        [null, 1, 2],
-      ]);
+      expect(data[0][1]).toBe('=SUM(A1:A4)');
     });
 
-    it('should cooperate properly with `setDataAtCell` action for multiple cells', () => {
+    it('should write the rewritten formula into the passed data array after removing a row', async() => {
+      const data = getDataWithFormula();
+
       handsontable({
-        data: [
-          [0, '=A1+1', '=B1+1'],
-        ],
-        contextMenu: true,
-        colHeaders: true,
+        data,
         formulas: {
           engine: HyperFormula
-        }
+        },
       });
 
-      setDataAtCell([
-        [0, 0, '=B1+2'],
-        [0, 1, '=C1+2'],
-        [0, 2, 10],
-      ]);
+      await alter('remove_row', 1, 1);
 
-      undo();
-
-      expect(getSourceData()).toEqual([
-        [0, '=A1+1', '=B1+1'],
-      ]);
-      expect(getData()).toEqual([
-        [0, 1, 2],
-      ]);
-
-      redo();
-
-      expect(getSourceData()).toEqual([
-        ['=B1+2', '=C1+2', 10],
-      ]);
-      expect(getData()).toEqual([
-        [14, 12, 10],
-      ]);
-
-      undo();
-
-      expect(getSourceData()).toEqual([
-        [0, '=A1+1', '=B1+1'],
-      ]);
-      expect(getData()).toEqual([
-        [0, 1, 2],
-      ]);
+      expect(data[0][1]).toBe('=SUM(A1:A2)');
     });
 
-    it('should show proper values when doing undo/redo after moving rows', () => {
+    it('should write the rewritten formula into the passed data array after inserting a column', async() => {
+      const data = getDataWithFormula();
+
       handsontable({
-        data: [
-          [5],
-          ['=A1+1'],
-          ['=A2+1'],
-        ],
-        contextMenu: true,
+        data,
+        formulas: {
+          engine: HyperFormula
+        },
+      });
+
+      await alter('insert_col_start', 0, 1);
+
+      expect(data[0][2]).toBe('=SUM(B1:B3)');
+    });
+
+    it('should write the rewritten formula into the passed data array after removing a column', async() => {
+      const data = [
+        [10, 5, '=SUM(B1:B3)'],
+        [20, 5, null],
+        [30, 5, null],
+      ];
+
+      handsontable({
+        data,
+        formulas: {
+          engine: HyperFormula
+        },
+      });
+
+      await alter('remove_col', 0, 1);
+
+      expect(data[0][1]).toBe('=SUM(A1:A3)');
+    });
+
+    it('should keep the rewritten formula when the passed data array is loaded back in', async() => {
+      const data = getDataWithFormula();
+
+      handsontable({
+        data,
+        formulas: {
+          engine: HyperFormula
+        },
+      });
+
+      await alter('insert_row_above', 1, 1);
+
+      // Replays what a Redux-driven re-render does: push the store's array back into the grid.
+      await updateSettings({ data });
+
+      expect(getSourceDataAtCell(0, 1)).toBe('=SUM(A1:A4)');
+      expect(getDataAtCell(0, 1)).toBe(60);
+    });
+
+    it('should write the rewritten formula into an object data source under its own property', async() => {
+      const data = [
+        { year: 10, total: '=SUM(A1:A3)' },
+        { year: 20, total: null },
+        { year: 30, total: null },
+      ];
+
+      handsontable({
+        data,
+        columns: [{ data: 'year' }, { data: 'total' }],
+        formulas: {
+          engine: HyperFormula
+        },
+      });
+
+      await alter('insert_row_above', 1, 1);
+
+      expect(data[0].total).toBe('=SUM(A1:A4)');
+      expect(Object.keys(data[0])).toEqual(['year', 'total']);
+    });
+
+    it('should restore the formula in the passed data array with a single undo', async() => {
+      const data = getDataWithFormula();
+
+      handsontable({
+        data,
+        formulas: {
+          engine: HyperFormula
+        },
+      });
+
+      await alter('insert_row_above', 1, 1);
+
+      expect(data[0][1]).toBe('=SUM(A1:A4)');
+
+      getPlugin('undoRedo').undo();
+
+      expect(data[0][1]).toBe('=SUM(A1:A3)');
+      expect(getSourceDataAtCell(0, 1)).toBe('=SUM(A1:A3)');
+      expect(countRows()).toBe(3);
+
+      getPlugin('undoRedo').redo();
+
+      expect(data[0][1]).toBe('=SUM(A1:A4)');
+      expect(getSourceDataAtCell(0, 1)).toBe('=SUM(A1:A4)');
+      expect(countRows()).toBe(4);
+    });
+
+    it('should write the rewritten formula into a row hidden by a filter', async() => {
+      const data = [
+        ['show', 1, '=SUM(B1:B4)'],
+        ['show', 2, null],
+        ['hide', 3, '=SUM(B1:B4)'],
+        ['show', 4, null],
+      ];
+
+      handsontable({
+        data,
+        formulas: {
+          engine: HyperFormula
+        },
+        filters: true,
+        dropdownMenu: true,
         colHeaders: true,
-        rowHeaders: true,
+      });
+
+      const filters = getPlugin('filters');
+
+      filters.addCondition(0, 'eq', ['show']);
+      filters.filter();
+
+      await alter('insert_row_above', 0, 1);
+
+      // Both rows moved down by one. The filtered-out row holds a formula too, and the engine
+      // rewrote it just the same - it must not be left behind.
+      expect(data[1][2]).toBe('=SUM(B2:B5)');
+      expect(data[3][2]).toBe('=SUM(B2:B5)');
+    });
+
+    it('should leave a formula the change did not affect spelled as the developer wrote it', async() => {
+      const data = [
+        [1, '=SUM(A1:A3)'],
+        [2, null],
+        [3, null],
+        [4, '=sum( a1 : a2 )'],
+        [5, '=iF(TruE(),1,2)'],
+      ];
+
+      handsontable({
+        data,
+        formulas: {
+          engine: HyperFormula
+        },
+      });
+
+      // Inserting below everything shifts no reference at all.
+      await alter('insert_row_below', 4, 1);
+
+      // The engine reports a canonical spelling. Treating that as a change would rewrite formulas
+      // the operation never touched - including one with no cell reference in it.
+      expect(data[3][1]).toBe('=sum( a1 : a2 )');
+      expect(data[4][1]).toBe('=iF(TruE(),1,2)');
+      expect(data[0][1]).toBe('=SUM(A1:A3)');
+    });
+
+    it('should write into the right column when `columns` reorders the source columns', async() => {
+      const data = [
+        [1, '=SUM(A1:A3)'],
+        [2, null],
+        [3, null],
+      ];
+
+      handsontable({
+        data,
+        // Same column count, so the data fed to the engine is not projected - the engine holds
+        // physical indexes while the grid reads them through `colToProp`.
+        columns: [{ data: 1 }, { data: 0 }],
+        formulas: {
+          engine: HyperFormula
+        },
+      });
+
+      await alter('insert_row_above', 1, 1);
+
+      expect(data[0][1]).toBe('=SUM(A1:A4)');
+      // The number must survive - writing the formula here would destroy it for good.
+      expect(data[0][0]).toBe(1);
+    });
+
+    it('should not persist a broken reference the change could not have caused', async() => {
+      const data = [
+        [1, '=SUM(A1:A3)'],
+        [2, null],
+        [3, null],
+      ];
+
+      handsontable({
+        data,
         formulas: {
           engine: HyperFormula
         },
         manualRowMove: true,
+        columnSorting: true,
+        rowHeaders: true,
       });
 
-      getPlugin('manualRowMove').moveRow(0, 1);
-      render();
+      getPlugin('manualRowMove').moveRow(0, 2);
+      await render();
+      getPlugin('columnSorting').sort({ column: 0, sortOrder: 'asc' });
 
-      undo();
+      // The engine is left holding `=SUM(#REF!)` here for reasons this change did not cause.
+      await alter('insert_row_above', 1, 1);
 
-      expect(getSourceData()).toEqual([
-        [5],
-        ['=A1+1'],
-        ['=A2+1'],
-      ]);
-      expect(getData()).toEqual([
-        [5],
-        [6],
-        [7],
-      ]);
-
-      redo();
-
-      expect(getSourceData()).toEqual([
-        [5],
-        ['=A2+1'],
-        ['=A1+1'],
-      ]);
-      expect(getData()).toEqual([
-        [6],
-        [5],
-        [7],
-      ]);
+      // An insert cannot break a reference, so the good formula must stay.
+      expect(data[0][1]).toBe('=SUM(A1:A3)');
     });
 
-    it('should show proper values when doing undo/redo after changing sheet size', () => {
+    it('should not touch the passed data array when rows are only moved', async() => {
+      const data = getDataWithFormula();
+
       handsontable({
-        data: [
-          [0, '=A1+1', '=B1+1'],
-        ],
-        contextMenu: true,
-        colHeaders: true,
+        data,
         formulas: {
           engine: HyperFormula
-        }
+        },
+        manualRowMove: true,
+        rowHeaders: true,
       });
 
-      alter('insert_col_start', 0);
-      alter('remove_col', 0);
+      getPlugin('manualRowMove').moveRow(0, 2);
+      await render();
 
-      expect(getSourceData()).toEqual([
-        [0, '=A1+1', '=B1+1'],
-      ]);
-      expect(getData()).toEqual([
-        [0, 1, 2],
-      ]);
-
-      undo();
-
-      expect(getSourceData()).toEqual([
-        [null, 0, '=B1+1', '=C1+1'],
-      ]);
-      expect(getData()).toEqual([
-        [null, 0, 1, 2],
-      ]);
-
-      undo();
-
-      expect(getSourceData()).toEqual([
-        [0, '=A1+1', '=B1+1'],
-      ]);
-      expect(getData()).toEqual([
-        [0, 1, 2],
-      ]);
-
-      redo();
-
-      expect(getSourceData()).toEqual([
-        [null, 0, '=B1+1', '=C1+1'],
-      ]);
-      expect(getData()).toEqual([
-        [null, 0, 1, 2],
-      ]);
-
-      redo();
-
-      expect(getSourceData()).toEqual([
-        [0, '=A1+1', '=B1+1'],
-      ]);
-      expect(getData()).toEqual([
-        [0, 1, 2],
-      ]);
+      // A move reorders the indexes only - the source array keeps its own order and its own
+      // reference frame, so nothing has to be written back to it.
+      expect(data[0][1]).toBe('=SUM(A1:A3)');
     });
 
-    describe('should show proper value when doing undo/redo after reducing sheet size', () => {
-      it('(removing cell with value used by some formula)', () => {
-        handsontable({
-          data: [
-            [2],
-            ['=A1*10']
-          ],
-          contextMenu: true,
-          colHeaders: true,
-          formulas: {
-            engine: HyperFormula
-          }
-        });
+    it('should not touch the passed data array when a row is inserted into a moved grid', async() => {
+      const data = [
+        [1, '=A1+10'],
+        [2, '=A2+100'],
+        [3, '=A3+1000'],
+      ];
 
-        alter('remove_row', 0);
-
-        undo();
-
-        expect(getSourceData()).toEqual([
-          [2],
-          ['=A1*10'],
-        ]);
-        expect(getData()).toEqual([
-          [2],
-          [20],
-        ]);
-
-        redo();
-
-        expect(getSourceData()).toEqual([
-          ['=#REF!*10'],
-        ]);
-        expect(getData()).toEqual([
-          ['#REF!'],
-        ]);
+      handsontable({
+        data,
+        formulas: {
+          engine: HyperFormula
+        },
+        manualRowMove: true,
+        rowHeaders: true,
       });
 
-      it('(removing formula using value from some cell)', () => {
-        handsontable({
-          data: [
-            [2],
-            ['=A1*10']
-          ],
-          contextMenu: true,
-          colHeaders: true,
-          formulas: {
-            engine: HyperFormula
-          }
-        });
+      getPlugin('manualRowMove').moveRow(0, 2);
+      await render();
 
-        alter('remove_row', 1);
+      await alter('insert_row_below', 2, 1);
 
-        undo();
-
-        expect(getSourceData()).toEqual([
-          [2],
-          ['=A1*10'],
-        ]);
-        expect(getData()).toEqual([
-          [2],
-          [20],
-        ]);
-
-        redo();
-
-        expect(getSourceData()).toEqual([
-          [2],
-        ]);
-        expect(getData()).toEqual([
-          [2],
-        ]);
-      });
+      // Once rows are moved the engine and the source data no longer share a reference frame, so
+      // the engine's formulas must not be copied into the array the developer owns.
+      expect(data[0][1]).toBe('=A1+10');
+      expect(data[1][1]).toBe(null);
+      expect(data[2][1]).toBe('=A2+100');
+      expect(data[3][1]).toBe('=A3+1000');
     });
 
-    describe('should cooperate with the Autofill plugin properly', () => {
-      it('(overwriting formula)', async() => {
-        handsontable({
-          data: [
-            [2, 3, 4, 5],
-            ['=A1*10', null, '=A2*10', null],
-          ],
-          contextMenu: true,
-          colHeaders: true,
-          formulas: {
-            engine: HyperFormula
-          }
-        });
+    it('should not touch the passed data array when an edit is undone in a moved grid', async() => {
+      const data = [
+        [1, '=A1+10'],
+        [2, '=A2+100'],
+        [3, '=A3+1000'],
+      ];
 
-        selectCell(0, 0);
-        // Overwritten formula
-        autofill(1, 0);
-
-        await sleep(100);
-
-        expect(getSourceData()).toEqual([
-          [2, 3, 4, 5],
-          [2, null, '=A2*10', null],
-        ]);
-        expect(getData()).toEqual([
-          [2, 3, 4, 5],
-          [2, null, 20, null],
-        ]);
-
-        autofill(1, 1);
-
-        await sleep(100);
-
-        expect(getSourceData()).toEqual([
-          [2, 2, 4, 5],
-          [2, 2, '=A2*10', null],
-        ]);
-        expect(getData()).toEqual([
-          [2, 2, 4, 5],
-          [2, 2, 20, null],
-        ]);
-
-        undo();
-
-        expect(getSourceData()).toEqual([
-          [2, 3, 4, 5],
-          [2, null, '=A2*10', null],
-        ]);
-        expect(getData()).toEqual([
-          [2, 3, 4, 5],
-          [2, null, 20, null],
-        ]);
-
-        undo();
-
-        expect(getSourceData()).toEqual([
-          [2, 3, 4, 5],
-          ['=A1*10', null, '=A2*10', null],
-        ]);
-        expect(getData()).toEqual([
-          [2, 3, 4, 5],
-          [20, null, 200, null],
-        ]);
-
-        redo();
-
-        expect(getSourceData()).toEqual([
-          [2, 3, 4, 5],
-          [2, null, '=A2*10', null],
-        ]);
-        expect(getData()).toEqual([
-          [2, 3, 4, 5],
-          [2, null, 20, null],
-        ]);
-
-        redo();
-
-        expect(getSourceData()).toEqual([
-          [2, 2, 4, 5],
-          [2, 2, '=A2*10', null],
-        ]);
-        expect(getData()).toEqual([
-          [2, 2, 4, 5],
-          [2, 2, 20, null],
-        ]);
-
-        undo();
-
-        expect(getSourceData()).toEqual([
-          [2, 3, 4, 5],
-          [2, null, '=A2*10', null],
-        ]);
-        expect(getData()).toEqual([
-          [2, 3, 4, 5],
-          [2, null, 20, null],
-        ]);
+      handsontable({
+        data,
+        formulas: {
+          engine: HyperFormula
+        },
+        manualRowMove: true,
+        rowHeaders: true,
       });
 
-      it('(populating formula)', async() => {
-        handsontable({
-          data: [
-            [2, 3, 4, 5],
-            ['=A1*10', null, '=A2*10', null],
-          ],
-          contextMenu: true,
-          colHeaders: true,
-          formulas: {
-            engine: HyperFormula
-          }
-        });
+      getPlugin('manualRowMove').moveRow(0, 2);
+      await render();
 
-        selectCell(1, 2);
+      await setDataAtCell(0, 0, 999);
 
-        autofill(1, 3);
+      getPlugin('undoRedo').undo();
 
-        await sleep(100);
+      // Undoing a plain cell edit is not a structural change, so it must not persist the moved
+      // reference frame into the array the developer owns.
+      expect(data[0][1]).toBe('=A1+10');
+      expect(data[1][1]).toBe('=A2+100');
+      expect(data[2][1]).toBe('=A3+1000');
+    });
 
-        undo();
+    it('should report the rewritten formula through the `afterSetSourceDataAtCell` hook', async() => {
+      const data = getDataWithFormula();
+      const afterSetSourceDataAtCell = jasmine.createSpy('afterSetSourceDataAtCell');
 
-        expect(getSourceData()).toEqual([
-          [2, 3, 4, 5],
-          ['=A1*10', null, '=A2*10', null],
-        ]);
-        expect(getData()).toEqual([
-          [2, 3, 4, 5],
-          [20, null, 200, null],
-        ]);
-
-        redo();
-
-        expect(getSourceData()).toEqual([
-          [2, 3, 4, 5],
-          ['=A1*10', null, '=A2*10', '=B2*10'],
-        ]);
-        expect(getData()).toEqual([
-          [2, 3, 4, 5],
-          [20, null, 200, 0],
-        ]);
-
-        undo();
-
-        expect(getSourceData()).toEqual([
-          [2, 3, 4, 5],
-          ['=A1*10', null, '=A2*10', null],
-        ]);
-        expect(getData()).toEqual([
-          [2, 3, 4, 5],
-          [20, null, 200, null],
-        ]);
+      handsontable({
+        data,
+        formulas: {
+          engine: HyperFormula
+        },
+        afterSetSourceDataAtCell,
       });
 
-      it('(populating simple values)', async() => {
-        handsontable({
-          data: [
-            [2, 3, 4, 5],
-            ['=A1*10', null, '=A2*10', null],
+      await alter('insert_row_above', 1, 1);
+
+      // The reported previous value must be the one that was really stored, not the engine's new
+      // formula - a store that compares the two has to be able to see the change.
+      expect(afterSetSourceDataAtCell).toHaveBeenCalledTimes(1);
+      expect(afterSetSourceDataAtCell.calls.mostRecent().args[0]).toEqual([[0, 1, '=SUM(A1:A3)', '=SUM(A1:A4)']]);
+    });
+
+    it('should not write the engine\'s rewritten formula into the data array when the Nested Rows ' +
+      'plugin detaches a row', async() => {
+      const data = [
+        {
+          col1: 1,
+          __children: [
+            { col1: 2 },
+            { col1: '=A1+A2' },
           ],
-          contextMenu: true,
-          colHeaders: true,
-          formulas: {
-            engine: HyperFormula
-          }
-        });
+        },
+        { col1: 9 },
+      ];
 
-        selectCell(0, 0);
-
-        autofill(0, 3);
-
-        await sleep(100);
-
-        undo();
-
-        expect(getSourceData()).toEqual([
-          [2, 3, 4, 5],
-          ['=A1*10', null, '=A2*10', null],
-        ]);
-        expect(getData()).toEqual([
-          [2, 3, 4, 5],
-          [20, null, 200, null],
-        ]);
-
-        redo();
-
-        expect(getSourceData()).toEqual([
-          [2, 2, 2, 2],
-          ['=A1*10', null, '=A2*10', null],
-        ]);
-        expect(getData()).toEqual([
-          [2, 2, 2, 2],
-          [20, null, 200, null],
-        ]);
-
-        undo();
-
-        expect(getSourceData()).toEqual([
-          [2, 3, 4, 5],
-          ['=A1*10', null, '=A2*10', null],
-        ]);
-        expect(getData()).toEqual([
-          [2, 3, 4, 5],
-          [20, null, 200, null],
-        ]);
+      handsontable({
+        data,
+        columns: [{ data: 'col1', type: 'text' }],
+        nestedRows: true,
+        formulas: {
+          engine: HyperFormula
+        },
       });
+
+      getPlugin('nestedRows').dataManager.detachFromParent(
+        getPlugin('nestedRows').dataManager.getDataObject(1)
+      );
+
+      // A detach is a MOVE that the Nested Rows plugin performs on the source data itself, expressed
+      // as a row removal followed by a row creation. The engine therefore reports the reference to
+      // the detached row as broken while that row still exists, and the removal leg allows broken
+      // references through. Persisting that intermediate state would replace a good formula in the
+      // developer's array with an unrecoverable `#REF!`.
+      expect(data[0].__children[0].col1).toBe('=A1+A2');
+      expect(data[0].col1).toBe(1);
+      expect(data[1].col1).toBe(9);
+      expect(data[2].col1).toBe(2);
     });
   });
 
@@ -1717,10 +1574,10 @@ describe('Formulas general', () => {
         },
       });
 
-      selectCell(0, 0);
+      await selectCell(0, 0);
       autofill(0, 1);
 
-      await sleep(100);
+      await waitForNextAnimationFrames(2);
 
       expect(getData()).toEqual([
         ['Mercedes A 160', 'Mercedes A 160'],
@@ -1731,7 +1588,7 @@ describe('Formulas general', () => {
       ]);
     });
 
-    it('should not override result of simple autofill (populating more cells) #8050', () => {
+    it('should not override result of simple autofill (populating more cells) #8050', async() => {
       handsontable({
         data: [
           [1, 2, 3, 5, 7],
@@ -1748,7 +1605,7 @@ describe('Formulas general', () => {
         },
       });
 
-      selectCell(0, 0, 6, 1);
+      await selectCell(0, 0, 6, 1);
       autofill(6, 4);
 
       expect(getData()).toEqual([
@@ -1762,8 +1619,8 @@ describe('Formulas general', () => {
       ]);
     });
 
-    it('should not autofill if `beforeAutofill` returned false', () => {
-      const hot = handsontable({
+    it('should not autofill if `beforeAutofill` returned false', async() => {
+      handsontable({
         data: [
           ['=A1', 'x', 'x'],
         ],
@@ -1773,14 +1630,14 @@ describe('Formulas general', () => {
         beforeAutofill: () => false
       });
 
-      selectCell(0, 0);
+      await selectCell(0, 0);
       autofill(0, 2);
 
-      expect(hot.getSourceData()).toEqual([['=A1', 'x', 'x']]);
+      expect(getSourceData()).toEqual([['=A1', 'x', 'x']]);
     });
 
-    it('should not use the plugin\'s autofill if `beforeAutofill` returned values', () => {
-      const hot = handsontable({
+    it('should not use the plugin\'s autofill if `beforeAutofill` returned values', async() => {
+      handsontable({
         data: [
           ['=A1', 'x', 'x'],
         ],
@@ -1790,14 +1647,14 @@ describe('Formulas general', () => {
         beforeAutofill: () => [['a']]
       });
 
-      selectCell(0, 0);
+      await selectCell(0, 0);
       autofill(0, 2);
 
-      expect(hot.getSourceData()).toEqual([['=A1', 'a', 'a']]);
+      expect(getSourceData()).toEqual([['=A1', 'a', 'a']]);
     });
 
-    it('should autofill an array of objects correctly', () => {
-      const hot = handsontable({
+    it('should autofill an array of objects correctly', async() => {
+      handsontable({
         formulas: {
           engine: HyperFormula
         },
@@ -1810,10 +1667,10 @@ describe('Formulas general', () => {
         ]
       });
 
-      selectCell(0, 1, 4, 1);
+      await selectCell(0, 1, 4, 1);
       autofill(4, 2);
 
-      expect(hot.getSourceDataArray()).toEqual([
+      expect(getSourceDataArray()).toEqual([
         [1, '=A1 * 2', '=B1 * 2'],
         [2, '=A2 * 2', '=B2 * 2'],
         [3, '=A3 * 2', '=B3 * 2'],
@@ -1826,8 +1683,8 @@ describe('Formulas general', () => {
     // #CYCLE! errors), but we only care about the formula offsets.
     //
     // https://docs.google.com/spreadsheets/d/1ERI3YEe7GYWUKdKGPU4C97yUh1fOM6HILZY03AB8wwk/edit?usp=sharing
-    it('should correctly autofill - single cell, down', () => {
-      const hot = handsontable({
+    it('should correctly autofill - single cell, down', async() => {
+      handsontable({
         data: [
           ['=A1'],
           ['x'],
@@ -1838,18 +1695,18 @@ describe('Formulas general', () => {
         }
       });
 
-      selectCell(0, 0);
+      await selectCell(0, 0);
       autofill(2, 0);
 
-      expect(hot.getSourceData()).toEqual([
+      expect(getSourceData()).toEqual([
         ['=A1'],
         ['=A2'],
         ['=A3']
       ]);
     });
 
-    it('should correctly autofill - single cell, right', () => {
-      const hot = handsontable({
+    it('should correctly autofill - single cell, right', async() => {
+      handsontable({
         data: [
           ['=A1', 'x', 'x']
         ],
@@ -1858,16 +1715,16 @@ describe('Formulas general', () => {
         }
       });
 
-      selectCell(0, 0);
+      await selectCell(0, 0);
       autofill(0, 2);
 
-      expect(hot.getSourceData()).toEqual([
+      expect(getSourceData()).toEqual([
         ['=A1', '=B1', '=C1']
       ]);
     });
 
-    it('should correctly autofill - range, down, partial', () => {
-      const hot = handsontable({
+    it('should correctly autofill - range, down, partial', async() => {
+      handsontable({
         data: [
           ['=E6', '=E10'],
           ['=G6', '=G10'],
@@ -1880,10 +1737,10 @@ describe('Formulas general', () => {
         }
       });
 
-      selectCell(0, 0, 2, 1);
+      await selectCell(0, 0, 2, 1);
       autofill(4, 1);
 
-      expect(hot.getSourceData()).toEqual([
+      expect(getSourceData()).toEqual([
         ['=E6', '=E10'],
         ['=G6', '=G10'],
         ['=I6', '=I10'],
@@ -1892,8 +1749,8 @@ describe('Formulas general', () => {
       ]);
     });
 
-    it('should correctly autofill - range, down, overflow', () => {
-      const hot = handsontable({
+    it('should correctly autofill - range, down, overflow', async() => {
+      handsontable({
         data: [
           ['=E6', '=E10'],
           ['=G6', '=G10'],
@@ -1911,10 +1768,10 @@ describe('Formulas general', () => {
         }
       });
 
-      selectCell(0, 0, 2, 1);
+      await selectCell(0, 0, 2, 1);
       autofill(8, 1);
 
-      expect(hot.getSourceData()).toEqual([
+      expect(getSourceData()).toEqual([
         ['=E6', '=E10'],
         ['=G6', '=G10'],
         ['=I6', '=I10'],
@@ -1928,8 +1785,8 @@ describe('Formulas general', () => {
       ]);
     });
 
-    it('should correctly autofill - range, right, partial', () => {
-      const hot = handsontable({
+    it('should correctly autofill - range, right, partial', async() => {
+      handsontable({
         data: [
           ['=E6', '=E10', 'x', 'y'],
           ['=G6', '=G10', 'x', 'y'],
@@ -1940,18 +1797,18 @@ describe('Formulas general', () => {
         }
       });
 
-      selectCell(0, 0, 2, 1);
+      await selectCell(0, 0, 2, 1);
       autofill(2, 2);
 
-      expect(hot.getSourceData()).toEqual([
+      expect(getSourceData()).toEqual([
         ['=E6', '=E10', '=G6', 'y'],
         ['=G6', '=G10', '=I6', 'y'],
         ['=I6', '=I10', '=K6', 'y'],
       ]);
     });
 
-    it('should correctly autofill - range, right, overflow', () => {
-      const hot = handsontable({
+    it('should correctly autofill - range, right, overflow', async() => {
+      handsontable({
         data: [
           ['=E6', '=E10', 'x', 'x', 'x', 'y'],
           ['=G6', '=G10', 'x', 'x', 'x', 'y'],
@@ -1962,18 +1819,18 @@ describe('Formulas general', () => {
         }
       });
 
-      selectCell(0, 0, 2, 1);
+      await selectCell(0, 0, 2, 1);
       autofill(2, 4);
 
-      expect(hot.getSourceData()).toEqual([
+      expect(getSourceData()).toEqual([
         ['=E6', '=E10', '=G6', '=G10', '=I6', 'y'],
         ['=G6', '=G10', '=I6', '=I10', '=K6', 'y'],
         ['=I6', '=I10', '=K6', '=K10', '=M6', 'y']
       ]);
     });
 
-    it('should correctly autofill - range, left, partial', () => {
-      const hot = handsontable({
+    it('should correctly autofill - range, left, partial', async() => {
+      handsontable({
         data: [
           ['y', 'x', '=E6', '=E10'],
           ['y', 'x', '=G6', '=G10'],
@@ -1984,18 +1841,18 @@ describe('Formulas general', () => {
         }
       });
 
-      selectCell(0, 2, 2, 3);
+      await selectCell(0, 2, 2, 3);
       autofill(2, 1);
 
-      expect(hot.getSourceData()).toEqual([
+      expect(getSourceData()).toEqual([
         ['y', '=C10', '=E6', '=E10'],
         ['y', '=E10', '=G6', '=G10'],
         ['y', '=G10', '=I6', '=I10'],
       ]);
     });
 
-    it('should correctly autofill - range, left, overflow', () => {
-      const hot = handsontable({
+    it('should correctly autofill - range, left, overflow', async() => {
+      handsontable({
         data: [
           ['y', 'x', 'x', 'x', '=E6', '=E10'],
           ['y', 'x', 'x', 'x', '=G6', '=G10'],
@@ -2006,34 +1863,34 @@ describe('Formulas general', () => {
         }
       });
 
-      selectCell(0, 4, 2, 5);
+      await selectCell(0, 4, 2, 5);
       autofill(2, 1);
 
-      expect(hot.getSourceData()).toEqual([
+      expect(getSourceData()).toEqual([
         ['y', '=A10', '=C6', '=C10', '=E6', '=E10'],
         ['y', '=C10', '=E6', '=E10', '=G6', '=G10'],
         ['y', '=E10', '=G6', '=G10', '=I6', '=I10'],
       ]);
     });
 
-    it('should correctly autofill - range, left, odd', () => {
-      const hot = handsontable({
+    it('should correctly autofill - range, left, odd', async() => {
+      handsontable({
         data: [['y', 'x', 'x', 'x', 'x', 'x', 'x', '=Z3', '=Z5', '=Z8']],
         formulas: {
           engine: HyperFormula
         }
       });
 
-      selectCell(0, 7, 0, 9);
+      await selectCell(0, 7, 0, 9);
       autofill(0, 1);
 
-      expect(hot.getSourceData()).toEqual([
+      expect(getSourceData()).toEqual([
         ['y', '=T3', '=T5', '=T8', '=W3', '=W5', '=W8', '=Z3', '=Z5', '=Z8']
       ]);
     });
 
-    it('should correctly autofill - range, up, partial', () => {
-      const hot = handsontable({
+    it('should correctly autofill - range, up, partial', async() => {
+      handsontable({
         data: [
           ['x', 'x'],
           ['=E7', '=E10'],
@@ -2045,10 +1902,10 @@ describe('Formulas general', () => {
         }
       });
 
-      selectCell(1, 0, 3, 1);
+      await selectCell(1, 0, 3, 1);
       autofill(0, 1);
 
-      expect(hot.getSourceData()).toEqual([
+      expect(getSourceData()).toEqual([
         ['=I4', '=I7'],
         ['=E7', '=E10'],
         ['=G7', '=G10'],
@@ -2056,8 +1913,8 @@ describe('Formulas general', () => {
       ]);
     });
 
-    it('should correctly autofill - range, up, overflow', () => {
-      const hot = handsontable({
+    it('should correctly autofill - range, up, overflow', async() => {
+      handsontable({
         data: [
           ['y', 'y'],
           ['x', 'x'],
@@ -2074,10 +1931,10 @@ describe('Formulas general', () => {
         }
       });
 
-      selectCell(6, 0, 8, 1);
+      await selectCell(6, 0, 8, 1);
       autofill(1, 1);
 
-      expect(hot.getSourceData()).toEqual([
+      expect(getSourceData()).toEqual([
         ['y', 'y'],
         ['=G1', '=G4'],
         ['=I1', '=I4'],
@@ -2090,23 +1947,23 @@ describe('Formulas general', () => {
       ]);
     });
 
-    it('should correctly autofill - range, up, even', () => {
-      const hot = handsontable({
+    it('should correctly autofill - range, up, even', async() => {
+      handsontable({
         data: [['y'], ['x'], ['x'], ['x'], ['x'], ['x'], ['x'], ['=A9'], ['=A12']],
         formulas: {
           engine: HyperFormula
         }
       });
 
-      selectCell(7, 0, 8, 0);
+      await selectCell(7, 0, 8, 0);
       autofill(1, 0);
 
-      expect(hot.getSourceData()).toEqual([
+      expect(getSourceData()).toEqual([
         ['y'], ['=A3'], ['=A6'], ['=A5'], ['=A8'], ['=A7'], ['=A10'], ['=A9'], ['=A12']
       ]);
     });
 
-    it('should allow for mutating autofill results when using formulas (#8107)', () => {
+    it('should allow for mutating autofill results when using formulas (#8107)', async() => {
       handsontable({
         data: [
           ['2016', 1, 1, 2, 3],
@@ -2118,7 +1975,7 @@ describe('Formulas general', () => {
 
       addHook('beforeChange', (changes) => { changes[0] = null; });
 
-      selectCell(0, 0);
+      await selectCell(0, 0);
       autofill(0, 2);
 
       expect(getData()).toEqual([['2016', 1, '2016', 2, 3]]);
@@ -2126,30 +1983,30 @@ describe('Formulas general', () => {
   });
 
   describe('Formulas#getCellType', () => {
-    it('should return `FORMULA`', () => {
-      const hot = handsontable({
+    it('should return `FORMULA`', async() => {
+      handsontable({
         data: [['=2 + 2']],
         formulas: {
           engine: HyperFormula
         }
       });
 
-      expect(hot.getPlugin('formulas').getCellType(0, 0)).toEqual('FORMULA');
+      expect(getPlugin('formulas').getCellType(0, 0)).toEqual('FORMULA');
     });
 
-    it('should return `VALUE`', () => {
-      const hot = handsontable({
+    it('should return `VALUE`', async() => {
+      handsontable({
         data: [['4']],
         formulas: {
           engine: HyperFormula
         }
       });
 
-      expect(hot.getPlugin('formulas').getCellType(0, 0)).toEqual('VALUE');
+      expect(getPlugin('formulas').getCellType(0, 0)).toEqual('VALUE');
     });
 
-    it('should return `ARRAYFORMULA`', () => {
-      const hot = handsontable({
+    it('should return `ARRAYFORMULA`', async() => {
+      handsontable({
         data: [
           ['1', '2'],
           ['3', '4'],
@@ -2161,44 +2018,44 @@ describe('Formulas general', () => {
         }
       });
 
-      hot.setDataAtCell(2, 0, '=ARRAYFORMULA(TRANSPOSE(A1:B2))');
+      await setDataAtCell(2, 0, '=ARRAYFORMULA(TRANSPOSE(A1:B2))');
 
-      expect(hot.getPlugin('formulas').getCellType(2, 0)).toEqual('ARRAYFORMULA');
+      expect(getPlugin('formulas').getCellType(2, 0)).toEqual('ARRAYFORMULA');
     });
 
-    it('should return `EMPTY` when out of bounds', () => {
-      const hot = handsontable({
+    it('should return `EMPTY` when out of bounds', async() => {
+      handsontable({
         data: [['4']],
         formulas: {
           engine: HyperFormula
         }
       });
 
-      expect(hot.getPlugin('formulas').getCellType(10, 10)).toEqual('EMPTY');
+      expect(getPlugin('formulas').getCellType(10, 10)).toEqual('EMPTY');
     });
 
-    it('should return correct values for background sheets', () => {
+    it('should return correct values for background sheets', async() => {
       const hf = HyperFormula.buildFromSheets({
         one: [['4']],
         two: [['=2 + 2']]
       });
 
-      const hot = handsontable({
+      handsontable({
         formulas: {
           engine: hf,
           sheetName: 'one'
         }
       });
 
-      const sheet = hot.getPlugin('formulas').engine.getSheetId('two');
+      const sheet = getPlugin('formulas').engine.getSheetId('two');
 
-      expect(hot.getPlugin('formulas').getCellType(0, 0, sheet)).toEqual('FORMULA');
+      expect(getPlugin('formulas').getCellType(0, 0, sheet)).toEqual('FORMULA');
     });
   });
 
   describe('hyperformula alter operation blocks', () => {
-    it('should block creating too many rows', () => {
-      const hot = handsontable({
+    it('should cap row creation at `maxRows`, like a grid without the plugin', async() => {
+      handsontable({
         data: [],
         formulas: {
           engine: {
@@ -2209,13 +2066,15 @@ describe('Formulas general', () => {
         maxRows: 10000
       });
 
-      hot.alter('insert_row_above', 0, 20000);
+      await alter('insert_row_above', 0, 20000);
 
-      expect(hot.countRows()).toEqual(0);
+      // The engine no longer carries the grid's `maxRows` (GH #10672), so it stops cancelling the whole
+      // insert and `dataMap.createRow` caps it at `maxRows` - the same as a grid without the plugin.
+      expect(countRows()).toEqual(10000);
     });
 
-    it('should block creating too many columns', () => {
-      const hot = handsontable({
+    it('should block creating too many columns', async() => {
+      handsontable({
         data: [[]],
         formulas: {
           engine: HyperFormula
@@ -2224,17 +2083,17 @@ describe('Formulas general', () => {
         maxCols: 10000
       });
 
-      hot.alter('insert_col_start', 0, 20000);
+      await alter('insert_col_start', 0, 20000);
 
-      expect(hot.countCols()).toEqual(0);
+      expect(countCols()).toEqual(0);
     });
   });
 
-  it('should not render multiple times when updating many cells', () => {
+  it('should not render multiple times when updating many cells', async() => {
     const afterViewRender = jasmine.createSpy();
 
     handsontable({
-      data: Handsontable.helper.createSpreadsheetData(10, 10),
+      data: createSpreadsheetData(10, 10),
       formulas: {
         engine: HyperFormula
       },
@@ -2243,25 +2102,24 @@ describe('Formulas general', () => {
 
     expect(afterViewRender).toHaveBeenCalledTimes(1);
 
-    selectCell(1, 1, 5, 5);
-
-    keyDownUp('delete');
+    await selectCell(1, 1, 5, 5);
+    await keyDownUp('delete');
 
     expect(afterViewRender).toHaveBeenCalledTimes(2);
   });
 
-  it('should freeze correct columns with ManualColumnFreeze', () => {
-    const hot = handsontable({
-      data: Handsontable.helper.createSpreadsheetData(5, 5),
+  it('should freeze correct columns with ManualColumnFreeze', async() => {
+    handsontable({
+      data: createSpreadsheetData(5, 5),
       formulas: {
         engine: HyperFormula
       },
       manualColumnFreeze: true
     });
 
-    hot.getPlugin('ManualColumnFreeze').freezeColumn(2);
+    getPlugin('ManualColumnFreeze').freezeColumn(2);
 
-    expect(hot.getData()).toEqual([
+    expect(getData()).toEqual([
       ['C1', 'A1', 'B1', 'D1', 'E1'],
       ['C2', 'A2', 'B2', 'D2', 'E2'],
       ['C3', 'A3', 'B3', 'D3', 'E3'],
@@ -2269,9 +2127,9 @@ describe('Formulas general', () => {
       ['C5', 'A5', 'B5', 'D5', 'E5']
     ]);
 
-    hot.getPlugin('ManualColumnFreeze').freezeColumn(2);
+    getPlugin('ManualColumnFreeze').freezeColumn(2);
 
-    expect(hot.getData()).toEqual([
+    expect(getData()).toEqual([
       ['C1', 'B1', 'A1', 'D1', 'E1'],
       ['C2', 'B2', 'A2', 'D2', 'E2'],
       ['C3', 'B3', 'A3', 'D3', 'E3'],
@@ -2280,8 +2138,8 @@ describe('Formulas general', () => {
     ]);
   });
 
-  it('should support basic sorting', () => {
-    const hot = handsontable({
+  it('should support basic sorting', async() => {
+    handsontable({
       data: [
         ['B2', 3.5, '=B2'],
         ['B1', 99, '=B1'],
@@ -2296,12 +2154,12 @@ describe('Formulas general', () => {
       columnSorting: true,
     });
 
-    hot.getPlugin('columnSorting').sort({
+    getPlugin('columnSorting').sort({
       column: 1,
       sortOrder: 'asc'
     });
 
-    expect(hot.getData()).toEqual([
+    expect(getData()).toEqual([
       ['SUM(B1:B2)', 1.5, '#REF!'],
       ['B2', 3.5, 99],
       ['B1', 99, 3.5],
@@ -2315,12 +2173,12 @@ describe('Formulas general', () => {
       ['SUM(B1:B2)', 1.5, '=SUM(#REF!)'],
     ]);
 
-    hot.getPlugin('columnSorting').sort({
+    getPlugin('columnSorting').sort({
       column: 1,
       sortOrder: 'desc'
     });
 
-    expect(hot.getData()).toEqual([
+    expect(getData()).toEqual([
       ['B1', 99, '#REF!'],
       ['B2', 3.5, 1.5],
       ['SUM(B1:B2)', 1.5, '#REF!'],
@@ -2334,9 +2192,9 @@ describe('Formulas general', () => {
       ['SUM(B1:B2)', 1.5, '=SUM(#REF!)'],
     ]);
 
-    hot.getPlugin('columnSorting').clearSort();
+    getPlugin('columnSorting').clearSort();
 
-    expect(hot.getData()).toEqual([
+    expect(getData()).toEqual([
       ['B2', 3.5, 99],
       ['B1', 99, '#REF!'],
       ['SUM(B1:B2)', 1.5, '#REF!'],
@@ -2351,8 +2209,8 @@ describe('Formulas general', () => {
     ]);
   });
 
-  it('should sort properly when some cell is referencing to element outside the table boundaries', () => {
-    const hot = handsontable({
+  it('should sort properly when some cell is referencing to element outside the table boundaries', async() => {
+    handsontable({
       data: [
         [1, '=A3'],
         [2, '=A1'],
@@ -2367,7 +2225,7 @@ describe('Formulas general', () => {
       columnSorting: true,
     });
 
-    hot.getPlugin('columnSorting').sort({
+    getPlugin('columnSorting').sort({
       column: 0,
       sortOrder: 'asc'
     });
@@ -2384,7 +2242,7 @@ describe('Formulas general', () => {
       [3, '=A2'],
     ]);
 
-    hot.getPlugin('columnSorting').sort({
+    getPlugin('columnSorting').sort({
       column: 0,
       sortOrder: 'desc'
     });
@@ -2403,7 +2261,7 @@ describe('Formulas general', () => {
       [3, '=#REF!'],
     ]);
 
-    hot.getPlugin('columnSorting').clearSort();
+    getPlugin('columnSorting').clearSort();
 
     expect(getData()).toEqual([
       [1, 3],
@@ -2421,8 +2279,8 @@ describe('Formulas general', () => {
   });
 
   describe('basic filtering support', () => {
-    it('should filter by condition', () => {
-      const hot = handsontable({
+    it('should filter by condition', async() => {
+      handsontable({
         data: [
           ['Lorem', 'ipsum', 'dolor', 'sit', '12/1/2015', 23],
           ['adipiscing', 'elit', 'Ut', 'imperdiet', '5/12/2015', 6],
@@ -2435,7 +2293,7 @@ describe('Formulas general', () => {
           { type: 'text' },
           { type: 'text' },
           { type: 'text' },
-          { type: 'date', dateFormat: 'M/D/YYYY' },
+          { type: 'date', dateFormat: { year: 'numeric', month: 'numeric', day: 'numeric' } },
           { type: 'numeric' }
         ],
         colHeaders: true,
@@ -2447,14 +2305,14 @@ describe('Formulas general', () => {
         }
       });
 
-      hot.getPlugin('filters').addCondition(0, 'eq', ['orci']);
-      hot.getPlugin('filters').filter();
+      getPlugin('filters').addCondition(0, 'eq', ['orci']);
+      getPlugin('filters').filter();
 
-      expect(hot.getData()).toEqual([['orci', 'et', 'dignissim', 'hendrerit', '12/1/2016', 8.5]]);
+      expect(getData()).toEqual([['orci', 'et', 'dignissim', 'hendrerit', '12/1/2016', 8.5]]);
     });
 
-    it('should filter by value', () => {
-      const hot = handsontable({
+    it('should filter by value', async() => {
+      handsontable({
         data: [
           ['Lorem', 'ipsum', 'dolor', 'sit', '12/1/2015', 23],
           ['adipiscing', 'elit', 'Ut', 'imperdiet', '5/12/2015', 6],
@@ -2467,7 +2325,7 @@ describe('Formulas general', () => {
           { type: 'text' },
           { type: 'text' },
           { type: 'text' },
-          { type: 'date', dateFormat: 'M/D/YYYY' },
+          { type: 'date', dateFormat: { year: 'numeric', month: 'numeric', day: 'numeric' } },
           { type: 'numeric' }
         ],
         colHeaders: true,
@@ -2479,14 +2337,14 @@ describe('Formulas general', () => {
         }
       });
 
-      hot.getPlugin('filters').addCondition(0, 'by_value', [['orci']]);
-      hot.getPlugin('filters').filter();
+      getPlugin('filters').addCondition(0, 'by_value', [['orci']]);
+      getPlugin('filters').filter();
 
-      expect(hot.getData()).toEqual([['orci', 'et', 'dignissim', 'hendrerit', '12/1/2016', 8.5]]);
+      expect(getData()).toEqual([['orci', 'et', 'dignissim', 'hendrerit', '12/1/2016', 8.5]]);
     });
   });
 
-  it('should have very basic support for nested rows', () => {
+  it('should have very basic support for nested rows', async() => {
     const data = [
       {
         category: 'Best Rock Performance',
@@ -2613,7 +2471,7 @@ describe('Formulas general', () => {
       }
     ];
 
-    const hot = handsontable({
+    handsontable({
       data,
       rowHeaders: true,
       colHeaders: ['Category', 'Artist', 'Title', 'Album', 'Label'],
@@ -2624,9 +2482,9 @@ describe('Formulas general', () => {
       },
     });
 
-    hot.getPlugin('nestedRows').collapsingUI.collapseMultipleChildren([0, 6, 18]);
+    getPlugin('nestedRows').collapsingUI.collapseMultipleChildren([0, 6, 18]);
 
-    expect(hot.getData()).toEqual([
+    expect(getData()).toEqual([
       ['Best Rock Performance', null, null, null],
       ['Best Metal Performance', null, null, null],
       ['Best Rock Song', null, null, null],
@@ -2639,37 +2497,37 @@ describe('Formulas general', () => {
     ]);
   });
 
-  it('should support moving columns', () => {
-    const hot = handsontable({
-      data: Handsontable.helper.createSpreadsheetData(1, 5),
+  it('should support moving columns', async() => {
+    handsontable({
+      data: createSpreadsheetData(1, 5),
       manualColumnMove: true,
       colHeaders: true
     });
 
-    hot.getPlugin('ManualColumnMove').moveColumn(2, 0);
+    getPlugin('ManualColumnMove').moveColumn(2, 0);
 
-    hot.getPlugin('ManualColumnMove').moveColumn(3, 0);
-    hot.getPlugin('ManualColumnMove').moveColumn(3, 0);
+    getPlugin('ManualColumnMove').moveColumn(3, 0);
+    getPlugin('ManualColumnMove').moveColumn(3, 0);
 
-    hot.render();
+    await render();
 
-    expect(hot.getData()).toEqual([['B1', 'D1', 'C1', 'A1', 'E1']]);
+    expect(getData()).toEqual([['B1', 'D1', 'C1', 'A1', 'E1']]);
   });
 
-  it('should support moving rows', () => {
-    const hot = handsontable({
-      data: Handsontable.helper.createSpreadsheetData(5, 1),
+  it('should support moving rows', async() => {
+    handsontable({
+      data: createSpreadsheetData(5, 1),
       manualRowMove: true
     });
 
-    hot.getPlugin('ManualRowMove').moveRow(2, 0);
+    getPlugin('ManualRowMove').moveRow(2, 0);
 
-    hot.getPlugin('ManualRowMove').moveRow(3, 0);
-    hot.getPlugin('ManualRowMove').moveRow(3, 0);
+    getPlugin('ManualRowMove').moveRow(3, 0);
+    getPlugin('ManualRowMove').moveRow(3, 0);
 
-    hot.render();
+    await render();
 
-    expect(hot.getData()).toEqual([
+    expect(getData()).toEqual([
       ['A2'],
       ['A4'],
       ['A3'],
@@ -2680,8 +2538,8 @@ describe('Formulas general', () => {
 
   describe('should perform CRUD operations in HyperFormula based on physical indexes', () => {
     describe('performing CRUD actions', () => {
-      it('should remove rows in the right place', () => {
-        const hot = handsontable({
+      it('should remove rows in the right place', async() => {
+        handsontable({
           data: [
             [1, 'a', 'b', '1c'],
             [2, 'a', 'b', '2c'],
@@ -2697,9 +2555,9 @@ describe('Formulas general', () => {
           trimRows: [2, 3, 4]
         });
 
-        hot.alter('remove_row', 1, 2);
+        await alter('remove_row', 1, 2);
 
-        expect(hot.getSourceData()).toEqual([
+        expect(getSourceData()).toEqual([
           [1, 'a', 'b', '1c'],
           ['trimmed', 'row', '', ''],
           ['trimmed', 'row', '', ''],
@@ -2708,8 +2566,8 @@ describe('Formulas general', () => {
         ]);
       });
 
-      it('should remove columns in the right place', () => {
-        const hot = handsontable({
+      it('should remove columns in the right place', async() => {
+        handsontable({
           data: [
             [1, 'a', 'b', '1c'],
             [2, 'a', 'b', '2c']
@@ -2720,16 +2578,16 @@ describe('Formulas general', () => {
           manualColumnMove: [1, 0, 2, 3]
         });
 
-        hot.alter('remove_col', 1, 2);
+        await alter('remove_col', 1, 2);
 
-        expect(hot.getData()).toEqual([
+        expect(getData()).toEqual([
           ['a', '1c'],
           ['a', '2c']
         ]);
       });
 
-      it('should add rows in the right place', () => {
-        const hot = handsontable({
+      it('should add rows in the right place', async() => {
+        handsontable({
           data: [
             [1, 'a', 'b', '1c'],
             [2, 'a', 'b', '2c'],
@@ -2745,9 +2603,9 @@ describe('Formulas general', () => {
           trimRows: [2, 3, 4]
         });
 
-        hot.alter('insert_row_above', 2, 2);
+        await alter('insert_row_above', 2, 2);
 
-        expect(hot.getData()).toEqual([
+        expect(getData()).toEqual([
           [1, 'a', 'b', '1c'],
           [2, 'a', 'b', '2c'],
           [null, null, null, null],
@@ -2757,8 +2615,8 @@ describe('Formulas general', () => {
         ]);
       });
 
-      it('should add columns in the right place', () => {
-        const hot = handsontable({
+      it('should add columns in the right place', async() => {
+        handsontable({
           data: [
             [1, 'a', 'b', '1c'],
             [2, 'a', 'b', '2c']
@@ -2769,9 +2627,9 @@ describe('Formulas general', () => {
           manualColumnMove: [1, 0, 2, 3]
         });
 
-        hot.alter('insert_col_start', 1, 2);
+        await alter('insert_col_start', 1, 2);
 
-        expect(hot.getData()).toEqual([
+        expect(getData()).toEqual([
           ['a', null, null, 1, 'b', '1c'],
           ['a', null, null, 2, 'b', '2c']
         ]);
@@ -2779,7 +2637,7 @@ describe('Formulas general', () => {
     });
   });
 
-  it('should not overwrite source data by formula calculation values when there are some merge cells', () => {
+  it('should not overwrite source data by formula calculation values when there are some merge cells', async() => {
     handsontable({
       data: [
         [null, '=SUM(C1*2)', 3, '=SUM(C1*2)', null],
@@ -2817,7 +2675,7 @@ describe('Formulas general', () => {
     ]);
   });
 
-  it('should not crash when declaring a named expression with a sheet name that contains a `-` (#8057)', () => {
+  it('should not crash when declaring a named expression with a sheet name that contains a `-` (#8057)', async() => {
     const errors = [];
 
     try {
@@ -2849,7 +2707,7 @@ describe('Formulas general', () => {
     ]);
   });
 
-  it('should recalculate the formulas after calling the `loadData` method', () => {
+  it('should recalculate the formulas after calling the `loadData` method', async() => {
     handsontable({
       data: [
         [0],
@@ -2859,7 +2717,7 @@ describe('Formulas general', () => {
       }
     });
 
-    loadData([
+    await loadData([
       [1, 2, 3, 4, 5],
       [9, 8, 7, 6, '=A1 + B1']
     ]);
@@ -2867,7 +2725,7 @@ describe('Formulas general', () => {
     expect(getDataAtCell(1, 4)).toEqual(3);
   });
 
-  it('should recalculate the formulas after calling the `updateData` method', () => {
+  it('should recalculate the formulas after calling the `updateData` method', async() => {
     handsontable({
       data: [
         [0],
@@ -2877,7 +2735,7 @@ describe('Formulas general', () => {
       }
     });
 
-    updateData([
+    await updateData([
       [1, 2, 3, 4, 5],
       [9, 8, 7, 6, '=A1 + B1']
     ]);
@@ -2885,7 +2743,278 @@ describe('Formulas general', () => {
     expect(getDataAtCell(1, 4)).toEqual(3);
   });
 
-  it('should display calculated formula after changing value using `beforeChange` hook #6932', () => {
+  it('should replace an existing formula\'s text when the `loadData` method is called', async() => {
+    handsontable({
+      data: [
+        [1],
+        ['=A1+1'],
+      ],
+      formulas: {
+        engine: HyperFormula,
+      }
+    });
+
+    const formulasPlugin = getPlugin('formulas');
+
+    // The sheet is reused across `loadData` calls, so at this point the engine still holds the
+    // PREVIOUS formula. The data fed to the engine has to come from what the grid stores, not from
+    // the `modifySourceData` projection – that projection answers a formula cell with the engine's
+    // own formula, which would write the stale `=A1+1` straight back and drop the loaded one.
+    await loadData([
+      [1],
+      ['=A1+100'],
+    ]);
+
+    expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)).toEqual([
+      [1],
+      ['=A1+100'],
+    ]);
+
+    expect(getDataAtCell(1, 0)).toBe(101);
+  });
+
+  it('should replace an existing formula\'s text when the `updateData` method is called', async() => {
+    handsontable({
+      data: [
+        [1],
+        ['=A1+1'],
+      ],
+      formulas: {
+        engine: HyperFormula,
+      }
+    });
+
+    const formulasPlugin = getPlugin('formulas');
+
+    await updateData([
+      [1],
+      ['=A1+100'],
+    ]);
+
+    expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)).toEqual([
+      [1],
+      ['=A1+100'],
+    ]);
+
+    expect(getDataAtCell(1, 0)).toBe(101);
+  });
+
+  it('should replace an existing formula with a literal value when the `loadData` method is called', async() => {
+    handsontable({
+      data: [
+        [1],
+        ['=A1+1'],
+      ],
+      formulas: {
+        engine: HyperFormula,
+      }
+    });
+
+    const formulasPlugin = getPlugin('formulas');
+
+    // The same defect as in the two cases above, with the loaded value no longer being a formula.
+    // The `modifySourceData` projection answers a formula cell with the formula the engine holds, so
+    // reading the newly loaded data through it resurrects `=A1+1` into what is now a value cell.
+    await loadData([
+      [1],
+      [5],
+    ]);
+
+    expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)).toEqual([
+      [1],
+      [5],
+    ]);
+
+    expect(getDataAtCell(1, 0)).toBe(5);
+  });
+
+  it('should replace an existing formula with a literal value when the `updateData` method is called', async() => {
+    handsontable({
+      data: [
+        [1],
+        ['=A1+1'],
+      ],
+      formulas: {
+        engine: HyperFormula,
+      }
+    });
+
+    const formulasPlugin = getPlugin('formulas');
+
+    await updateData([
+      [1],
+      [5],
+    ]);
+
+    expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)).toEqual([
+      [1],
+      [5],
+    ]);
+
+    expect(getDataAtCell(1, 0)).toBe(5);
+  });
+
+  it('should replace an existing formula\'s text when the data is replaced through `updateSettings`', async() => {
+    handsontable({
+      data: [
+        [1],
+        ['=A1+1'],
+      ],
+      formulas: {
+        engine: HyperFormula,
+      }
+    });
+
+    const formulasPlugin = getPlugin('formulas');
+
+    // A third public entry point for the same defect, and it reaches the engine through a different
+    // site: `#onAfterLoadData` returns early for the `updateSettings` source, so the data is fed to
+    // the engine from `#onAfterCellMetaReset` instead.
+    await updateSettings({
+      data: [
+        [1],
+        ['=A1+100'],
+      ],
+    });
+
+    expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)).toEqual([
+      [1],
+      ['=A1+100'],
+    ]);
+
+    expect(getDataAtCell(1, 0)).toBe(101);
+  });
+
+  it('should replace an existing formula\'s text when the `loadData` method is called for array of objects', async() => {
+    handsontable({
+      data: [
+        { value: 1, note: 'skipped' },
+        { value: '=A1+1', note: 'skipped' },
+      ],
+      // The second key is deliberately left out of `columns`, so `countCols()` is lower than
+      // `countSourceCols()` and the shape check in `#getProcessedSourceDataArray` is actually
+      // evaluated. With a single key it would short-circuit and the array-of-objects branch would
+      // be selected without the check ever running.
+      columns: [
+        { data: 'value' },
+      ],
+      formulas: {
+        engine: HyperFormula,
+      }
+    });
+
+    const formulasPlugin = getPlugin('formulas');
+
+    await loadData([
+      { value: 1, note: 'skipped' },
+      { value: '=A1+100', note: 'skipped' },
+    ]);
+
+    expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)).toEqual([
+      [1],
+      ['=A1+100'],
+    ]);
+
+    expect(getDataAtCell(1, 0)).toBe(101);
+  });
+
+  it('should replace an existing formula\'s text when the `loadData` method is called for data with skipped columns',
+    async() => {
+      handsontable({
+        data: [
+          [1, 'skipped', '=A1+1'],
+          [2, 'skipped', 3],
+        ],
+        // Only the physical columns 0 and 2 are visible, so `#getProcessedSourceDataArray` projects
+        // the rows down to the visible ones before feeding them to the engine - a different branch
+        // than the one the cases above take.
+        columns: [
+          { data: 0 },
+          { data: 2 },
+        ],
+        formulas: {
+          engine: HyperFormula,
+        }
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      await loadData([
+        [1, 'skipped', '=A1+100'],
+        [2, 'skipped', 3],
+      ]);
+
+      expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)).toEqual([
+        [1, '=A1+100'],
+        [2, 3],
+      ]);
+
+      expect(getDataAtCell(0, 1)).toBe(101);
+    });
+
+  it('should replace an existing formula\'s text when the `loadData` method is called for data with an empty row',
+    async() => {
+      handsontable({
+        data: [
+          [1, 'skipped', '=A1+1'],
+          null,
+        ],
+        // The shape check in `#getProcessedSourceDataArray` reads the first row only, so a row that
+        // is not an array still reaches the branch projecting rows down to the visible columns.
+        columns: [
+          { data: 0 },
+          { data: 2 },
+        ],
+        formulas: {
+          engine: HyperFormula,
+        }
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      await loadData([
+        [1, 'skipped', '=A1+100'],
+        null,
+      ]);
+
+      // The engine drops the trailing empty row, so only the first one is serialized.
+      expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)).toEqual([
+        [1, '=A1+100'],
+      ]);
+
+      expect(getDataAtCell(0, 1)).toBe(101);
+    });
+
+  it('should keep an array formula spilling when the `loadData` method is called', async() => {
+    handsontable({
+      data: [
+        [1, 2],
+        ['=TRANSPOSE(A1:B1)', null],
+        [null, null],
+      ],
+      formulas: {
+        engine: HyperFormula,
+      }
+    });
+
+    // A spill cell reports the `ARRAY` cell type, not `ARRAYFORMULA`, so it passes the
+    // `VALUE`/`EMPTY` early return in `#onModifySourceData` and gets projected as well - as its
+    // calculated value. Feeding that back puts a literal inside the range the array formula needs,
+    // and the engine answers the whole load with `#SPILL!`.
+    await loadData([
+      [10, 20],
+      ['=TRANSPOSE(A1:B1)', null],
+      [null, null],
+    ]);
+
+    expect(getData()).toEqual([
+      [10, 20],
+      [10, null],
+      [20, null],
+    ]);
+  });
+
+  it('should display calculated formula after changing value using `beforeChange` hook #6932', async() => {
     handsontable({
       data: [
         ['2016', 1, 1, 2, 3],
@@ -2903,7 +3032,7 @@ describe('Formulas general', () => {
       },
     });
 
-    setDataAtCell(0, 0, 1);
+    await setDataAtCell(0, 0, 1);
 
     expect(getData()).toEqual([
       [58, 1, 1, 2, 3],
@@ -2919,11 +3048,70 @@ describe('Formulas general', () => {
     ]);
   });
 
-  describe('handling dates', () => {
-    it('should handle date functions properly', () => {
+  describe('renaming sheet for HF instance', () => {
+    it('should update HOT\'s plugin internal property', async() => {
+      let sheetNameInsideHook = '';
+      const hfInstance = HyperFormula.buildEmpty({});
+
       handsontable({
         data: [
-          ['=DATE(2022, 8, 1)', '=DATEVALUE("01/03/2020")'],
+          ['01/03/1900'],
+          ['=A1']
+        ],
+        formulas: {
+          engine: hfInstance,
+          sheetName: 'Sheet1'
+        },
+        columns: [{
+          type: 'date',
+          dateFormat: { year: 'numeric', month: '2-digit', day: '2-digit' }
+        }],
+      });
+
+      addHook('afterSheetRenamed', async() => {
+        sheetNameInsideHook = getPlugin('formulas').sheetName;
+      });
+
+      hfInstance.renameSheet(0, 'Lorem Ipsum');
+
+      expect(getPlugin('formulas').sheetName).toBe('Lorem Ipsum');
+      expect(sheetNameInsideHook).toBe('Lorem Ipsum');
+    });
+
+    it('should not throw an error while performing actions on HOT with renamed sheet', async() => {
+      const hfInstance = HyperFormula.buildEmpty({});
+
+      handsontable({
+        data: [
+          ['01/03/1900'],
+          ['=A1']
+        ],
+        formulas: {
+          engine: hfInstance,
+          sheetName: 'Sheet1'
+        },
+        columns: [{
+          type: 'date',
+          dateFormat: { year: 'numeric', month: '2-digit', day: '2-digit' }
+        }],
+      });
+
+      hfInstance.renameSheet(0, 'Lorem Ipsum');
+
+      expect(() => {
+        // eslint-disable-next-line handsontable/require-await
+        setDataAtCell(0, 1, 'new value');
+      }).not.toThrow();
+
+      expect(getDataAtCell(0, 1)).toBe('new value');
+    });
+  });
+
+  describe('handling dates', () => {
+    it('should handle date functions properly', async() => {
+      handsontable({
+        data: [
+          ['=DATE(2022, 8, 1)', '=DATEVALUE("2020-03-01")'],
           ['=EDATE(A1, 1)', '=DAYS(A1, A2)'],
           ['=A2', '=DATEDIF(TODAY(), NOW(), "D")'],
         ],
@@ -2932,20 +3120,19 @@ describe('Formulas general', () => {
         },
         columns: [{
           type: 'date',
-          dateFormat: 'MM/DD/YYYY'
         }, {
           type: 'numeric'
         }],
       });
 
       expect(getData()).toEqual([
-        ['08/01/2022', 43891], // A Datestring handled using HF's `dateFormats` option.
-        ['09/01/2022', -31],
-        ['09/01/2022', 0],
+        ['2022-08-01', 43891], // DATEVALUE("2020-03-01") = 43891 (March 1, 2020 serial)
+        ['2022-09-01', -31],
+        ['2022-09-01', 0],
       ]);
 
       expect(getSourceData()).toEqual([
-        ['=DATE(2022, 8, 1)', '=DATEVALUE("01/03/2020")'],
+        ['=DATE(2022, 8, 1)', '=DATEVALUE("2020-03-01")'],
         ['=EDATE(A1, 1)', '=DAYS(A1, A2)'],
         ['=A2', '=DATEDIF(TODAY(), NOW(), "D")'],
       ]);
@@ -2962,7 +3149,7 @@ describe('Formulas general', () => {
         },
         columns: [{
           type: 'date',
-          dateFormat: 'MM/DD/YYYY'
+          dateFormat: { year: 'numeric', month: '2-digit', day: '2-digit' }
         }],
       });
 
@@ -2988,9 +3175,9 @@ describe('Formulas general', () => {
         ['=A1'],
       ]);
 
-      validateCells();
+      await validateCells();
 
-      await sleep(50);
+      await waitForNextAnimationFrames(2);
 
       expect(getCellMeta(0, 0).valid).toBe(false);
       expect(getCellMeta(1, 0).valid).toBe(false);
@@ -3007,7 +3194,7 @@ describe('Formulas general', () => {
         },
         columns: [{
           type: 'date',
-          dateFormat: 'DD-MM-YYYY'
+          dateFormat: { year: 'numeric', month: '2-digit', day: '2-digit' }
         }],
       });
 
@@ -3033,18 +3220,18 @@ describe('Formulas general', () => {
         ['=A1'],
       ]);
 
-      validateCells();
+      await validateCells();
 
-      await sleep(50);
+      await waitForNextAnimationFrames(2);
 
       expect(getCellMeta(0, 0).valid).toBe(false);
       expect(getCellMeta(1, 0).valid).toBe(false);
     });
 
-    it('should handle correct on start dates properly (mismatching date formatting)', async() => {
+    it('should handle valid ISO dates on start (HF parses them as serials)', async() => {
       handsontable({
         data: [
-          ['12/11/2022'],
+          ['2022-12-11'],
           ['=A1']
         ],
         formulas: {
@@ -3052,7 +3239,6 @@ describe('Formulas general', () => {
         },
         columns: [{
           type: 'date',
-          dateFormat: 'MM/DD/YYYY'
         }],
       });
 
@@ -3064,32 +3250,32 @@ describe('Formulas general', () => {
       ]);
 
       expect(formulasPlugin.engine.getSheetSerialized(0)).toEqual([
-        ['11/12/2022'],
+        ['2022-12-11'],
         ['=A1'],
       ]);
 
       expect(getData()).toEqual([
-        ['12/11/2022'],
-        ['12/11/2022'],
+        ['2022-12-11'],
+        ['2022-12-11'],
       ]);
 
       expect(getSourceData()).toEqual([
-        ['12/11/2022'],
+        ['2022-12-11'],
         ['=A1'],
       ]);
 
-      validateCells();
+      await validateCells();
 
-      await sleep(50);
+      await waitForNextAnimationFrames(2);
 
       expect(getCellMeta(0, 0).valid).toBe(true);
       expect(getCellMeta(1, 0).valid).toBe(true);
     });
 
-    it('should handle dates after change properly (mismatching date formatting)', async() => {
+    it('should handle date changes: invalid ISO is escaped, valid ISO is parsed as serial', async() => {
       handsontable({
         data: [
-          ['12/11/2022'],
+          ['2022-12-11'],
           ['=A1']
         ],
         formulas: {
@@ -3097,46 +3283,45 @@ describe('Formulas general', () => {
         },
         columns: [{
           type: 'date',
-          dateFormat: 'MM/DD/YYYY'
         }],
       });
 
       const formulasPlugin = getPlugin('formulas');
 
-      setDataAtCell(0, 0, '13/12/2022');
+      await setDataAtCell(0, 0, 'not-a-date');
 
-      await sleep(50);
+      await waitForNextAnimationFrames(2);
 
       expect(formulasPlugin.engine.getSheetValues(0)).toEqual([
-        ['13/12/2022'], // Not converted - improper date (we treat it as a string)
-        ['13/12/2022'],
+        ['not-a-date'], // Not ISO — escaped as string
+        ['not-a-date'],
       ]);
 
       expect(formulasPlugin.engine.getSheetSerialized(0)).toEqual([
-        ['\'13/12/2022'],
+        ['\'not-a-date'],
         ['=A1'],
       ]);
 
       expect(getData()).toEqual([
-        ['13/12/2022'],
-        ['13/12/2022'],
+        ['not-a-date'],
+        ['not-a-date'],
       ]);
 
       expect(getSourceData()).toEqual([
-        ['13/12/2022'],
+        ['not-a-date'],
         ['=A1'],
       ]);
 
-      validateCells();
+      await validateCells();
 
-      await sleep(50);
+      await waitForNextAnimationFrames(2);
 
       expect(getCellMeta(0, 0).valid).toBe(false);
       expect(getCellMeta(1, 0).valid).toBe(false);
 
-      setDataAtCell(0, 0, '12/11/2022');
+      await setDataAtCell(0, 0, '2022-12-11');
 
-      await sleep(100);
+      await waitForNextAnimationFrames(2);
 
       expect(formulasPlugin.engine.getSheetValues(0)).toEqual([
         [44906], // 11 Dec 2022
@@ -3144,142 +3329,74 @@ describe('Formulas general', () => {
       ]);
 
       expect(formulasPlugin.engine.getSheetSerialized(0)).toEqual([
-        ['11/12/2022'],
+        ['2022-12-11'],
         ['=A1'],
       ]);
 
       expect(getData()).toEqual([
-        ['12/11/2022'],
-        ['12/11/2022'],
+        ['2022-12-11'],
+        ['2022-12-11'],
       ]);
 
       expect(getSourceData()).toEqual([
-        ['12/11/2022'],
+        ['2022-12-11'],
         ['=A1'],
       ]);
 
-      validateCells();
+      await validateCells();
 
-      await sleep(50);
+      await waitForNextAnimationFrames(2);
 
       expect(getCellMeta(0, 0).valid).toBe(true);
       expect(getCellMeta(1, 0).valid).toBe(true);
     });
 
-    it('should handle dates properly (matching date formatting)', async() => {
+    it('should escape an invalid ISO date loaded via loadData()', async() => {
       handsontable({
         data: [
-          ['12/11/2022'],
-          ['=A1']
+          ['2022-12-11'],
+          ['=A1'],
         ],
         formulas: {
           engine: HyperFormula,
         },
         columns: [{
           type: 'date',
-          dateFormat: 'DD/MM/YYYY'
         }],
       });
 
       const formulasPlugin = getPlugin('formulas');
 
-      expect(formulasPlugin.engine.getSheetValues(0)).toEqual([
-        [44877], // 12 Nov 2022
-        [44877], // 12 Nov 2022
+      // '123' is not a valid ISO date, so the date-typed column still escapes it before writing to
+      // the engine – unlike 'not-a-date', HyperFormula WOULD otherwise coerce this value to the
+      // number 123, so it is a value the escape can actually be proven against.
+      //
+      // The dependent formula reads `ISTEXT(A1)` rather than plain `=A1`: any numeric-looking
+      // *computed* value in a `date`-typed cell is reformatted as an Excel-style serial date by the
+      // `modifyData` hook's unrelated date-display branch (`cellMeta.type === 'date' && isNumeric()`),
+      // which would mask the escaping outcome behind that reformatting either way. `ISTEXT()` returns
+      // a boolean, so it is read back untouched and discriminates cleanly through the public API:
+      // `true` only if A1 reached the engine as a string (i.e. the escape ran).
+      await loadData([
+        ['123'],
+        ['=ISTEXT(A1)'],
       ]);
 
-      expect(formulasPlugin.engine.getSheetSerialized(0)).toEqual([
-        ['12/11/2022'],
-        ['=A1'],
+      expect(getDataAtCell(1, 0)).toBe(true);
+
+      expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)).toEqual([
+        ['\'123'],
+        ['=ISTEXT(A1)'],
       ]);
-
-      expect(getData()).toEqual([
-        ['12/11/2022'],
-        ['12/11/2022'],
-      ]);
-
-      expect(getSourceData()).toEqual([
-        ['12/11/2022'],
-        ['=A1'],
-      ]);
-
-      validateCells();
-
-      await sleep(50);
-
-      expect(getCellMeta(0, 0).valid).toBe(true);
-      expect(getCellMeta(1, 0).valid).toBe(true);
-
-      setDataAtCell(0, 0, '12/13/2022');
-
-      await sleep(50);
-
-      expect(formulasPlugin.engine.getSheetValues(0)).toEqual([
-        ['12/13/2022'], // Not converted - improper date (we treat it as a string)
-        ['12/13/2022'],
-      ]);
-
-      expect(formulasPlugin.engine.getSheetSerialized(0)).toEqual([
-        ['\'12/13/2022'],
-        ['=A1'],
-      ]);
-
-      expect(getData()).toEqual([
-        ['12/13/2022'],
-        ['12/13/2022'],
-      ]);
-
-      expect(getSourceData()).toEqual([
-        ['12/13/2022'],
-        ['=A1'],
-      ]);
-
-      validateCells();
-
-      await sleep(50);
-
-      expect(getCellMeta(0, 0).valid).toBe(false);
-      expect(getCellMeta(1, 0).valid).toBe(false);
-
-      setDataAtCell(0, 0, '13/11/2022');
-
-      await sleep(50);
-
-      expect(formulasPlugin.engine.getSheetValues(0)).toEqual([
-        [44878], // 13 Nov 2022
-        [44878], // 13 Nov 2022
-      ]);
-
-      expect(formulasPlugin.engine.getSheetSerialized(0)).toEqual([
-        ['13/11/2022'],
-        ['=A1'],
-      ]);
-
-      expect(getData()).toEqual([
-        ['13/11/2022'],
-        ['13/11/2022'],
-      ]);
-
-      expect(getSourceData()).toEqual([
-        ['13/11/2022'],
-        ['=A1'],
-      ]);
-
-      validateCells();
-
-      await sleep(50);
-
-      expect(getCellMeta(0, 0).valid).toBe(true);
-      expect(getCellMeta(1, 0).valid).toBe(true);
     });
 
-    it('should handle HF configuration property (HF instance should not overwrite `leapYear1900` and `nullDate` properties)', () => {
-      // Create an external HyperFormula instance
-      const hfInstance = HyperFormula.buildEmpty({});
+    it('should handle HF configuration property (HF instance should not overwrite `leapYear1900` and `nullDate` properties)', async() => {
+      // Create an external HyperFormula instance with ISO date format support
+      const hfInstance = HyperFormula.buildEmpty({ dateFormats: ['YYYY-MM-DD'] });
 
       handsontable({
         data: [
-          ['01/03/1900'],
+          ['1900-03-01'],
           ['=A1']
         ],
         formulas: {
@@ -3288,7 +3405,6 @@ describe('Formulas general', () => {
         },
         columns: [{
           type: 'date',
-          dateFormat: 'DD/MM/YYYY'
         }],
       });
 
@@ -3300,27 +3416,27 @@ describe('Formulas general', () => {
       ]);
 
       expect(formulasPlugin.engine.getSheetSerialized(0)).toEqual([
-        ['01/03/1900'],
+        ['1900-03-01'],
         ['=A1'],
       ]);
 
       expect(getData()).toEqual([
-        ['01/03/1900'],
-        ['01/03/1900'],
+        ['1900-03-01'],
+        ['1900-03-01'],
       ]);
 
       expect(getSourceData()).toEqual([
-        ['01/03/1900'],
+        ['1900-03-01'],
         ['=A1'],
       ]);
     });
 
-    it('should not show warn for default HyperFormula configuration', () => {
-      const warnSpy = spyOn(console, 'warn');
+    it('should not show warn for default HyperFormula configuration', async() => {
+      const warnSpy = spyOnConsoleWarn();
 
       handsontable({
         data: [
-          ['01/03/1900'],
+          ['1900-03-01'],
           ['=A1']
         ],
         formulas: {
@@ -3328,21 +3444,20 @@ describe('Formulas general', () => {
         },
         columns: [{
           type: 'date',
-          dateFormat: 'DD/MM/YYYY'
         }],
       });
 
       expect(warnSpy).not.toHaveBeenCalled();
     });
 
-    it('should not show warn for not overwritten HF\'s configuration options such as `leapYear1900` and `nullDate`', () => {
-      // Create an external HyperFormula instance
-      const hfInstance = HyperFormula.buildEmpty({});
-      const warnSpy = spyOn(console, 'warn');
+    it('should not show warn for not overwritten HF\'s configuration options such as `leapYear1900` and `nullDate`', async() => {
+      // Create an external HyperFormula instance with ISO date format support
+      const hfInstance = HyperFormula.buildEmpty({ dateFormats: ['YYYY-MM-DD'] });
+      const warnSpy = spyOnConsoleWarn();
 
       handsontable({
         data: [
-          ['01/03/1900'],
+          ['1900-03-01'],
           ['=A1']
         ],
         formulas: {
@@ -3351,23 +3466,23 @@ describe('Formulas general', () => {
         },
         columns: [{
           type: 'date',
-          dateFormat: 'DD/MM/YYYY'
         }],
       });
 
       expect(warnSpy).not.toHaveBeenCalled();
     });
 
-    it('should show warn for overwritten HF\'s configuration option such as `leapYear1900`', () => {
-      // Create an external HyperFormula instance
+    it('should show warn for overwritten HF\'s configuration option such as `leapYear1900`', async() => {
+      // Create an external HyperFormula instance with ISO date format support
       const hfInstance = HyperFormula.buildEmpty({
+        dateFormats: ['YYYY-MM-DD'],
         leapYear1900: true,
       });
-      const warnSpy = spyOn(console, 'warn');
+      const warnSpy = spyOnConsoleWarn();
 
       handsontable({
         data: [
-          ['01/03/1900'],
+          ['1900-03-01'],
           ['=A1']
         ],
         formulas: {
@@ -3376,27 +3491,27 @@ describe('Formulas general', () => {
         },
         columns: [{
           type: 'date',
-          dateFormat: 'DD/MM/YYYY'
         }],
       });
 
       expect(warnSpy).toHaveBeenCalled();
     });
 
-    it('should show warn for overwritten HF\'s configuration option such as `nullDate`', () => {
-      // Create an external HyperFormula instance
+    it('should show warn for overwritten HF\'s configuration option such as `nullDate`', async() => {
+      // Create an external HyperFormula instance with ISO date format support
       const hfInstance = HyperFormula.buildEmpty({
+        dateFormats: ['YYYY-MM-DD'],
         nullDate: {
           year: 1970,
           month: 0,
           day: 0,
         },
       });
-      const warnSpy = spyOn(console, 'warn');
+      const warnSpy = spyOnConsoleWarn();
 
       handsontable({
         data: [
-          ['01/03/1900'],
+          ['1900-03-01'],
           ['=A1']
         ],
         formulas: {
@@ -3405,7 +3520,1651 @@ describe('Formulas general', () => {
         },
         columns: [{
           type: 'date',
-          dateFormat: 'DD/MM/YYYY'
+        }],
+      });
+
+      expect(warnSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe('preserveTextValue', () => {
+    it('should pass an edited text-cell value to the engine as a string', async() => {
+      handsontable({
+        data: [
+          ['x'],
+          ['="ID"&"_"&A1'],
+          ['=LEN(A1)'],
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        columns: [{
+          type: 'text',
+          preserveTextValue: true,
+        }],
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      await setDataAtCell(0, 0, '0123456');
+
+      expect(formulasPlugin.engine.getSheetValues(0)).toEqual([
+        ['0123456'],
+        ['ID_0123456'],
+        [7],
+      ]);
+
+      expect(formulasPlugin.engine.getSheetSerialized(0)).toEqual([
+        ['\'0123456'],
+        ['="ID"&"_"&A1'],
+        ['=LEN(A1)'],
+      ]);
+
+      expect(getData()).toEqual([
+        ['0123456'],
+        ['ID_0123456'],
+        [7],
+      ]);
+
+      expect(getSourceData()).toEqual([
+        ['0123456'],
+        ['="ID"&"_"&A1'],
+        ['=LEN(A1)'],
+      ]);
+    });
+
+    it('should keep the default (coercing) behavior when the option is not enabled', async() => {
+      handsontable({
+        data: [
+          ['x'],
+          ['="ID"&"_"&A1'],
+          ['=LEN(A1)'],
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        columns: [{
+          type: 'text',
+        }],
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      await setDataAtCell(0, 0, '0123456');
+
+      expect(formulasPlugin.engine.getSheetValues(0)).toEqual([
+        [123456],
+        ['ID_123456'],
+        [6],
+      ]);
+    });
+
+    it('should pass initial text-cell values to the engine as strings', async() => {
+      handsontable({
+        data: [
+          ['0123456'],
+          ['="ID"&"_"&A1'],
+          ['=LEN(A1)'],
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        columns: [{
+          type: 'text',
+          preserveTextValue: true,
+        }],
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      expect(formulasPlugin.engine.getSheetValues(0)).toEqual([
+        ['0123456'],
+        ['ID_0123456'],
+        [7],
+      ]);
+
+      expect(getData()).toEqual([
+        ['0123456'],
+        ['ID_0123456'],
+        [7],
+      ]);
+    });
+
+    it('should pass text-cell values loaded via loadData() to the engine as strings', async() => {
+      handsontable({
+        data: [['x'], ['="ID"&"_"&A1'], ['=LEN(A1)']],
+        formulas: {
+          engine: HyperFormula,
+        },
+        columns: [{
+          type: 'text',
+          preserveTextValue: true,
+        }],
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      await loadData([['0123456'], ['="ID"&"_"&A1'], ['=LEN(A1)']]);
+
+      // `loadData()` recreates the engine sheet, so the values are read from the current sheet.
+      expect(formulasPlugin.engine.getSheetValues(formulasPlugin.sheetId)).toEqual([
+        ['0123456'],
+        ['ID_0123456'],
+        [7],
+      ]);
+
+      expect(getData()).toEqual([
+        ['0123456'],
+        ['ID_0123456'],
+        [7],
+      ]);
+    });
+
+    it('should keep coercing number-like text values on loadData when preserveTextValue is not enabled', async() => {
+      handsontable({
+        data: [['x'], ['=LEN(A1)']],
+        columns: [{ type: 'text' }],
+        formulas: {
+          engine: HyperFormula,
+        },
+      });
+
+      await loadData([['0123456'], ['=LEN(A1)']]);
+
+      // Default behavior (the option is off) – the engine coerces the value to the number 123456,
+      // dropping the leading zero, so its length is 6 rather than the preserved 7.
+      expect(getDataAtCell(1, 0)).toBe(6);
+    });
+
+    it('should pass a text-cell value set via setSourceDataAtCell() to the engine as a string', async() => {
+      handsontable({
+        data: [
+          ['x'],
+          ['=LEN(A1)'],
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        columns: [{
+          type: 'text',
+          preserveTextValue: true,
+        }],
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      await setSourceDataAtCell(0, 0, '0123456');
+
+      expect(formulasPlugin.engine.getSheetValues(0)).toEqual([
+        ['0123456'],
+        [7],
+      ]);
+
+      // The engine assertions above only prove the escape apostrophe reached HyperFormula – they
+      // would still pass if it also leaked back into Handsontable's own data. Pin the public API too.
+      expect(getSourceDataAtCell(0, 0)).toBe('0123456');
+      expect(getDataAtCell(0, 0)).toBe('0123456');
+    });
+
+    it('should autofill preserved text values without the escape apostrophe', async() => {
+      handsontable({
+        data: [
+          ['0123456', '=LEN(A1)'],
+          ['', '=LEN(A2)'],
+          ['', '=LEN(A3)'],
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        columns: [{
+          type: 'text',
+          preserveTextValue: true,
+        }, {}],
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      await selectCell(0, 0);
+      autofill(2, 0);
+
+      await waitForNextAnimationFrames(2);
+
+      expect(getDataAtCol(0)).toEqual(['0123456', '0123456', '0123456']);
+      expect(getSourceDataAtCol(0)).toEqual(['0123456', '0123456', '0123456']);
+      expect(formulasPlugin.engine.getSheetValues(0)).toEqual([
+        ['0123456', 7],
+        ['0123456', 7],
+        ['0123456', 7],
+      ]);
+    });
+
+    it('should read the autofill source cell meta through visual indexes when a trimmed row precedes it', async() => {
+      handsontable({
+        data: [
+          ['trimmed'],
+          [''],
+          [''],
+          [''],
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        // Only physical row 1 – the autofill source (visual row 0, since physical row 0 is
+        // trimmed) – is marked as preserved. `cells()` is called with physical coordinates.
+        cells(row, column) {
+          if (row === 1 && column === 0) {
+            return { type: 'text', preserveTextValue: true };
+          }
+
+          return { type: 'text' };
+        },
+        trimRows: [0],
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      await setDataAtCell(0, 0, '0123456');
+
+      // Physical row 0 is trimmed but still occupies a HyperFormula index (the engine is fed
+      // trimmed rows too), so the source cell's HF index (1) and its visual index (0) diverge –
+      // reading `getCellMeta()` with the raw HF index (1) lands on visual row 1 instead of the
+      // actual (visual row 0) source cell, and visual row 1 is not marked as preserved.
+      await selectCell(0, 0);
+      autofill(2, 0);
+
+      await waitForNextAnimationFrames(2);
+
+      // `getDataAtCol`/`getSourceDataAtCol` range over the raw physical row count, so they would
+      // include the trimmed row – read cell-by-cell through the visual (`getDataAtCell`) and
+      // physical (`getSourceDataAtCell`) coordinates instead.
+      expect(getDataAtCell(0, 0)).toBe('0123456');
+      expect(getDataAtCell(1, 0)).toBe('0123456');
+      expect(getDataAtCell(2, 0)).toBe('0123456');
+
+      expect(getSourceDataAtCell(1, 0)).toBe('0123456');
+      expect(getSourceDataAtCell(2, 0)).toBe('0123456');
+      expect(getSourceDataAtCell(3, 0)).toBe('0123456');
+
+      // Only physical row 1 (the source) carries `preserveTextValue`, so the engine keeps only
+      // that cell escaped – the filled cells are not preserved cells in their own right and are
+      // synced to the engine as plain text.
+      const filledHfCells = [1, 2, 3].map(row => formulasPlugin.engine.getCellSerialized({
+        sheet: formulasPlugin.sheetId, row, col: 0,
+      }));
+
+      expect(filledHfCells).toEqual(['\'0123456', '0123456', '0123456']);
+    });
+
+    it('should autofill an escaped formula expression from a preserveTextValue source without changing its escaping', async() => {
+      handsontable({
+        data: [
+          ['x', '=LEN(A1)'],
+          ['', '=LEN(A2)'],
+          ['', '=LEN(A3)'],
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        columns: [{
+          type: 'text',
+          preserveTextValue: true,
+        }, {}],
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      // `'=SUM(A1)` is the documented way to store a formula expression as plain text (a leading
+      // apostrophe escapes it from HyperFormula's formula parsing).
+      await setDataAtCell(0, 0, '\'=SUM(A1)');
+
+      // The source cell's own displayed value is the engine-computed one, apostrophe stripped.
+      expect(getDataAtCell(0, 0)).toBe('=SUM(A1)');
+
+      await selectCell(0, 0);
+      autofill(2, 0);
+
+      await waitForNextAnimationFrames(2);
+
+      // The escaped formula expression is excluded from the `preserveTextValue` stripping branch
+      // (`isPreservedText` returns `false` for it), so autofill must reach every filled cell with
+      // neither an apostrophe gained (it would then read as the literal text `'=SUM(A1)`) nor one
+      // lost (it would then be parsed by the engine as a real formula). `getDataAtCol` reads the
+      // displayed value (engine-computed, apostrophe stripped, matching the source cell's own
+      // displayed value above); `getSourceDataAtCol` reads the raw stored value (still escaped,
+      // as written).
+      expect(getDataAtCol(0)).toEqual(['=SUM(A1)', '=SUM(A1)', '=SUM(A1)']);
+      expect(getSourceDataAtCol(0)).toEqual(['\'=SUM(A1)', '\'=SUM(A1)', '\'=SUM(A1)']);
+
+      expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)).toEqual([
+        ['\'=SUM(A1)', '=LEN(A1)'],
+        ['\'=SUM(A1)', '=LEN(A2)'],
+        ['\'=SUM(A1)', '=LEN(A3)'],
+      ]);
+      expect(formulasPlugin.engine.getSheetValues(formulasPlugin.sheetId)).toEqual([
+        ['=SUM(A1)', 8],
+        ['=SUM(A1)', 8],
+        ['=SUM(A1)', 8],
+      ]);
+    });
+
+    it('should resolve a date-typed autofill source that has a trimmed row preceding it', async() => {
+      handsontable({
+        data: [
+          ['trimmed'],
+          ['2020-01-01'],
+          [''],
+          [''],
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        // Only physical row 1 (visual row 0, since physical row 0 is trimmed) is date-typed.
+        cells(row, column) {
+          if (row === 1 && column === 0) {
+            return { type: 'date' };
+          }
+
+          return {};
+        },
+        trimRows: [0],
+      });
+
+      // The source's HyperFormula index (1) is not its visual index (0). Resolving the source
+      // through the wrong axis reads a different cell's meta, which drops the `date` type and with
+      // it the reformat back into the Handsontable date format.
+      await selectCell(0, 0);
+      autofill(2, 0);
+
+      await waitForNextAnimationFrames(2);
+
+      expect(getDataAtCol(0)).toEqual(['2020-01-01', '2020-01-01', '2020-01-01']);
+    });
+
+    it('should respect the option set at the grid level (cascading configuration)', async() => {
+      handsontable({
+        data: [
+          ['0123456'],
+          ['=LEN(A1)'],
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        type: 'text',
+        preserveTextValue: true,
+      });
+
+      expect(getPlugin('formulas').engine.getSheetValues(0)).toEqual([
+        ['0123456'],
+        [7],
+      ]);
+    });
+
+    it('should respect the option set through a columns function', async() => {
+      handsontable({
+        data: [
+          ['0123456', '0123456'],
+          ['=LEN(A1)', '=LEN(B1)'],
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        columns(column) {
+          return column === 0 ? { type: 'text', preserveTextValue: true } : { type: 'text' };
+        },
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      expect(formulasPlugin.engine.getSheetValues(formulasPlugin.sheetId)).toEqual([
+        ['0123456', 123456],
+        [7, 6],
+      ]);
+    });
+
+    it('should respect the option set through a cells function declared on a column', async() => {
+      handsontable({
+        data: [
+          ['0123456', '0123456'],
+          ['=LEN(A1)', '=LEN(B1)'],
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        columns: [
+          {
+            cells() {
+              return { type: 'text', preserveTextValue: true };
+            },
+          },
+          {},
+        ],
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      expect(formulasPlugin.engine.getSheetValues(formulasPlugin.sheetId)).toEqual([
+        ['0123456', 123456],
+        [7, 6],
+      ]);
+    });
+
+    it('should respect the option set through the cell option', async() => {
+      handsontable({
+        data: [
+          ['0123456'],
+          ['=LEN(A1)'],
+        ],
+        columns: [{ type: 'text' }],
+        cell: [{ row: 0, col: 0, preserveTextValue: true }],
+        formulas: {
+          engine: HyperFormula,
+        },
+      });
+
+      // The `cell` option is documented alongside `columns`/`cells()` as a way to set
+      // `preserveTextValue` – proved here through the public API, isolated from any other
+      // interaction (sorting, moves, nested rows) that the other `cell`-option cases layer on top.
+      expect(getDataAtCell(1, 0)).toBe(7);
+    });
+
+    it('should respect the option set per cell via the cells function on both the load and edit paths', async() => {
+      handsontable({
+        data: [
+          ['0123456', '0123456'],
+          ['=LEN(A1)', '=LEN(B1)'],
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        cells(row, column) {
+          if (row === 0 && column === 0) {
+            return { type: 'text', preserveTextValue: true };
+          }
+        },
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      // The initial load path applies the `cells` function, so only the first column is preserved.
+      expect(formulasPlugin.engine.getSheetValues(formulasPlugin.sheetId)).toEqual([
+        ['0123456', 123456],
+        [7, 6],
+      ]);
+
+      await loadData([
+        ['0999', '0999'],
+        ['=LEN(A1)', '=LEN(B1)'],
+      ]);
+
+      expect(formulasPlugin.engine.getSheetValues(formulasPlugin.sheetId)).toEqual([
+        ['0999', 999],
+        [4, 3],
+      ]);
+
+      await setDataAtCell(0, 0, '0123456');
+      await setDataAtCell(0, 1, '0123456');
+
+      expect(formulasPlugin.engine.getSheetValues(formulasPlugin.sheetId)).toEqual([
+        ['0123456', 123456],
+        [7, 6],
+      ]);
+    });
+
+    it('should restore the preserved value correctly on undo and redo', async() => {
+      handsontable({
+        data: [
+          ['0123456'],
+          ['=LEN(A1)'],
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        columns: [{
+          type: 'text',
+          preserveTextValue: true,
+        }],
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      await setDataAtCell(0, 0, '00099');
+
+      expect(formulasPlugin.engine.getSheetValues(0)).toEqual([['00099'], [5]]);
+
+      getPlugin('undoRedo').undo();
+
+      expect(getDataAtCell(0, 0)).toBe('0123456');
+      expect(formulasPlugin.engine.getSheetValues(0)).toEqual([['0123456'], [7]]);
+
+      getPlugin('undoRedo').redo();
+
+      expect(getDataAtCell(0, 0)).toBe('00099');
+      expect(formulasPlugin.engine.getSheetValues(0)).toEqual([['00099'], [5]]);
+    });
+
+    it('should still treat a formula typed into a preserved text cell as a formula', async() => {
+      handsontable({
+        data: [
+          ['0123456'],
+          ['x'],
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        columns: [{
+          type: 'text',
+          preserveTextValue: true,
+        }],
+      });
+
+      await setDataAtCell(1, 0, '=LEN(A1)');
+
+      expect(getDataAtCell(1, 0)).toBe(7);
+    });
+
+    it('should preserve a value that already starts with an apostrophe', async() => {
+      handsontable({
+        data: [
+          ['x'],
+          ['=LEN(A1)'],
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        columns: [{
+          type: 'text',
+          preserveTextValue: true,
+        }],
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      await setDataAtCell(0, 0, '\'0123');
+
+      expect(formulasPlugin.engine.getSheetValues(0)).toEqual([
+        ['\'0123'],
+        [5],
+      ]);
+    });
+
+    it('should not double-escape an escaped formula expression', async() => {
+      handsontable({
+        data: [
+          ['x'],
+          ['=LEN(A1)'],
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        columns: [{
+          type: 'text',
+          preserveTextValue: true,
+        }],
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      await setDataAtCell(0, 0, '\'=SUM(A1)');
+
+      expect(formulasPlugin.engine.getSheetSerialized(0)).toEqual([
+        ['\'=SUM(A1)'],
+        ['=LEN(A1)'],
+      ]);
+
+      expect(getDataAtCell(1, 0)).toBe(8); // the 8-character string "=SUM(A1)"
+    });
+
+    it('should escape preserved values correctly after sorting and updateData (physical row order)', async() => {
+      handsontable({
+        data: [['0123456'], ['9876543']],
+        columns: [{ type: 'text' }],
+        cell: [{ row: 0, col: 0, preserveTextValue: true }],
+        columnSorting: true,
+        formulas: {
+          engine: HyperFormula,
+        },
+      });
+
+      getPlugin('columnSorting').sort({ column: 0, sortOrder: 'desc' });
+
+      await updateData([['0123456'], ['9876543']]);
+
+      const formulasPlugin = getPlugin('formulas');
+
+      // The `cell` option marks physical row 0, and the engine sheet is kept in visual order, so
+      // after the descending sort the preserved value is the only escaped one and it sits in the
+      // engine's second row.
+      expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)).toEqual([
+        ['9876543'],
+        ['\'0123456'],
+      ]);
+    });
+
+    it('should respect preserveTextValue when setting source data on a sorted grid', async() => {
+      handsontable({
+        data: [['0123456'], ['9876543']],
+        columns: [{ type: 'text' }],
+        cell: [{ row: 0, col: 0, preserveTextValue: true }],
+        columnSorting: true,
+        formulas: {
+          engine: HyperFormula,
+        },
+      });
+
+      getPlugin('columnSorting').sort({ column: 0, sortOrder: 'desc' });
+
+      // `setSourceDataAtCell` takes a physical row index, and the `afterSetSourceDataAtCell` hook
+      // reports it unchanged. Physical row 0 is the preserved cell and, after the descending sort,
+      // it is visual row 1 – which is engine row 1, because the engine sheet follows the visual order.
+      await setSourceDataAtCell(0, 0, '0555');
+
+      const formulasPlugin = getPlugin('formulas');
+
+      expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)).toEqual([
+        ['9876543'],
+        ['\'0555'],
+      ]);
+    });
+
+    it('should respect preserveTextValue when setting source data at a trimmed row', async() => {
+      handsontable({
+        data: [['a'], ['b'], ['c']],
+        // `cells()` is called with physical coordinates, and only physical row 1 – the trimmed row –
+        // is marked as a preserved text cell. Neither of the visible rows is, so an escape appearing
+        // on one of them means the write consulted the wrong row's meta.
+        cells(row, column) {
+          if (row === 1 && column === 0) {
+            return { type: 'text', preserveTextValue: true };
+          }
+
+          return { type: 'text' };
+        },
+        trimRows: [1],
+        formulas: {
+          engine: HyperFormula,
+        },
+      });
+
+      // `setSourceDataAtCell` takes a physical row index, and `afterSetSourceDataAtCell` reports it
+      // unchanged. Physical row 1 is trimmed, so it has no visual index at all – reading its meta or
+      // its engine address through the visual index space falls back to reading the physical index
+      // as a visual one, which resolves to physical row 2 (the third row) instead.
+      await setSourceDataAtCell(1, 0, '0123456');
+
+      const formulasPlugin = getPlugin('formulas');
+
+      // The engine holds trimmed rows too, so the written value stays in the engine's second row,
+      // escaped – and neither visible row is touched.
+      expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)).toEqual([
+        ['a'],
+        ['\'0123456'],
+        ['c'],
+      ]);
+    });
+
+    it('should escape an invalid date written through setSourceDataAtCell', async() => {
+      handsontable({
+        data: [
+          ['2020-01-01'],
+          ['=LEN(A1)'],
+        ],
+        columns: [{ type: 'date' }],
+        formulas: {
+          engine: HyperFormula,
+        },
+      });
+
+      // An invalid date has to reach the engine escaped, or the engine parses `13/45/2021` as
+      // arithmetic. `syncChangeWithEngine` and `#escapeSourceDataArray` both escape it; this path
+      // has to agree with them.
+      await setSourceDataAtCell(0, 0, '13/45/2021');
+
+      const formulasPlugin = getPlugin('formulas');
+
+      expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)[0]).toEqual([
+        '\'13/45/2021',
+      ]);
+      expect(formulasPlugin.engine.getSheetValues(formulasPlugin.sheetId)[1]).toEqual([10]);
+    });
+
+    it('should read the valueGetter from the cells own column with moved columns', async() => {
+      handsontable({
+        data: [
+          { id: { label: '0123456' }, name: { label: 'a' } },
+        ],
+        columns: [
+          { data: 'id', type: 'text' },
+          { data: 'name', type: 'text' },
+        ],
+        // Stamps the PHYSICAL column the meta resolved from onto the value.
+        cells(row, column) {
+          return {
+            valueGetter(value) {
+              return (value && typeof value === 'object') ? `c${column}:${value.label}` : value;
+            },
+          };
+        },
+        manualColumnMove: true,
+        formulas: {
+          engine: HyperFormula,
+        },
+      });
+
+      // Array-of-objects rows are built in VISUAL order, so after a move the array index and the
+      // physical column disagree - and the meta is read by physical coordinates.
+      getPlugin('manualColumnMove').moveColumn(1, 0);
+
+      await render();
+
+      await updateSettings({});
+
+      const p = getPlugin('formulas');
+
+      // Each value goes through its OWN column's `valueGetter`. Reading the array index as a
+      // physical column swaps them, so `0123456` would come back stamped `c1`.
+      // Two different column orders meet here, so the pairing matters more than the positions.
+      // `getSourceDataArray()` returns the row in VISUAL order - after the move that is
+      // [name, id] - and each index is translated back to its physical column before the meta
+      // read. `getSheetSerialized()` then reports the sheet in the engine's own column order,
+      // which the axis syncer keeps aligned with the physical one, so the pair comes back as
+      // [id, name].
+      //
+      // What this pins is the pairing, not either order: `0123456` is the `id` column's value and
+      // must carry `id`'s stamp (physical 0), `a` is `name`'s and must carry `name`'s (physical 1).
+      // Reading the array index as a physical column swaps them, giving `c1:0123456` and `c0:a`.
+      expect(p.engine.getSheetSerialized(p.sheetId)).toEqual([['c0:0123456', 'c1:a']]);
+    });
+
+    it('should escape preserved values correctly for array-of-objects data with moved columns', async() => {
+      handsontable({
+        data: [{ id: '0123456', name: 'a' }, { id: '7654321', name: 'b' }],
+        columns: [
+          { data: 'name', type: 'text' },
+          { data: 'id', type: 'text', preserveTextValue: true },
+        ],
+        manualColumnMove: true,
+        formulas: {
+          engine: HyperFormula,
+        },
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+      const firstRow = [0, 1].map(col => formulasPlugin.engine.getCellSerialized({
+        sheet: formulasPlugin.sheetId, row: 0, col,
+      }));
+
+      // Exactly one column of the row is escaped, and it is the one holding the preserved value.
+      expect(firstRow.filter(value => value === '\'0123456').length).toBe(1);
+      expect(firstRow.filter(value => value === 'a').length).toBe(1);
+    });
+
+    it('should keep preserved text values escaped after disabling and enabling the plugin', async() => {
+      handsontable({
+        data: [['0123456'], ['=LEN(A1)']],
+        columns: [{ type: 'text', preserveTextValue: true }],
+        formulas: {
+          engine: HyperFormula,
+        },
+      });
+
+      expect(getDataAtCell(1, 0)).toBe(7);
+
+      await updateSettings({ formulas: false });
+      await updateSettings({ formulas: { engine: HyperFormula } });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)).toEqual([
+        ['\'0123456'],
+        ['=LEN(A1)'],
+      ]);
+      expect(getDataAtCell(1, 0)).toBe(7);
+    });
+
+    describe('reloading the same sheet after the escaping configuration changed', () => {
+      // A grid built without `data` records `#hotWasInitializedWithEmptyData`, so every later
+      // `afterCellMetaReset` reloads it FROM the engine through `switchSheet()` rather than
+      // rewriting the engine from the grid. That reload is where a value escaped under one
+      // configuration is read back under another.
+      const buildEmptyInitializedGrid = async(settings) => {
+        handsontable({
+          formulas: {
+            engine: HyperFormula,
+          },
+          ...settings,
+        });
+      };
+
+      it('should not leak the escape apostrophe when the option is turned off', async() => {
+        await buildEmptyInitializedGrid({ type: 'text', preserveTextValue: true });
+
+        await setDataAtCell(0, 0, '0123456');
+        await setDataAtCell(1, 0, '=LEN(A1)');
+
+        const plugin = getPlugin('formulas');
+
+        expect(plugin.engine.getSheetSerialized(plugin.sheetId)[0]).toEqual(['\'0123456']);
+        expect(getDataAtCell(1, 0)).toBe(7);
+
+        await updateSettings({ preserveTextValue: false });
+
+        // The gate now reports false at every layer, but the apostrophe was still this plugin's -
+        // the grid's own copy of the value proves it.
+        expect(getSourceDataAtCell(0, 0)).toBe('0123456');
+        expect(getDataAtCell(0, 0)).toBe('0123456');
+      });
+
+      it('should not leak the escape apostrophe when the column moves off the text type', async() => {
+        await buildEmptyInitializedGrid({ type: 'text', preserveTextValue: true });
+
+        await setDataAtCell(0, 0, '0123456');
+
+        await updateSettings({ type: 'numeric' });
+
+        expect(getSourceDataAtCell(0, 0)).toBe('0123456');
+      });
+
+      it('should recover when a dependent grid throws mid-write', async() => {
+        const engine = HyperFormula.buildEmpty({ licenseKey: 'internal-use-in-handsontable' });
+        const shouldThrow = { current: false };
+        const $other = $('<div id="otherGrid"></div>').appendTo('body');
+
+        // A second grid on the same engine, reading this grid's sheet. The plugin write scope
+        // renders it from inside the span `#internalOperationPending` is open across.
+        const otherHot = new Handsontable($other[0], {
+          data: [['=Sheet1!A1']],
+          licenseKey: TEST_LICENSE_KEY,
+          formulas: { engine, sheetName: 'other' },
+          afterRender() {
+            if (shouldThrow.current) {
+              throw new Error('dependent grid render failed');
+            }
+          },
+        });
+
+        handsontable({
+          data: [['1'], ['=A1+1']],
+          formulas: { engine, sheetName: 'Sheet1' },
+        });
+
+        expect(getDataAtCell(1, 0)).toBe(2);
+
+        shouldThrow.current = true;
+
+        const writes = spyOn(engine, 'setSheetContent').and.callThrough();
+
+        // Changing the content is what gives the write scope something to render.
+        let thrown = null;
+
+        try {
+          await updateSettings({ data: [['9'], ['=A1+1']] });
+        } catch (error) {
+          thrown = error;
+        }
+
+        expect(thrown).not.toBe(null);
+
+        shouldThrow.current = false;
+
+        // The write itself landed before the dependent render threw, and the resync releases
+        // `#internalOperationPending` on its way out (DEV-3006), so the read hooks keep serving
+        // the engine and the formula cell reports the value computed from the new data - from
+        // that one write, not from a retry.
+        expect(writes).toHaveBeenCalledTimes(1);
+        expect(getDataAtCell(1, 0)).toBe(10);
+        expect(writes).toHaveBeenCalledTimes(1);
+
+        // The next structural operation must work as well: nothing about the failed render may
+        // leave the plugin refusing a later load.
+
+        await loadData([['5'], ['=A1+1']]);
+
+        expect(getDataAtCell(1, 0)).toBe(6);
+
+        otherHot.destroy();
+        $other.remove();
+      });
+
+      it('should strip an escape the grid data cannot confirm, on an initial load from the engine',
+        async() => {
+          const engine = HyperFormula.buildEmpty({ licenseKey: 'internal-use-in-handsontable' });
+
+          engine.addSheet('one');
+          // Escaped content already in the sheet, as this plugin writes it. On the INITIAL load the
+          // grid has only its auto-generated dataset, so its own data cannot confirm the strip -
+          // the cell meta is the only reference left.
+          engine.setSheetContent(engine.getSheetId('one'), [['\'0123456'], ['=LEN(A1)']]);
+
+          handsontable({
+            type: 'text',
+            preserveTextValue: true,
+            formulas: {
+              engine,
+              sheetName: 'one',
+            },
+          });
+
+          expect(getDataAtCell(0, 0)).toBe('0123456');
+          expect(getSourceDataAtCell(0, 0)).toBe('0123456');
+          expect(getDataAtCell(1, 0)).toBe(7);
+        });
+
+      it('should keep an apostrophe this plugin did not write', async() => {
+        // No `preserveTextValue`, so the plugin never escapes here. The engine uses the same
+        // character as its own string escape, so it stores the user's literal with exactly one
+        // apostrophe - stripping on sight would eat it.
+        await buildEmptyInitializedGrid({ type: 'text' });
+
+        await setDataAtCell(0, 0, '\'0777');
+
+        await updateSettings({ preserveTextValue: false });
+
+        expect(getSourceDataAtCell(0, 0)).toBe('\'0777');
+      });
+
+      it('should not leak the escape apostrophe when the columns setting skips a physical column',
+        async() => {
+          // `columns` exposes physical columns 0 and 2, skipping 1 - so the engine's column space
+          // is neither the physical nor a contiguous slice of it, and physical column 2 has no
+          // visual index at all.
+          handsontable({
+            columns: [
+              { data: 0, type: 'text', preserveTextValue: true },
+              { data: 2, type: 'text', preserveTextValue: true },
+            ],
+            formulas: {
+              engine: HyperFormula,
+            },
+          });
+
+          await setDataAtCell(0, 0, '0123456');
+          await setDataAtCell(0, 1, '0999');
+
+          const plugin = getPlugin('formulas');
+
+          expect(plugin.engine.getSheetSerialized(plugin.sheetId)[0]).toEqual([
+            '\'0123456',
+            '\'0999',
+          ]);
+
+          await updateSettings({
+            columns: [
+              { data: 0, type: 'text', preserveTextValue: false },
+              { data: 2, type: 'text', preserveTextValue: false },
+            ],
+          });
+
+          // Only the first column is asserted through the grid. The reload writes the engine's
+          // positional array straight into `loadData`, and with a non-contiguous `columns` map the
+          // second column's value lands on a physical column the grid does not expose - it comes
+          // back `null`. That predates this change and is independent of the escaping: it happens
+          // identically with the unescaping disabled.
+          expect(getDataAtCell(0, 0)).toBe('0123456');
+          expect(getSourceDataAtCell(0, 0)).toBe('0123456');
+        });
+
+      it('should keep an apostrophe this plugin did not write when the option is turned ON',
+        async() => {
+          // Written while the option was OFF, so the plugin never escaped it and the engine holds
+          // the user's literal with exactly one apostrophe. Turning the option ON afterwards must
+          // not make that value look like this plugin's own escape.
+          await buildEmptyInitializedGrid({ type: 'text' });
+
+          await setDataAtCell(0, 0, '\'0777');
+
+          const plugin = getPlugin('formulas');
+
+          expect(plugin.engine.getSheetSerialized(plugin.sheetId)[0]).toEqual(['\'0777']);
+
+          await updateSettings({ preserveTextValue: true });
+
+          expect(getSourceDataAtCell(0, 0)).toBe('\'0777');
+        });
+
+      it('should keep a user-escaped formula expression', async() => {
+        await buildEmptyInitializedGrid({ type: 'text', preserveTextValue: true });
+
+        // "'=" is the user's own escape, telling the engine to treat the formula as text.
+        // `isPreservedText()` excludes it, so the plugin never adds an apostrophe of its own.
+        await setDataAtCell(0, 0, '\'=SUM(1,2)');
+
+        await updateSettings({ preserveTextValue: false });
+
+        expect(getSourceDataAtCell(0, 0)).toBe('\'=SUM(1,2)');
+      });
+
+      it('should restore a preserved value that itself starts with an apostrophe', async() => {
+        await buildEmptyInitializedGrid({ type: 'text', preserveTextValue: true });
+
+        await setDataAtCell(0, 0, '\'0777');
+
+        const plugin = getPlugin('formulas');
+
+        // Escaped on top of the user's own apostrophe, so the engine holds it doubled.
+        expect(plugin.engine.getSheetSerialized(plugin.sheetId)[0]).toEqual(['\'\'0777']);
+
+        await updateSettings({ preserveTextValue: false });
+
+        expect(getSourceDataAtCell(0, 0)).toBe('\'0777');
+      });
+    });
+
+    it('should keep preserved text values escaped after detaching a row with the Nested Rows plugin', async() => {
+      handsontable({
+        data: [
+          {
+            col1: 'parent1',
+            __children: [
+              { col1: '0123456' },
+              { col1: 'child2' },
+            ],
+          },
+          { col1: 'parent2' },
+        ],
+        columns: [{ data: 'col1', type: 'text' }],
+        // Only one physical row is marked as a preserved text cell, so the escaping on the detach
+        // path has to read the meta of the exact row it writes – a wrong row offset lands on one of
+        // the unmarked rows and loses the escape.
+        cell: [{ row: 3, col: 0, preserveTextValue: true }],
+        nestedRows: true,
+        formulas: {
+          engine: HyperFormula,
+        },
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      // Before the detach the marked physical row 3 holds `parent2`, while the child value sits in
+      // an ordinary text cell – so it reaches the engine unescaped, and the engine reads it as the
+      // number 123456.
+      expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)).toEqual([
+        ['parent1'],
+        ['0123456'],
+        ['child2'],
+        ['\'parent2'],
+      ]);
+      expect(formulasPlugin.engine.getSheetValues(formulasPlugin.sheetId)[1]).toEqual([123456]);
+
+      // Detaching the child shifts every row below it up by one, and since DEV-2626 the cell meta
+      // moves with them: the marking follows `parent2` from physical row 3 to row 2, so its value
+      // stays escaped. The detached child is appended last and lands on physical row 3, but it was
+      // never marked and now gets fresh meta there, so it is NOT escaped – before DEV-2626 it
+      // inherited the marking left behind on the index it happened to land on.
+      getPlugin('nestedRows').dataManager.detachFromParent(
+        getPlugin('nestedRows').dataManager.getDataObject(1)
+      );
+
+      expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)).toEqual([
+        ['parent1'],
+        ['child2'],
+        ['\'parent2'],
+        ['0123456'],
+      ]);
+    });
+
+    it('should not leak the escape apostrophe into the grid when switching sheets', async() => {
+      const engine = HyperFormula.buildEmpty({ licenseKey: 'internal-use-in-handsontable' });
+
+      engine.addSheet('one');
+      engine.addSheet('two');
+      engine.setSheetContent(engine.getSheetId('two'), [['other', 'values']]);
+
+      handsontable({
+        data: [['0123456', '13/45/2021']],
+        // Column-level meta – layout-independent, so the pre-`loadData` meta read in `switchSheet`
+        // resolves it the same way whichever sheet is currently loaded.
+        columns: [
+          { type: 'text', preserveTextValue: true },
+          { type: 'date' },
+        ],
+        formulas: {
+          engine,
+          sheetName: 'one',
+        },
+      });
+
+      const plugin = getPlugin('formulas');
+
+      // Both values are escaped in the engine: the preserved text value keeps its leading zero,
+      // and the invalid date is protected from the engine's date parsing.
+      expect(engine.getSheetSerialized(engine.getSheetId('one'))).toEqual([
+        ['\'0123456', '\'13/45/2021'],
+      ]);
+
+      plugin.switchSheet('two');
+      plugin.switchSheet('one');
+
+      // `getSheetSerialized` keeps the escape apostrophe, so the value written back by `loadData`
+      // has to be unescaped – otherwise a round trip through another sheet turns `0123456` into
+      // `'0123456`.
+      expect(getDataAtCell(0, 0)).toBe('0123456');
+      expect(getSourceDataAtCell(0, 0)).toBe('0123456');
+      expect(getDataAtCell(0, 1)).toBe('13/45/2021');
+      expect(getSourceDataAtCell(0, 1)).toBe('13/45/2021');
+
+      // The engine's own content is untouched by the read – it still holds the escaped values.
+      expect(engine.getSheetSerialized(engine.getSheetId('one'))).toEqual([
+        ['\'0123456', '\'13/45/2021'],
+      ]);
+    });
+
+    it('should not leak the escape apostrophe into the grid when reloading the engine sheet with ' +
+      'trimmed rows', async() => {
+      handsontable({
+        data: [
+          ['a'],
+          ['0123456'],
+          ['c'],
+        ],
+        columns: [{ type: 'text' }],
+        // The `cell` array is addressed with VISUAL coordinates, so visual row 0 is physical row 1 –
+        // the preserved text cell is the one holding `0123456`.
+        cell: [{ row: 0, col: 0, preserveTextValue: true }],
+        // The engine is fed trimmed rows too, so its row index counts physical row 0 while the
+        // visual row index does not. Reading the sheet back therefore has to translate the engine's
+        // row index, not assume it is a visual one.
+        trimRows: [0],
+        formulas: {
+          engine: HyperFormula,
+        },
+      });
+
+      const plugin = getPlugin('formulas');
+
+      expect(plugin.engine.getSheetSerialized(plugin.sheetId)).toEqual([
+        ['a'],
+        ['\'0123456'],
+        ['c'],
+      ]);
+
+      plugin.switchSheet(plugin.sheetName);
+
+      expect(getSourceData()).toEqual([
+        ['a'],
+        ['0123456'],
+        ['c'],
+      ]);
+      expect(getDataAtCell(0, 0)).toBe('0123456');
+    });
+
+    it('should not leak the escape apostrophe into the grid after moving a preserved text cell', async() => {
+      handsontable({
+        data: [
+          ['0123456', '13/45/2021'],
+          [null, null],
+        ],
+        columns: [
+          { type: 'text', preserveTextValue: true },
+          { type: 'date' },
+        ],
+        moveCells: true,
+        formulas: {
+          engine: HyperFormula,
+        },
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      // `getSheetSerialized` trims trailing empties, so the all-empty second row is absent here and
+      // comes back as `[]` after the move. The shape is deterministic, and asserting on the whole
+      // sheet is what pins down where the content is NOT – a move that also duplicated it into
+      // another row would slip past a per-cell read.
+      expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)).toEqual([
+        ['\'0123456', '\'13/45/2021'],
+      ]);
+
+      await selectCells([[0, 0, 0, 1]]);
+
+      getPlugin('moveCells').moveCellRange(getSelectedRangeLast(), cellCoords(1, 0));
+
+      await waitForNextAnimationFrames(2);
+
+      // `#syncHotDataAfterMoveCells` snapshots the moved cells with `getCellSerialized`, which keeps
+      // the escape apostrophe, and writes them back with `populateFromArray` – so the snapshot has
+      // to be unescaped before it reaches the grid.
+      expect(getDataAtCell(1, 0)).toBe('0123456');
+      expect(getSourceDataAtCell(1, 0)).toBe('0123456');
+      expect(getDataAtCell(1, 1)).toBe('13/45/2021');
+      expect(getSourceDataAtCell(1, 1)).toBe('13/45/2021');
+
+      // The moved cells stay escaped in the engine, so the preserved text value keeps its leading
+      // zero there as well – and the emptied source row holds nothing at all.
+      expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)).toEqual([
+        [],
+        ['\'0123456', '\'13/45/2021'],
+      ]);
+    });
+
+    it('should not leak the escape apostrophe into the grid when a moved preserved text cell lands ' +
+      'on a cell without the option', async() => {
+      handsontable({
+        data: [
+          ['0123456'],
+          [null],
+        ],
+        columns: [{ type: 'text' }],
+        // The option is set on the source cell alone. It is not a movable meta key, so the move
+        // target keeps its plain text meta – the unescaping has to read the meta the escape was
+        // applied from, not the one the value lands on.
+        cell: [{ row: 0, col: 0, preserveTextValue: true }],
+        moveCells: true,
+        formulas: {
+          engine: HyperFormula,
+        },
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)).toEqual([
+        ['\'0123456'],
+      ]);
+
+      await selectCells([[0, 0, 0, 0]]);
+
+      getPlugin('moveCells').moveCellRange(getSelectedRangeLast(), cellCoords(1, 0));
+
+      await waitForNextAnimationFrames(2);
+
+      expect(getDataAtCell(1, 0)).toBe('0123456');
+      expect(getSourceDataAtCell(1, 0)).toBe('0123456');
+
+      expect(formulasPlugin.engine.getSheetSerialized(formulasPlugin.sheetId)).toEqual([
+        [],
+        ['\'0123456'],
+      ]);
+    });
+  });
+
+  describe('handling numeric values', () => {
+    it('should handle numeric calculations properly after passing a value with a comma (#dev-546)', async() => {
+      handsontable({
+        data: [
+          [10.45000, 60.0000, '=A1*10003.2298'],
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        columns: [{
+          type: 'numeric',
+          numericFormat: {
+            minimumFractionDigits: 5,
+            maximumFractionDigits: 5,
+          }
+        },
+        {
+          type: 'numeric',
+          numericFormat: {
+            minimumFractionDigits: 5,
+            maximumFractionDigits: 5,
+          }
+        },
+        {
+          type: 'numeric',
+          numericFormat: {
+            style: 'currency',
+            currency: 'USD',
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          }
+        }],
+      });
+
+      expect(getData()).toEqual([
+        [10.45, 60, 104533.75141],
+      ]);
+
+      await setDataAtCell(0, 0, '11,8');
+
+      await waitForNextAnimationFrames(2);
+
+      expect(getData()).toEqual([
+        [11.8, 60, 118038.11164],
+      ]);
+    });
+
+    it('should handle improper on start dates properly (mismatching date formatting) #1', async() => {
+      handsontable({
+        data: [
+          ['13/12/2022'],
+          ['=A1']
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        columns: [{
+          type: 'date',
+          dateFormat: { year: 'numeric', month: '2-digit', day: '2-digit' }
+        }],
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      expect(formulasPlugin.engine.getSheetValues(0)).toEqual([
+        ['13/12/2022'], // Not converted - improper date (we treat it as a string)
+        ['13/12/2022'],
+      ]);
+
+      expect(formulasPlugin.engine.getSheetSerialized(0)).toEqual([
+        ['\'13/12/2022'],
+        ['=A1'],
+      ]);
+
+      expect(getData()).toEqual([
+        ['13/12/2022'],
+        ['13/12/2022'],
+      ]);
+
+      expect(getSourceData()).toEqual([
+        ['13/12/2022'],
+        ['=A1'],
+      ]);
+
+      await validateCells();
+
+      await waitForNextAnimationFrames(2);
+
+      expect(getCellMeta(0, 0).valid).toBe(false);
+      expect(getCellMeta(1, 0).valid).toBe(false);
+    });
+
+    it('should handle improper on start dates properly (mismatching date formatting) #2', async() => {
+      handsontable({
+        data: [
+          ['13/12/2022'],
+          ['=A1']
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        columns: [{
+          type: 'date',
+          dateFormat: { year: 'numeric', month: '2-digit', day: '2-digit' }
+        }],
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      expect(formulasPlugin.engine.getSheetValues(0)).toEqual([
+        ['13/12/2022'], // Not converted - improper date (we treat it as a string)
+        ['13/12/2022'],
+      ]);
+
+      expect(formulasPlugin.engine.getSheetSerialized(0)).toEqual([
+        ['\'13/12/2022'],
+        ['=A1'],
+      ]);
+
+      expect(getData()).toEqual([
+        ['13/12/2022'],
+        ['13/12/2022'],
+      ]);
+
+      expect(getSourceData()).toEqual([
+        ['13/12/2022'],
+        ['=A1'],
+      ]);
+
+      await validateCells();
+
+      await waitForNextAnimationFrames(2);
+
+      expect(getCellMeta(0, 0).valid).toBe(false);
+      expect(getCellMeta(1, 0).valid).toBe(false);
+    });
+
+    it('should handle valid ISO dates on start (HF parses them as serials)', async() => {
+      handsontable({
+        data: [
+          ['2022-12-11'],
+          ['=A1']
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        columns: [{
+          type: 'date',
+        }],
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      expect(formulasPlugin.engine.getSheetValues(0)).toEqual([
+        [44906], // 11 Dec 2022
+        [44906], // 11 Dec 2022
+      ]);
+
+      expect(formulasPlugin.engine.getSheetSerialized(0)).toEqual([
+        ['2022-12-11'],
+        ['=A1'],
+      ]);
+
+      expect(getData()).toEqual([
+        ['2022-12-11'],
+        ['2022-12-11'],
+      ]);
+
+      expect(getSourceData()).toEqual([
+        ['2022-12-11'],
+        ['=A1'],
+      ]);
+
+      await validateCells();
+
+      await waitForNextAnimationFrames(2);
+
+      expect(getCellMeta(0, 0).valid).toBe(true);
+      expect(getCellMeta(1, 0).valid).toBe(true);
+    });
+
+    it('should handle date changes: invalid ISO is escaped, valid ISO is parsed as serial', async() => {
+      handsontable({
+        data: [
+          ['2022-12-11'],
+          ['=A1']
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        columns: [{
+          type: 'date',
+        }],
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      await setDataAtCell(0, 0, 'not-a-date');
+
+      await waitForNextAnimationFrames(2);
+
+      expect(formulasPlugin.engine.getSheetValues(0)).toEqual([
+        ['not-a-date'], // Not ISO — escaped as string
+        ['not-a-date'],
+      ]);
+
+      expect(formulasPlugin.engine.getSheetSerialized(0)).toEqual([
+        ['\'not-a-date'],
+        ['=A1'],
+      ]);
+
+      expect(getData()).toEqual([
+        ['not-a-date'],
+        ['not-a-date'],
+      ]);
+
+      expect(getSourceData()).toEqual([
+        ['not-a-date'],
+        ['=A1'],
+      ]);
+
+      await validateCells();
+
+      await waitForNextAnimationFrames(2);
+
+      expect(getCellMeta(0, 0).valid).toBe(false);
+      expect(getCellMeta(1, 0).valid).toBe(false);
+
+      await setDataAtCell(0, 0, '2022-12-11');
+
+      await waitForNextAnimationFrames(2);
+
+      expect(formulasPlugin.engine.getSheetValues(0)).toEqual([
+        [44906], // 11 Dec 2022
+        [44906], // 11 Dec 2022
+      ]);
+
+      expect(formulasPlugin.engine.getSheetSerialized(0)).toEqual([
+        ['2022-12-11'],
+        ['=A1'],
+      ]);
+
+      expect(getData()).toEqual([
+        ['2022-12-11'],
+        ['2022-12-11'],
+      ]);
+
+      expect(getSourceData()).toEqual([
+        ['2022-12-11'],
+        ['=A1'],
+      ]);
+
+      await validateCells();
+
+      await waitForNextAnimationFrames(2);
+
+      expect(getCellMeta(0, 0).valid).toBe(true);
+      expect(getCellMeta(1, 0).valid).toBe(true);
+    });
+
+    it('should handle HF configuration property (HF instance should not overwrite `leapYear1900` and `nullDate` properties)', async() => {
+      // Create an external HyperFormula instance with ISO date format support
+      const hfInstance = HyperFormula.buildEmpty({ dateFormats: ['YYYY-MM-DD'] });
+
+      handsontable({
+        data: [
+          ['1900-03-01'],
+          ['=A1']
+        ],
+        formulas: {
+          engine: hfInstance,
+          sheetName: 'Sheet1'
+        },
+        columns: [{
+          type: 'date',
+        }],
+      });
+
+      const formulasPlugin = getPlugin('formulas');
+
+      expect(formulasPlugin.engine.getSheetValues(0)).toEqual([
+        [61],
+        [61],
+      ]);
+
+      expect(formulasPlugin.engine.getSheetSerialized(0)).toEqual([
+        ['1900-03-01'],
+        ['=A1'],
+      ]);
+
+      expect(getData()).toEqual([
+        ['1900-03-01'],
+        ['1900-03-01'],
+      ]);
+
+      expect(getSourceData()).toEqual([
+        ['1900-03-01'],
+        ['=A1'],
+      ]);
+    });
+
+    it('should not show warn for default HyperFormula configuration', async() => {
+      const warnSpy = spyOnConsoleWarn();
+
+      handsontable({
+        data: [
+          ['1900-03-01'],
+          ['=A1']
+        ],
+        formulas: {
+          engine: HyperFormula,
+        },
+        columns: [{
+          type: 'date',
+        }],
+      });
+
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it('should not show warn for not overwritten HF\'s configuration options such as `leapYear1900` and `nullDate`', async() => {
+      // Create an external HyperFormula instance with ISO date format support
+      const hfInstance = HyperFormula.buildEmpty({ dateFormats: ['YYYY-MM-DD'] });
+      const warnSpy = spyOnConsoleWarn();
+
+      handsontable({
+        data: [
+          ['1900-03-01'],
+          ['=A1']
+        ],
+        formulas: {
+          engine: hfInstance,
+          sheetName: 'Sheet1'
+        },
+        columns: [{
+          type: 'date',
+        }],
+      });
+
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it('should show warn for overwritten HF\'s configuration option such as `leapYear1900`', async() => {
+      // Create an external HyperFormula instance with ISO date format support
+      const hfInstance = HyperFormula.buildEmpty({
+        dateFormats: ['YYYY-MM-DD'],
+        leapYear1900: true,
+      });
+      const warnSpy = spyOnConsoleWarn();
+
+      handsontable({
+        data: [
+          ['1900-03-01'],
+          ['=A1']
+        ],
+        formulas: {
+          engine: hfInstance,
+          sheetName: 'Sheet1'
+        },
+        columns: [{
+          type: 'date',
+        }],
+      });
+
+      expect(warnSpy).toHaveBeenCalled();
+    });
+
+    it('should show warn for overwritten HF\'s configuration option such as `nullDate`', async() => {
+      // Create an external HyperFormula instance with ISO date format support
+      const hfInstance = HyperFormula.buildEmpty({
+        dateFormats: ['YYYY-MM-DD'],
+        nullDate: {
+          year: 1970,
+          month: 0,
+          day: 0,
+        },
+      });
+      const warnSpy = spyOnConsoleWarn();
+
+      handsontable({
+        data: [
+          ['1900-03-01'],
+          ['=A1']
+        ],
+        formulas: {
+          engine: hfInstance,
+          sheetName: 'Sheet1'
+        },
+        columns: [{
+          type: 'date',
         }],
       });
 

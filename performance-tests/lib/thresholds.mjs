@@ -1,0 +1,540 @@
+// Shared classification logic for performance change percentages.
+// Used by both the markdown report builder and the HTML report builder.
+
+// The regression gate's lines (lib/gate.mjs). A scenario fails when its total active time is more
+// than GATE_TIMING_THRESHOLD percent AND more than GATE_TIMING_FLOOR_MS slower than the baseline;
+// above WATCH_TIMING_THRESHOLD it is only listed. The floor exists for the four 13-19 ms scenarios,
+// where 10% is 1.3-1.9 ms of timer rounding. A run whose shift (the median delta of every scenario)
+// is above GATE_RUN_SHIFT_THRESHOLD fails as a whole: every scenario slowing alike stays under the
+// per-scenario line.
+//
+// Calibrated on the single self-hosted Apple M1 runner the suite moved to on 2026-09-15. Replaying
+// the 98 develop goldens from 2026-09-18 against a trailing median of 5 (scripts/replay-goldens.mjs,
+// `--since 2026-09-18`): the run-to-run spread of total active time is 0.3-2.4% per scenario, the
+// run shift stays within -0.7% to +0.8%, no run would fail at 10% (+2 ms), and 2 of 98 would show a
+// scenario to watch at 5%. The calibration before it (11-19% spread, a 15% line) described the
+// shared Linux runners and no longer holds.
+//
+// Re-derive these with that script whenever the runner, the measurement, or the baseline changes,
+// and move each line to where the replay's curve says. It replays the gate rule for rule.
+export const GATE_TIMING_THRESHOLD = 10;
+export const GATE_TIMING_FLOOR_MS = 2;
+export const WATCH_TIMING_THRESHOLD = 5;
+export const GATE_RUN_SHIFT_THRESHOLD = 5;
+
+// The red band of both reports is the gate's fail line, so a row is painted red exactly where the
+// gate fails it.
+export const REGRESSION_CALLOUT_THRESHOLD_TIMING = GATE_TIMING_THRESHOLD;
+
+// Heap is judged on its own, tighter line: the same replay puts no quiet run over 5%, against 10
+// of 98 at 3%. Timing's line would let a genuine +8% leak through.
+export const REGRESSION_CALLOUT_THRESHOLD_HEAP = 5;
+
+// Per-scenario heap overrides. `jsHeapMaxBytes` is the highest heap sample inside the window, and
+// on the two horizontal-scroll scenarios that peak depends on where V8 happened to schedule a GC
+// during 500 wheel-driven renders: replaying 42 develop goldens, their run-to-run heap CV is
+// 4.4-6.3% against 1.1-1.8% on the vertical ones and 0.9-3.7% everywhere else, and they were 9 of
+// the 20 no-change rows over the heap line. The wider band is derived from that replay
+// (scripts/replay-goldens.mjs prints the per-scenario heap curve), not chosen by eye.
+export const HEAP_THRESHOLDS_BY_SCENARIO = Object.freeze({
+  'scroll-left': 10,
+  'scroll-right': 10,
+});
+
+/**
+ * @param {string} scenarioName
+ * @returns {number} the heap line for that scenario, in percent
+ */
+export function heapThresholdFor(scenarioName) {
+  return HEAP_THRESHOLDS_BY_SCENARIO[scenarioName] ?? REGRESSION_CALLOUT_THRESHOLD_HEAP;
+}
+
+// Fewer comparable rows than this and the run shift is not estimated. With nine scenarios a median
+// over five still tolerates two genuinely-regressed rows without moving.
+export const RUN_SHIFT_MIN_ROWS = 5;
+
+// Coefficient of variation above which a measurement is flagged as unreliable.
+export const CV_WARNING_THRESHOLD = 15;
+
+// Rendered in place of a percentage when the comparison cannot support one. A failed capture must
+// not read as "no data", which is what a bare "--" would say -- and it must name the side that
+// failed, because "baseline incomplete" on a run whose own capture failed sends a maintainer to
+// re-run develop for nothing.
+export const INCOMPARABLE_LABELS = {
+  'window-mismatch': 'window mismatch',
+  'version-mismatch': 'measurement changed',
+  'baseline-incomplete': 'baseline incomplete',
+  'current-incomplete': 'capture incomplete',
+  'both-incomplete': 'capture incomplete',
+};
+
+// The two reasons under which nothing derived from the trace is comparable -- timing, heap and DOM
+// extrema alike -- because the two sides measured different things under one scenario name. A
+// window mismatch is the pre-marks fallback against a marked run; a version mismatch is a scenario
+// whose spec changed what its window contains (`measurementVersion`, see lib/environment.mjs).
+export const TRACE_MISMATCH_REASONS = Object.freeze(['window-mismatch', 'version-mismatch']);
+
+const TRACE_MISMATCH_TEXT = {
+  'window-mismatch': 'the two sides were measured over different trace windows',
+  'version-mismatch': 'the scenario was redefined since the baseline was recorded (different '
+    + 'measurementVersion), so the two sides measure different things',
+};
+
+/**
+ * The per-scenario trace mismatch the teardown detected, keyed by scenario name, from the two lists
+ * it puts on the report meta. Stated once here so both report builders read the same map.
+ *
+ * @param {{ crossWindowScenarios?: string[], versionMismatchScenarios?: string[] }} meta
+ * @returns {Record<string, 'window-mismatch' | 'version-mismatch'>}
+ */
+export function traceMismatches(meta = {}) {
+  const map = {};
+
+  for (const name of meta.versionMismatchScenarios || []) {
+    map[name] = 'version-mismatch';
+  }
+
+  // A window mismatch is the stronger statement (the sides do not even bracket the same slice), so
+  // it wins when a scenario is on both lists.
+  for (const name of meta.crossWindowScenarios || []) {
+    map[name] = 'window-mismatch';
+  }
+
+  return map;
+}
+
+// The baseline-side label, kept as a named export because it is the case the task filed.
+export const BASELINE_INCOMPLETE_LABEL = INCOMPARABLE_LABELS['baseline-incomplete'];
+
+// The categories that make up "active" time. Loading, other, experience and idle are excluded.
+export const ACTIVE_CATEGORIES = ['scripting', 'rendering', 'painting'];
+
+/**
+ * Classifies a percentage change into a status, emoji and CSS class.
+ *
+ * The band is the gate's line, so the colour a row is painted and the gate's verdict can never
+ * disagree.
+ *
+ * @param {number | null} pctChange -- percentage change (positive = regression)
+ * @param {number} [threshold] -- band edge; defaults to the gate's timing line
+ * @returns {{ status: string, emoji: string, cssClass: string }}
+ */
+export function classifyChange(pctChange, threshold = REGRESSION_CALLOUT_THRESHOLD_TIMING) {
+  if (pctChange == null) {
+    return { status: 'unknown', emoji: '', cssClass: 'unknown' };
+  }
+
+  if (pctChange > threshold) {
+    return { status: 'regression', emoji: '\u{1F534}', cssClass: 'regression' };
+  }
+
+  if (pctChange > 0) {
+    return { status: 'neutral-up', emoji: '\u{1F7E1}', cssClass: 'neutral-up' };
+  }
+
+  if (pctChange < -threshold) {
+    return { status: 'improvement', emoji: '\u{1F7E2}', cssClass: 'improvement' };
+  }
+
+  if (pctChange < 0) {
+    return { status: 'neutral-down', emoji: '\u{1F535}', cssClass: 'neutral-down' };
+  }
+
+  return { status: 'neutral', emoji: '', cssClass: 'neutral' };
+}
+
+/**
+ * @param {number | null} baseline
+ * @param {number | null} current
+ * @returns {number | null}
+ */
+export function pctChange(baseline, current) {
+  if (baseline == null || current == null || baseline === 0) {
+    return null;
+  }
+
+  return ((current - baseline) / baseline) * 100;
+}
+
+/**
+ * Whether a timing comparison crosses a line that has both a relative and an absolute part. The
+ * gate and the replay that calibrates it both decide through this, so they cannot drift apart.
+ *
+ * @param {number | null} baselineMs
+ * @param {number | null} currentMs
+ * @param {number} [thresholdPct] -- the relative part, percent
+ * @param {number} [floorMs] -- the absolute part: the slowdown must also exceed this many ms
+ * @returns {boolean}
+ */
+export function isOverTimingLine(
+  baselineMs, currentMs, thresholdPct = GATE_TIMING_THRESHOLD, floorMs = GATE_TIMING_FLOOR_MS
+) {
+  const pct = pctChange(baselineMs, currentMs);
+
+  return pct != null && Number.isFinite(pct) && pct > thresholdPct && currentMs - baselineMs > floorMs;
+}
+
+/**
+ * @param {object} categories -- { scripting, rendering, painting, ... }
+ * @returns {number}
+ */
+export function sumActive(categories) {
+  return (categories.scripting || 0) + (categories.rendering || 0) + (categories.painting || 0);
+}
+
+/**
+ * Sums active time on both sides of a comparison and reports whether the two are comparable.
+ *
+ * A run that recorded zero for a category the other side did record is a failed capture, not a
+ * cheap operation. `pctChange` already refuses to divide by a zero baseline; without this check
+ * `sumActive` would fold the category into the total anyway and publish the percentage.
+ *
+ * The check is symmetric on purpose. A baseline that missed a category inflates the delta into a
+ * fake regression; a current run that missed one deflates it into a fake improvement. The second
+ * is no more supportable than the first, and on these scenarios a genuine 0 ms of rendering or
+ * painting does not occur.
+ *
+ * @param {object | null | undefined} baselineCategories
+ * @param {object | null | undefined} currentCategories
+ * @returns {{ baseline: number, current: number, incompleteCategories: string[],
+ *   incompleteSide: 'baseline' | 'current' | null, comparable: boolean }}
+ */
+export function sumActiveComparable(baselineCategories, currentCategories) {
+  const baseline = baselineCategories ?? {};
+  const current = currentCategories ?? {};
+  const missingFromBaseline = ACTIVE_CATEGORIES.filter(
+    key => (baseline[key] || 0) === 0 && (current[key] || 0) > 0
+  );
+  const missingFromCurrent = ACTIVE_CATEGORIES.filter(
+    key => (current[key] || 0) === 0 && (baseline[key] || 0) > 0
+  );
+  const incompleteCategories = [...new Set([...missingFromBaseline, ...missingFromCurrent])];
+  let incompleteSide = null;
+
+  if (missingFromBaseline.length > 0) {
+    incompleteSide = 'baseline';
+  } else if (missingFromCurrent.length > 0) {
+    incompleteSide = 'current';
+  }
+
+  return {
+    baseline: sumActive(baseline),
+    current: sumActive(current),
+    incompleteCategories,
+    incompleteSide,
+    comparable: incompleteCategories.length === 0,
+  };
+}
+
+// The verdict for a scenario the baseline does not contain at all -- one just added to the suite,
+// or one the median omitted because too few windowed snapshots carried it. There is nothing to
+// compare against, which is not the same as a comparison that failed: every delta is simply absent
+// ("--"), and calling it "baseline incomplete" would send a maintainer looking for a capture bug.
+export const NO_BASELINE_VERDICT = Object.freeze({
+  comparable: true,
+  reason: null,
+  shortLabel: null,
+  label: null,
+  incompleteCategories: Object.freeze([]),
+});
+
+/**
+ * Joins names for prose: "a", "a or b", "a, b or c".
+ *
+ * @param {string[]} items
+ * @returns {string}
+ */
+function joinList(items) {
+  if (items.length < 3) {
+    return items.join(' or ');
+  }
+
+  return `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`;
+}
+
+/**
+ * Decides, once per scenario, whether any delta between the two sides may be published.
+ *
+ * Every site that renders a percentage must consult this and no other rule. Deciding it per site
+ * is how one comment came to print a red heap regression in its table, clear the same run in its
+ * summary, and count it as a regression in the linked report.
+ *
+ * @param {object | null | undefined} baselineCategories
+ * @param {object | null | undefined} currentCategories
+ * @param {boolean | 'window-mismatch' | 'version-mismatch'} [mismatch] -- a trace-level mismatch
+ *   between the two sides; `true` is the window mismatch, kept for callers that predate the second
+ *   reason
+ * @returns {{ comparable: boolean, reason: string | null, label: string | null }}
+ */
+export function comparability(baselineCategories, currentCategories, mismatch = false) {
+  const traceReason = mismatch === true ? 'window-mismatch' : mismatch;
+
+  // Either trace mismatch invalidates every quantity derived from the trace, including the heap
+  // and DOM extrema, which are taken over the samples inside the window.
+  if (TRACE_MISMATCH_REASONS.includes(traceReason)) {
+    return {
+      comparable: false,
+      reason: traceReason,
+      shortLabel: INCOMPARABLE_LABELS[traceReason],
+      label: TRACE_MISMATCH_TEXT[traceReason],
+      // Nothing derived from the trace is comparable, so no category is exempt.
+      incompleteCategories: [...ACTIVE_CATEGORIES],
+    };
+  }
+
+  const baseline = baselineCategories ?? {};
+  const current = currentCategories ?? {};
+  const { comparable, incompleteCategories, incompleteSide } = sumActiveComparable(
+    baseline, current
+  );
+
+  if (comparable) {
+    return {
+      comparable: true, reason: null, shortLabel: null, label: null, incompleteCategories: [],
+    };
+  }
+
+  // Attribute each category to the side that actually missed it. Reporting the union against one
+  // side names a category the other side recorded, which is the opposite of the point.
+  const missingFrom = side => incompleteCategories.filter(
+    key => ((side === 'baseline' ? baseline : current)[key] || 0) === 0
+  );
+  const phrases = [
+    ['baseline', missingFrom('baseline')],
+    ['this run', missingFrom('current')],
+  ]
+    .filter(([, keys]) => keys.length > 0)
+    .map(([side, keys]) => `${side} captured no ${joinList(keys)}`);
+  const reason = phrases.length > 1 ? 'both-incomplete' : `${incompleteSide}-incomplete`;
+
+  return {
+    comparable: false,
+    reason,
+    shortLabel: INCOMPARABLE_LABELS[reason] ?? INCOMPARABLE_LABELS['both-incomplete'],
+    // Naming the categories is the one detail that tells a maintainer whether to re-run develop.
+    label: phrases.join('; '),
+    incompleteCategories,
+  };
+}
+
+/**
+ * The common factor by which this run differs from its baseline, as a percentage.
+ *
+ * Across the develop goldens every scenario moves together run to run: the per-run speed factor
+ * spans 0.63x to 1.12x and removing it takes the scroll scenarios' run-to-run CV from ~13% to
+ * ~3%. That factor is the CI runner, not the code, and a reader needs it named to tell "+18% raw,
+ * +2% relative" from "+45% raw, +40% relative". It is the median of the comparable total deltas,
+ * so a pull request that regresses one or two scenarios does not move it -- and it is reported
+ * beside the raw delta, never used by the gate, because a change that slows every scenario
+ * by the same amount is exactly what a median-based normalization cannot see.
+ *
+ * @param {Array<number | null | undefined>} deltas -- per-scenario total deltas, in percent
+ * @returns {number | null} null with fewer than RUN_SHIFT_MIN_ROWS finite deltas
+ */
+export function runShift(deltas) {
+  const values = (deltas || []).filter(v => typeof v === 'number' && Number.isFinite(v));
+
+  if (values.length < RUN_SHIFT_MIN_ROWS) {
+    return null;
+  }
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+
+  return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * A delta with the run shift removed, as a ratio rather than a subtraction: a row at +20% on a run
+ * that is itself +20% slower sits at 0%, not at the -0.7% a naive `20 - 20` would also give but a
+ * `-10 - 20` would not.
+ *
+ * @param {number | null} delta -- percent
+ * @param {number | null} shift -- percent, from runShift
+ * @returns {number | null}
+ */
+export function relativeToShift(delta, shift) {
+  if (delta == null || shift == null || !Number.isFinite(delta) || !Number.isFinite(shift)) {
+    return null;
+  }
+
+  // A run that took no time at all has no ratio to anything. Unreachable for a median of real
+  // active-time deltas, guarded so the arithmetic can never hand a division by zero to a formatter.
+  if (shift <= -100) {
+    return null;
+  }
+
+  return ((1 + delta / 100) / (1 + shift / 100) - 1) * 100;
+}
+
+/**
+ * Recombines per-category iteration arrays into one active-time total per iteration.
+ *
+ * Lives here rather than in either report builder so the set of active categories is stated once.
+ * A category array shorter than the others means that iteration recorded no time for it, which is
+ * a zero at that index, not a shift of every later value onto the wrong iteration.
+ *
+ * @param {Record<string, number[]> | null | undefined} categories
+ * @returns {number[]}
+ */
+export function activeTotalsPerIteration(categories) {
+  if (!categories) {
+    return [];
+  }
+
+  const length = Math.max(0, ...ACTIVE_CATEGORIES.map(key => categories[key]?.length ?? 0));
+
+  return Array.from({ length }, (_, i) => ACTIVE_CATEGORIES.reduce((sum, key) => {
+    const value = categories[key]?.[i];
+
+    return sum + (typeof value === 'number' && Number.isFinite(value) ? value : 0);
+  }, 0));
+}
+
+/**
+ * @param {number | null} v -- milliseconds
+ * @returns {string}
+ */
+export function fmtMs(v) {
+  if (v == null || !Number.isFinite(v)) {
+    return '--';
+  }
+
+  return `${Math.round(v)} ms`;
+}
+
+/**
+ * @param {number | null} pct
+ * @returns {string}
+ */
+export function fmtPct(pct) {
+  if (pct == null) {
+    return '--';
+  }
+
+  // Rounded first, and `+ 0` turns the -0 a tiny negative rounds to into 0, so it reads "+0.0%",
+  // never "-0.0%".
+  const rounded = Number(pct.toFixed(1)) + 0;
+  const sign = rounded >= 0 ? '+' : '';
+
+  return `${sign}${rounded.toFixed(1)}%`;
+}
+
+/**
+ * A signed change in ms, rounded like fmtPct, so a tiny negative reads "+0.0 ms", never "-0.0 ms".
+ *
+ * @param {number | null} ms
+ * @returns {string}
+ */
+export function fmtMsDelta(ms) {
+  if (ms == null || !Number.isFinite(ms)) {
+    return '--';
+  }
+
+  const rounded = Number(ms.toFixed(1)) + 0;
+
+  return `${rounded >= 0 ? '+' : ''}${rounded.toFixed(1)} ms`;
+}
+
+/**
+ * A percentage with a marker only where the gate acts on it: red above the fail line, green below
+ * its mirror, yellow above the watch line. Anything smaller is the runner's noise (a run-to-run
+ * spread of 0.3-2.4%), and marking it trained readers to skim past every marker.
+ *
+ * @param {number | null} pct
+ * @param {number} [threshold] -- the fail line, passed through to `classifyChange`
+ * @param {number | null} [watch] -- the watch line; null for a metric with no watch tier (heap)
+ * @returns {string}
+ */
+export function fmtPctWithEmoji(
+  pct, threshold = REGRESSION_CALLOUT_THRESHOLD_TIMING, watch = WATCH_TIMING_THRESHOLD
+) {
+  if (pct == null) {
+    return '--';
+  }
+
+  const text = fmtPct(pct);
+  const { status, emoji } = classifyChange(pct, threshold);
+
+  if (status === 'regression' || status === 'improvement') {
+    return `${text} ${emoji}`;
+  }
+
+  if (watch != null && pct > watch) {
+    return `${text} \u{1F7E1}`;
+  }
+
+  return text;
+}
+
+// Display titles that cannot be derived from the kebab-case scenario name (e.g. need punctuation
+// or inline code). Keyed by scenario name.
+const TITLE_OVERRIDES = {
+  'source-data-validator-load': 'Initial Load (`sourceDataValidator`)',
+};
+
+/**
+ * @param {string} name -- kebab-case scenario name
+ * @returns {string}
+ */
+export function formatTitle(name) {
+  if (TITLE_OVERRIDES[name]) {
+    return TITLE_OVERRIDES[name];
+  }
+
+  return name
+    .split('-')
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+/**
+ * Coefficient of variation, as a percentage.
+ *
+ * Uses the sample standard deviation (n-1). The suite runs three iterations, where the population
+ * form understates spread by about 18% -- and this number gates how much trust a reader puts in the
+ * delta beside it, so it should not read tighter than the data supports.
+ *
+ * @param {number[] | null | undefined} values
+ * @returns {number | null} -- null when there is too little data or the mean is zero
+ */
+export function calcCv(values) {
+  if (!Array.isArray(values) || values.length < 2) {
+    return null;
+  }
+
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+
+  if (mean === 0) {
+    return null;
+  }
+
+  const variance = values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (values.length - 1);
+
+  return (Math.sqrt(variance) / Math.abs(mean)) * 100;
+}
+
+/**
+ * Formats an already-computed CV. Renders `n/a` rather than a number when the spread is unknown --
+ * a rendered `0.0%` would read as a perfectly stable measurement.
+ *
+ * @param {number | null | undefined} cv
+ * @param {{ flag?: boolean }} [options] -- `flag: false` drops the warning glyph, for a spread that
+ *   is wide by construction rather than by accident (see reliabilityCell in report-builder.mjs)
+ * @returns {string}
+ */
+export function fmtCvValue(cv, { flag = true } = {}) {
+  if (cv == null || !Number.isFinite(cv)) {
+    return 'n/a';
+  }
+
+  return `${cv.toFixed(1)}%${flag && cv > CV_WARNING_THRESHOLD ? ' \u26A0\uFE0F' : ''}`;
+}
+
+/**
+ * @param {number[] | null | undefined} values
+ * @returns {string}
+ */
+export function fmtCv(values) {
+  return fmtCvValue(calcCv(values));
+}

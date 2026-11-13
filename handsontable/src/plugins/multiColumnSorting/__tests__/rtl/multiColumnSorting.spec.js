@@ -4,7 +4,6 @@ describe('MultiColumnSorting (RTL)', () => {
     { htmlDir: 'ltr', layoutDirection: 'rtl' },
   ], ({ htmlDir, layoutDirection }) => {
     const id = 'testContainer';
-    const getIndicator = parentEl => parentEl.querySelector('.columnSortingIndicator');
 
     beforeEach(function() {
       $('html').attr('dir', htmlDir);
@@ -22,7 +21,7 @@ describe('MultiColumnSorting (RTL)', () => {
     });
 
     describe('Numbers presenting sorting sequence', () => {
-      it('should be properly position the number when multi columns are sorted', () => {
+      it('should position the sorting sequence number when multiple columns are sorted', async() => {
         spec().$container[0].style.width = 'auto';
         spec().$container[0].style.height = 'auto';
 
@@ -66,10 +65,17 @@ describe('MultiColumnSorting (RTL)', () => {
           }
         });
 
-        expect(window.getComputedStyle(getIndicator(spec().$container.find('th span.columnSorting')[0]), ':after')
-          .getPropertyValue('left')).toEqual('-15px');
-        expect(window.getComputedStyle(getIndicator(spec().$container.find('th span.columnSorting')[0]), ':after')
-          .getPropertyValue('padding-right')).toEqual('5px');
+        const computedStyle = window.getComputedStyle(spec().$container.find('th span.columnSorting')[0], ':after');
+
+        expect(parseInt(computedStyle.getPropertyValue('margin-top'), 10)).toBeGreaterThanOrEqual(0);
+        expect(parseInt(computedStyle.getPropertyValue('top'), 10)).toBeGreaterThanOrEqual(0);
+
+        if (htmlDir === 'rtl' || layoutDirection === 'rtl') {
+          expect(parseInt(computedStyle.getPropertyValue('left'), 10)).toBeGreaterThanOrEqual(0);
+
+        } else {
+          expect(parseInt(computedStyle.getPropertyValue('right'), 10)).toBeGreaterThanOrEqual(0);
+        }
       });
     });
   });

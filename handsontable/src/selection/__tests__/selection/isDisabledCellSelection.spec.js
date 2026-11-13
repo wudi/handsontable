@@ -13,7 +13,37 @@ describe('Selection', () => {
   });
 
   describe('`isDisabledCellSelection` option', () => {
-    it('should disable any kind of selection when set as `true` on table settings layer', () => {
+    it('should not disable any selection when set as `undefined` (should fall back to default `false`) (#12304)', async() => {
+      handsontable({
+        rowHeaders: true,
+        colHeaders: true,
+        startRows: 5,
+        startCols: 5,
+        navigableHeaders: true,
+        disableVisualSelection: undefined,
+      });
+
+      await selectColumns(1, 1, -1);
+      await keyDown('control/meta');
+      await selectRows(1, 1, -1);
+      await keyUp('control/meta');
+
+      expect(getSelectedRange()).toEqualCellRange([
+        'highlight: -1,1 from: -1,1 to: 4,1',
+        'highlight: 1,-1 from: 1,-1 to: 1,4',
+      ]);
+      expect(`
+        |   ║ - : * : - : - : - |
+        |===:===:===:===:===:===|
+        | - ║   : 0 :   :   :   |
+        | # ║ 0 : 1 : 0 : 0 : 0 |
+        | - ║   : 0 :   :   :   |
+        | - ║   : 0 :   :   :   |
+        | - ║   : 0 :   :   :   |
+        `).toBeMatchToSelectionPattern();
+    });
+
+    it('should not disable any selection when updated via `updateSettings` to `undefined` (#12304)', async() => {
       handsontable({
         rowHeaders: true,
         colHeaders: true,
@@ -23,10 +53,44 @@ describe('Selection', () => {
         disableVisualSelection: true,
       });
 
-      selectColumns(1, 1, -1);
-      keyDown('control/meta');
-      selectRows(1, 1, -1);
-      keyUp('control/meta');
+      await updateSettings({
+        disableVisualSelection: undefined,
+      });
+
+      await selectColumns(1, 1, -1);
+      await keyDown('control/meta');
+      await selectRows(1, 1, -1);
+      await keyUp('control/meta');
+
+      expect(getSelectedRange()).toEqualCellRange([
+        'highlight: -1,1 from: -1,1 to: 4,1',
+        'highlight: 1,-1 from: 1,-1 to: 1,4',
+      ]);
+      expect(`
+        |   ║ - : * : - : - : - |
+        |===:===:===:===:===:===|
+        | - ║   : 0 :   :   :   |
+        | # ║ 0 : 1 : 0 : 0 : 0 |
+        | - ║   : 0 :   :   :   |
+        | - ║   : 0 :   :   :   |
+        | - ║   : 0 :   :   :   |
+        `).toBeMatchToSelectionPattern();
+    });
+
+    it('should disable any kind of selection when set as `true` on table settings layer', async() => {
+      handsontable({
+        rowHeaders: true,
+        colHeaders: true,
+        startRows: 5,
+        startCols: 5,
+        navigableHeaders: true,
+        disableVisualSelection: true,
+      });
+
+      await selectColumns(1, 1, -1);
+      await keyDown('control/meta');
+      await selectRows(1, 1, -1);
+      await keyUp('control/meta');
 
       expect(getSelectedRange()).toEqualCellRange([
         'highlight: -1,1 from: -1,1 to: 4,1',
@@ -42,14 +106,14 @@ describe('Selection', () => {
         |   ║   :   :   :   :   |
         `).toBeMatchToSelectionPattern();
 
-      updateSettings({
+      await updateSettings({
         disableVisualSelection: ['current', 'area', 'header'],
       });
 
-      selectColumns(1, 1, -1);
-      keyDown('control/meta');
-      selectRows(1, 1, -1);
-      keyUp('control/meta');
+      await selectColumns(1, 1, -1);
+      await keyDown('control/meta');
+      await selectRows(1, 1, -1);
+      await keyUp('control/meta');
 
       expect(getSelectedRange()).toEqualCellRange([
         'highlight: -1,1 from: -1,1 to: 4,1',
@@ -66,7 +130,7 @@ describe('Selection', () => {
         `).toBeMatchToSelectionPattern();
     });
 
-    it('should disable all "current" selection types', () => {
+    it('should disable all "current" selection types', async() => {
       handsontable({
         rowHeaders: true,
         colHeaders: true,
@@ -76,10 +140,10 @@ describe('Selection', () => {
         disableVisualSelection: 'current',
       });
 
-      selectColumns(1, 1, -1);
-      keyDown('control/meta');
-      selectRows(1, 1, -1);
-      keyUp('control/meta');
+      await selectColumns(1, 1, -1);
+      await keyDown('control/meta');
+      await selectRows(1, 1, -1);
+      await keyUp('control/meta');
 
       expect(getSelectedRange()).toEqualCellRange([
         'highlight: -1,1 from: -1,1 to: 4,1',
@@ -96,7 +160,7 @@ describe('Selection', () => {
         `).toBeMatchToSelectionPattern();
     });
 
-    it('should disable all "area" selection types', () => {
+    it('should disable all "area" selection types', async() => {
       handsontable({
         rowHeaders: true,
         colHeaders: true,
@@ -106,10 +170,10 @@ describe('Selection', () => {
         disableVisualSelection: 'area',
       });
 
-      selectColumns(1, 1, -1);
-      keyDown('control/meta');
-      selectRows(1, 1, -1);
-      keyUp('control/meta');
+      await selectColumns(1, 1, -1);
+      await keyDown('control/meta');
+      await selectRows(1, 1, -1);
+      await keyUp('control/meta');
 
       expect(getSelectedRange()).toEqualCellRange([
         'highlight: -1,1 from: -1,1 to: 4,1',
@@ -126,7 +190,7 @@ describe('Selection', () => {
         `).toBeMatchToSelectionPattern();
     });
 
-    it('should disable all "header" selection types', () => {
+    it('should disable all "header" selection types', async() => {
       handsontable({
         rowHeaders: true,
         colHeaders: true,
@@ -136,10 +200,10 @@ describe('Selection', () => {
         disableVisualSelection: 'header',
       });
 
-      selectColumns(1, 1, -1);
-      keyDown('control/meta');
-      selectRows(1, 1, -1);
-      keyUp('control/meta');
+      await selectColumns(1, 1, -1);
+      await keyDown('control/meta');
+      await selectRows(1, 1, -1);
+      await keyUp('control/meta');
 
       expect(getSelectedRange()).toEqualCellRange([
         'highlight: -1,1 from: -1,1 to: 4,1',
@@ -156,7 +220,7 @@ describe('Selection', () => {
         `).toBeMatchToSelectionPattern();
     });
 
-    it('should disable all "header" and "current" selection types', () => {
+    it('should disable all "header" and "current" selection types', async() => {
       handsontable({
         rowHeaders: true,
         colHeaders: true,
@@ -166,10 +230,10 @@ describe('Selection', () => {
         disableVisualSelection: ['current', 'header'],
       });
 
-      selectColumns(1, 1, -1);
-      keyDown('control/meta');
-      selectRows(1, 1, -1);
-      keyUp('control/meta');
+      await selectColumns(1, 1, -1);
+      await keyDown('control/meta');
+      await selectRows(1, 1, -1);
+      await keyUp('control/meta');
 
       expect(getSelectedRange()).toEqualCellRange([
         'highlight: -1,1 from: -1,1 to: 4,1',
@@ -186,7 +250,7 @@ describe('Selection', () => {
         `).toBeMatchToSelectionPattern();
     });
 
-    it('should disable all "area" and "header" selection types', () => {
+    it('should disable all "area" and "header" selection types', async() => {
       handsontable({
         rowHeaders: true,
         colHeaders: true,
@@ -196,10 +260,10 @@ describe('Selection', () => {
         disableVisualSelection: ['area', 'header'],
       });
 
-      selectColumns(1, 1, -1);
-      keyDown('control/meta');
-      selectRows(1, 1, -1);
-      keyUp('control/meta');
+      await selectColumns(1, 1, -1);
+      await keyDown('control/meta');
+      await selectRows(1, 1, -1);
+      await keyUp('control/meta');
 
       expect(getSelectedRange()).toEqualCellRange([
         'highlight: -1,1 from: -1,1 to: 4,1',
@@ -216,7 +280,7 @@ describe('Selection', () => {
         `).toBeMatchToSelectionPattern();
     });
 
-    it('should disable all kind of selection types for specific rows and columns (navigableHeaders: false)', () => {
+    it('should disable all kind of selection types for specific rows and columns (navigableHeaders: false)', async() => {
       handsontable({
         rowHeaders: true,
         colHeaders: true,
@@ -241,12 +305,12 @@ describe('Selection', () => {
         ]
       });
 
-      selectColumns(1);
-      keyDown('control/meta');
-      selectColumns(2);
-      selectRows(1);
-      selectRows(2);
-      keyUp('control/meta');
+      await selectColumns(1);
+      await keyDown('control/meta');
+      await selectColumns(2);
+      await selectRows(1);
+      await selectRows(2);
+      await keyUp('control/meta');
 
       expect(getSelectedRange()).toEqualCellRange([
         'highlight: 0,1 from: -1,1 to: 4,1',
@@ -266,7 +330,7 @@ describe('Selection', () => {
     });
 
     // headers doesn't support `disableVisualSelection` option defined in the cell meta
-    it('should not disable all kind of selection types for specific rows and columns (navigableHeaders: true)', () => {
+    it('should not disable all kind of selection types for specific rows and columns (navigableHeaders: true)', async() => {
       handsontable({
         rowHeaders: true,
         colHeaders: true,
@@ -290,12 +354,12 @@ describe('Selection', () => {
           {},
         ]
       });
-      selectColumns(1, 1, -1);
-      keyDown('control/meta');
-      selectColumns(2, 2, -1);
-      selectRows(1, 1, -1);
-      selectRows(2, 2, -1);
-      keyUp('control/meta');
+      await selectColumns(1, 1, -1);
+      await keyDown('control/meta');
+      await selectColumns(2, 2, -1);
+      await selectRows(1, 1, -1);
+      await selectRows(2, 2, -1);
+      await keyUp('control/meta');
 
       expect(getSelectedRange()).toEqualCellRange([
         'highlight: -1,1 from: -1,1 to: 4,1',
@@ -314,7 +378,7 @@ describe('Selection', () => {
         `).toBeMatchToSelectionPattern();
     });
 
-    it('should enable the selection for specific rows and columns when the whole table has disabled it', () => {
+    it('should enable the selection for specific rows and columns when the whole table has disabled it', async() => {
       handsontable({
         rowHeaders: true,
         colHeaders: true,
@@ -340,12 +404,12 @@ describe('Selection', () => {
         ]
       });
 
-      selectColumns(1);
-      keyDown('control/meta');
-      selectColumns(2);
-      selectRows(1);
-      selectRows(2);
-      keyUp('control/meta');
+      await selectColumns(1);
+      await keyDown('control/meta');
+      await selectColumns(2);
+      await selectRows(1);
+      await selectRows(2);
+      await keyUp('control/meta');
 
       expect(getSelectedRange()).toEqualCellRange([
         'highlight: 0,1 from: -1,1 to: 4,1',
@@ -364,7 +428,7 @@ describe('Selection', () => {
         `).toBeMatchToSelectionPattern();
     });
 
-    it('should disable the "current" selection type for specific rows and columns', () => {
+    it('should disable the "current" selection type for specific rows and columns', async() => {
       handsontable({
         rowHeaders: true,
         colHeaders: true,
@@ -389,12 +453,12 @@ describe('Selection', () => {
         ]
       });
 
-      selectColumns(1);
-      keyDown('control/meta');
-      selectColumns(2);
-      selectRows(1);
-      selectRows(2);
-      keyUp('control/meta');
+      await selectColumns(1);
+      await keyDown('control/meta');
+      await selectColumns(2);
+      await selectRows(1);
+      await selectRows(2);
+      await keyUp('control/meta');
 
       expect(getSelectedRange()).toEqualCellRange([
         'highlight: 0,1 from: -1,1 to: 4,1',
@@ -413,7 +477,7 @@ describe('Selection', () => {
         `).toBeMatchToSelectionPattern();
     });
 
-    it('should disable the "area" selection type for specific rows and columns', () => {
+    it('should disable the "area" selection type for specific rows and columns', async() => {
       handsontable({
         rowHeaders: true,
         colHeaders: true,
@@ -438,12 +502,12 @@ describe('Selection', () => {
         ]
       });
 
-      selectColumns(1);
-      keyDown('control/meta');
-      selectColumns(2);
-      selectRows(1);
-      selectRows(2);
-      keyUp('control/meta');
+      await selectColumns(1);
+      await keyDown('control/meta');
+      await selectColumns(2);
+      await selectRows(1);
+      await selectRows(2);
+      await keyUp('control/meta');
 
       expect(getSelectedRange()).toEqualCellRange([
         'highlight: 0,1 from: -1,1 to: 4,1',
@@ -462,7 +526,7 @@ describe('Selection', () => {
         `).toBeMatchToSelectionPattern();
     });
 
-    it('should disable the "header" selection type for specific rows and columns', () => {
+    it('should disable the "header" selection type for specific rows and columns', async() => {
       handsontable({
         rowHeaders: true,
         colHeaders: true,
@@ -487,10 +551,10 @@ describe('Selection', () => {
         ]
       });
 
-      selectColumns(1);
-      keyDown('control/meta');
-      selectRows(1);
-      keyUp('control/meta');
+      await selectColumns(1);
+      await keyDown('control/meta');
+      await selectRows(1);
+      await keyUp('control/meta');
 
       expect(getSelectedRange()).toEqualCellRange([
         'highlight: 0,1 from: -1,1 to: 4,1',
@@ -504,6 +568,31 @@ describe('Selection', () => {
         |   ║   : 0 :   :   :   |
         |   ║   : 0 :   :   :   |
         |   ║   : 0 :   :   :   |
+        `).toBeMatchToSelectionPattern();
+    });
+
+    it('should disable the selection highlight after call updateData()', async() => {
+      handsontable({
+        data: createSpreadsheetData(5, 5),
+        rowHeaders: true,
+        colHeaders: true,
+        startRows: 5,
+        startCols: 5,
+        navigableHeaders: true,
+        disableVisualSelection: true,
+      });
+
+      await selectCell(1, 1);
+      await updateData(createSpreadsheetData(5, 5), 'updateSettings');
+
+      expect(`
+        |   ║   :   :   :   :   |
+        |===:===:===:===:===:===|
+        |   ║   :   :   :   :   |
+        |   ║   :   :   :   :   |
+        |   ║   :   :   :   :   |
+        |   ║   :   :   :   :   |
+        |   ║   :   :   :   :   |
         `).toBeMatchToSelectionPattern();
     });
   });

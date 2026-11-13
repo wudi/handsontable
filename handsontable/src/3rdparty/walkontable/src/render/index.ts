@@ -1,0 +1,194 @@
+import { RowHeadersRenderer } from './rowHeaders';
+import { ColumnHeaderRowsRenderer } from './columnHeaderRows';
+import { ColumnHeadersRenderer } from './columnHeaders';
+import { ColGroupRenderer } from './colGroup';
+import { RowsRenderer } from './rows';
+import { CellsRenderer } from './cells';
+import { TableRenderer } from './tableRenderer';
+import type { ShouldPaintCell } from './tableRenderer';
+import type RowFilter from '../filter/row';
+import type ColumnFilter from '../filter/column';
+import type RowUtils from '../axisSizing/rowUtils';
+import type ColumnUtils from '../axisSizing/columnUtils';
+import type { StylesHandler } from '../types';
+
+interface RendererOptions {
+  TABLE?: HTMLTableElement;
+  THEAD?: HTMLElement;
+  COLGROUP?: HTMLElement;
+  TBODY?: HTMLElement;
+  rowUtils?: RowUtils;
+  columnUtils?: ColumnUtils;
+  cellRenderer?: Function;
+  shouldPaintCell?: ShouldPaintCell;
+  stylesHandler?: StylesHandler;
+}
+
+/**
+ * Content renderer.
+ *
+ * @class Renderer
+ */
+class Renderer {
+  /**
+   * @type {TableRenderer}
+   */
+  declare renderer: TableRenderer;
+
+  /**
+   * Creates a new Renderer instance.
+   *
+   * @param {RendererOptions} options The renderer configuration options.
+   */
+  constructor({
+    TABLE, THEAD, COLGROUP, TBODY, rowUtils, columnUtils, cellRenderer, shouldPaintCell, stylesHandler
+  }: RendererOptions = {}) {
+    /**
+     * General renderer class used to render Walkontable content on screen.
+     *
+     * @type {TableRenderer}
+     */
+    this.renderer = new TableRenderer(TABLE!, { cellRenderer, shouldPaintCell, stylesHandler });
+    this.renderer.setRenderers({
+      rowHeaders: new RowHeadersRenderer(),
+      columnHeaderRows: new ColumnHeaderRowsRenderer(THEAD!),
+      columnHeaders: new ColumnHeadersRenderer(),
+      colGroup: new ColGroupRenderer(COLGROUP!),
+      rows: new RowsRenderer(TBODY!),
+      cells: new CellsRenderer(),
+    });
+    this.renderer.setAxisUtils(rowUtils!, columnUtils!);
+  }
+
+  /**
+   * Sets the overlay that is currently rendered. If `null` is provided, the master overlay is set.
+   *
+   * @param {'inline_start'|'inline_end'|'top'|'top_inline_start_corner'|'top_inline_end_corner'|'bottom'|'bottom_inline_start_corner'|'bottom_inline_end_corner'|'master'} overlayName The overlay name.
+   * @returns {Renderer}
+   */
+  setActiveOverlayName(overlayName: string) {
+    this.renderer.setActiveOverlayName(overlayName);
+
+    return this;
+  }
+
+  /**
+   * Sets filter calculators for newly calculated row and column position. The filters are used to transform visual
+   * indexes (0 to N) to source indexes provided by Handsontable.
+   *
+   * @param {RowFilter} rowFilter The row filter instance.
+   * @param {ColumnFilter} columnFilter The column filter instance.
+   * @returns {Renderer}
+   */
+  setFilters(rowFilter: RowFilter, columnFilter: ColumnFilter) {
+    this.renderer.setFilters(rowFilter, columnFilter);
+
+    return this;
+  }
+
+  /**
+   * Sets the viewport size of the rendered table.
+   *
+   * @param {number} rowsCount An amount of rows to render.
+   * @param {number} columnsCount An amount of columns to render.
+   * @returns {Renderer}
+   */
+  setViewportSize(rowsCount: number, columnsCount: number) {
+    this.renderer.setViewportSize(rowsCount, columnsCount);
+
+    return this;
+  }
+
+  /**
+   * Sets row and column header functions.
+   *
+   * @param {Function[]} rowHeaders Row header functions. Factories for creating content for row headers.
+   * @param {Function[]} columnHeaders Column header functions. Factories for creating content for column headers.
+   * @returns {Renderer}
+   */
+  setHeaderContentRenderers(rowHeaders: Function[], columnHeaders: Function[]) {
+    this.renderer.setHeaderContentRenderers(rowHeaders, columnHeaders);
+
+    return this;
+  }
+
+  /**
+   * Restricts the next render's cell and row-header repaint to the rows at and after
+   * `fromVisibleRow` (see `TableRenderer#setPaintWindow`).
+   *
+   * @param {number} fromVisibleRow The first visible row index to repaint; `0` repaints the whole band.
+   * @returns {Renderer}
+   */
+  setPaintWindow(fromVisibleRow: number) {
+    this.renderer.setPaintWindow(fromVisibleRow);
+
+    return this;
+  }
+
+  /**
+   * Marks this draw as one where the column-header (THEAD) pass may be skipped when the column render
+   * window is unchanged (a pure vertical scroll).
+   *
+   * @param {boolean} skippable Whether the column-header pass may be skipped for this draw.
+   * @returns {Renderer}
+   */
+  setColumnHeadersRenderSkippable(skippable: boolean) {
+    this.renderer.setColumnHeadersRenderSkippable(skippable);
+
+    return this;
+  }
+
+  /**
+   * Sets whether this draw was entered as a scroll draw.
+   *
+   * @param {boolean} scrollDriven Whether the draw is scroll-driven.
+   * @returns {Renderer}
+   */
+  setScrollDrivenDraw(scrollDriven: boolean) {
+    this.renderer.setScrollDrivenDraw(scrollDriven);
+
+    return this;
+  }
+
+  /**
+   * Records the host's render epoch this draw started from (see `TableRenderer#renderEpoch`).
+   *
+   * @param {number} epoch The `renderEpoch` setting at draw start.
+   * @returns {Renderer}
+   */
+  setRenderEpoch(epoch: number) {
+    this.renderer.setRenderEpoch(epoch);
+
+    return this;
+  }
+
+  /**
+   * Sets whether the viewport allows row recycling on this draw.
+   *
+   * @param {boolean} allowed Whether row recycling is allowed.
+   * @returns {Renderer}
+   */
+  setRowRecyclingAllowed(allowed: boolean) {
+    this.renderer.setRowRecyclingAllowed(allowed);
+
+    return this;
+  }
+
+  /**
+   * Renders the table.
+   */
+  render() {
+    this.renderer.render();
+  }
+}
+
+export {
+  RowHeadersRenderer,
+  ColumnHeaderRowsRenderer,
+  ColumnHeadersRenderer,
+  ColGroupRenderer,
+  RowsRenderer,
+  CellsRenderer,
+  TableRenderer,
+  Renderer,
+};

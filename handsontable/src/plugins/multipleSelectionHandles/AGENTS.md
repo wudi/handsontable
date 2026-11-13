@@ -1,0 +1,77 @@
+# MultipleSelectionHandles plugin — the mobile selection handles
+
+The `multipleSelectionHandles` plugin drives the two round grab-points on a selection's corners on touch devices. Read this before touching `multipleSelectionHandles.ts`.
+
+It is `@private` and has no setting: `isEnabled()` returns `isMobileOrIpadOS()`, which is evaluated when the plugin initializes. That covers a mobile user-agent **and** iPadOS 13+ Safari/Chrome, which report a desktop Macintosh UA (`isMobileBrowser()` is false, `isIpadOS()` is true). Switching a browser into device emulation after the grid was built does not create handles — reload, or no handles exist. `disappear()` / `appear()` must still guard `this.selectionHandles`, because `isIpadOS()` reads `maxTouchPoints` live and used to throw when the object was missing. That constructor-only create is the most common reason a mobile test or manual check "fails" for the wrong reason.
+
+**Do not fold iPadOS into `isMobileBrowser()`.** Walkontable `event.ts` keys listener registration on `isMobileBrowser()` only, so iPad keeps both touch and mouse listeners (DEV-2687). Selection-handle UI uses `isMobileOrIpadOS()`; the two predicates must stay distinct.
+
+## This is the only drag path a phone has
+
+`3rdparty/walkontable/src/selection/border/border.ts` gates the desktop **resize** handles (`adjustHandles` / `selectionHandles` option) behind `!isMobileOrIpadOS()` and creates these handles instead (`createMultipleSelectorHandles`, keyed on `isMobileOrIpadOS() && isDataViewInstance`). The `moveCells` edge bands stay gated on `!isMobileBrowser()` so iPad (desktop UA) keeps the drag band it had before DEV-1081. Do not fold that gate into `isMobileOrIpadOS()` — that accidentally turned `moveCells` off on iPad.
+
+On a phone (`isMobileBrowser()`):
+
+- The desktop `selectionHandles` resize handles and the `moveCells` edge bands are **not rendered**, and `afterOnSelectionHandleMouseDown` / `afterOnSelectionEdgeMouseDown` **never fire**. A plugin waiting on those hooks is never armed on a phone.
+
+On iPad (`isIpadOS()` but not `isMobileBrowser()`):
+
+- Mobile range handles are shown and the fill square is hidden.
+- Desktop resize handles (`adjustHandles`) stay off.
+- `moveCells` edge bands still render when the option is on.
+
+The round handles listen for `touchstart` / `touchmove` / `touchend` only — there is no `mousedown` on `topSelectionHandle-HitArea` / `bottomSelectionHandle-HitArea`. A trackpad or mouse therefore cannot resize via those handles. It still **moves** the selection through the 6px `wtMoveZone` bands, which listen for `mousedown` and sit at z-index 100 on the selection edge. The 40×40 handle hit area hangs off the corner, so most of it does not overlap the band; a mouse press on the painted handle that misses the band is a no-op. At the first row or column with no clone over that edge, `Border#updateMultipleSelectionHandlesPosition` shifts the handle and its hit area onto the grid by the same distance, so the hit area overlaps up to about 23px of the band next to the corner there (about 7px elsewhere). Do not add `mousedown` to the handles to "fix" that: it would steal the band's corner pixels and change the desktop-UA iPad product. Finger resize stays on the handles (`tests/e2e/ipad-selection-handles.spec.ts` pins both the mouse-on-band move and the mouse-on-handle no-resize).
+
+On both, a plain finger drag across cells is **native scrolling by design** — `walkontable/src/event.ts` defers the synthesized mousedown to `touchend` so a drag scrolls instead of selecting.
+
+Both together mean: if a feature should work while dragging on mobile, it has to hook into *this* plugin. DragToScroll does exactly that, by asking `isDraggedBy(touch.identifier)` from its own document-level `touchstart` listener (see `../dragToScroll/AGENTS.md`).
+
+The handle DOM lives in the border, not here — this plugin only reads the hit-area classes `topSelectionHandle-HitArea` and `bottomSelectionHandle-HitArea` off the event target.
+
+## One overlay draws each handle
+
+Every overlay (the master and each frozen-pane clone) has its own border and its own pair of handles, and the master also renders the frozen panes' cells, under the clones. **Each handle is drawn only by the overlay that owns its corner cell** — `ownsCornerCell()` in `walkontable/src/selection/border/adjustHandlesOwnership.ts`, resolved once per draw in `Border#measure`: the top handle by the owner of the selection's top-start cell, the bottom handle by the owner of its bottom-end cell (a merged block's real corner). Before DEV-749 the master drew a frozen cell's handles too, and the user saw two bottom handles. **The cause is geometry, not stacking:** on `develop` `.ht_master` is a stacking context below the clones (`z-index: 0`, see `walkontable/AGENTS.md`), so the master's copy did not paint over the clone; it hung past the freeze line into the master's own visible area, next to the clone's clamped copy. (On 18.1.2, before the master became a stacking context, the master's copy did also paint above the clones.) Do not chase related bugs through z-index, and do not hand frozen cells back to the master to get its unclipped copy: it sits in the scrolling table, so it slides away from the cell as soon as the grid scrolls.
+
+Consequences:
+
+- A clone's bottom handle is clamped inside its own table size (the clone clips overflow), so for a cell in the last frozen row (`fixedRowsTop`) or the last frozen column it sits a few pixels inside the corner, as it always did after a scroll. Accepted in review; `mobile-selection-handles.spec.ts` pins that it stays next to the corner.
+- The clone-occlusion checks (`isTopHandleOccludedByClone`, `isBottomHandleOccludedByClone`, and its inline-axis twin `isBottomHandleOccludedByInlineEndClone`) apply to every overlay on the scrollable side of an axis. A handle that would hang into a frozen pane is pulled inside its cell: the top handle on the `fixedRowsTop`/`fixedColumnsStart` line and on the first track of an end pane, the bottom handle on the last scrollable row before `fixedRowsBottom` and the last scrollable column before `fixedColumnsEnd`.
+- Testing: a reachable-handle check keeps only the topmost element at a handle's center, so two copies stacked on one pixel read as one. Assert `displayedHandles()` too (`MobileHandlesPage`), which counts every displayed copy.
+
+## Resolving the finger
+
+**Use `getCellCoordsFromMousePosition()` (`helpers/dom/cellCoords.ts`), not `document.elementFromPoint()`.** The helper clamps the position to the viewport and returns the nearest cell, so a finger dragged *past* the grid edge still maps to a real cell. `elementFromPoint` returns nothing usable out there, which froze the selection at the last rendered cell — half of issue #11658.
+
+**De-duplicate per-move updates on coordinates, never on the resolved `td`.** Walkontable reuses the same elements across scrolls, so under a finger that is holding still the element is identical on every tick while the cell it represents changes. Comparing elements silently skips every update during an auto-scroll. `#lastTargetCoords` exists for this.
+
+**Read `selectedRange.getDirection()` before the conditional `setRangeEnd`.** `#extendSelection` calls `setRangeEnd` first when the range is a single cell, and that mutates the range — so the direction handed to `getCurrentRangeCoords` must be captured on entry, or a 1×1 selection resizes along the wrong axis.
+
+## Gesture lifecycle
+
+`dragged` holds which handles are being dragged. `isDragged()` answers "is any handle held"; `isDraggedBy(identifier)` answers "is *this* finger the one holding a handle", and that is the one DragToScroll reads — the plain boolean stays `true` for the whole gesture, so it would arm auto-scroll for every later finger too. Keeping `#dragTouches` honest matters either way: a stale entry lets an unrelated touch arm auto-scroll with no handle press, and browsers recycle `Touch.identifier` (Chrome on Android reuses `0`), so a leftover id can be handed to a genuinely new finger.
+
+**Track fingers by `Touch.identifier`, never by position in a list.** `#dragTouches` maps each identifier to the handle that finger grabbed, filled from `getFirstChangedTouch()` on `touchstart`. Everything else keys off it. Two facts make this the only workable approach, and both cost a bug to learn:
+
+- **`touches` is the whole screen, and `touches[0]` is the first finger placed anywhere** — a thumb already resting on the grid, not the one on the handle. Reading it made the selection follow the thumb.
+- **`touchend` and `touchcancel` fire once per finger**, so neither answers "is the gesture over?". Both are handled the same way: `getTouchPointById()` per tracked finger, releasing only the ones that are actually gone. A check for "no fingers left anywhere" strands the plugin permanently when the drag finger lifts while another rests — the entry stays in `#dragTouches`, and because browsers recycle `Touch.identifier`, a later unrelated finger handed the same id is then taken for the handle holder. A check for "any finger lifted" kills a live drag when a palm lifts.
+
+The `touchend` **target** is the element captured at `touchstart`, so a release over a cell still carries the handle's hit-area class — it governs `preventDefault()` only, not the drag state. The **legacy Jasmine specs dispatch `touchend` on the destination cell instead**; do not read those specs as a statement about real browser behavior.
+
+`#onAfterScroll` re-extends the selection at the last known finger position after each scroll, because a finger held still past the edge emits no further `touchmove`. It does not run away: the target is resolved against the *current* viewport and then de-duplicated on coordinates, so it reaches a fixed point after one step — measured with `dragToScroll: false`, where nothing suppresses the scroll-into-view, it stops after one row and stays there.
+
+## The legacy mobile Jasmine suite is manual, and handle positions are whole pixels
+
+`__tests__/mobile/` runs only when someone builds it and opens `test/MobileRunner.html` on a device; no CI job runs it. Build `dist/` first (`npm --prefix handsontable run build:umd` and `build:languages`), then `npm --prefix handsontable run test:mobile.dump`. The dump task builds only the styles and the spec bundles, while the runner loads `../dist/handsontable.js` and `../dist/languages/all.js`, so without the build it fails in a fresh checkout and tests a stale `dist/` in an older one.
+
+`Border#measure` builds each handle's position from the integer `offsetTop`/`offsetLeft` chain and `offsetWidth`/`offsetHeight` (through the geometry reader), so the handle sits on integer coordinates. In the runner's jQuery 1.11.1, `outerWidth()` and `outerHeight()` return `offsetWidth` and `offsetHeight`, so they are whole numbers too. Only `offset()` is fractional, because it comes from `getBoundingClientRect()`, for the handle as much as for the cell. Comparing two `offset()` values exactly therefore fails by a fraction of a pixel on a fractional layout and passes on an integer one (DEV-601). The `parseInt` calls in `updateMultipleSelectionHandlesPosition` are not the cause: their inputs are already integers.
+
+The `positioning.spec.js` files read both the cell and the handle through `Handsontable.dom.offset()`, the same integer chain, and compare with `toEqual`. That keeps the one-pixel constants in the handle math pinned on every layout: a tolerance on `offset()` would let a one-pixel shift pass whenever it runs against an existing fractional miss. A real Pixel 7 (Android 13, Chrome, DPR 2.625) reproduces the `offset()` miss (0.476px), while stock Chromium emulation at DPR 2 and 2.625 does not. To see it without a device, add `.handsontable { zoom: 1.0005 }` to the runner page and temporarily compare jQuery's `.offset()` instead. Keep the zoom near 1: at about 1.02 the touch coordinates scale too, and the drag specs then fail for another reason.
+
+Do not "fix" this by placing the handles at fractional coordinates in `border.ts`.
+
+## Where to look next
+
+- The auto-scroller this plugin arms: `../dragToScroll/AGENTS.md`.
+- Handle DOM and the mobile/desktop split: `3rdparty/walkontable/src/selection/border/border.ts`.
+- Writing tests for any of this: `tests/AGENTS.md` ("Touch and mobile specs").
+- Plugin contract, hooks, lifecycle: `handsontable-plugin-dev` skill.

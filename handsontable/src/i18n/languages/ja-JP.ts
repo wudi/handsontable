@@ -1,0 +1,198 @@
+/**
+ * @preserve
+ * Authors: hand-dot
+ * Last updated: Jan 9, 2023
+ *
+ * Description: Definition file for Japanese - Japan language-country.
+ */
+import * as C from '../constants';
+
+const dictionary = {
+  languageCode: 'ja-JP',
+
+  [C.OK]: 'OK',
+  [C.CANCEL]: 'キャンセル',
+
+  [C.CONTEXTMENU_ITEMS_ROW_ABOVE]: '行を上に挿入',
+  [C.CONTEXTMENU_ITEMS_ROW_BELOW]: '行を下に挿入',
+  [C.CONTEXTMENU_ITEMS_INSERT_LEFT]: '列を左に挿入',
+  [C.CONTEXTMENU_ITEMS_INSERT_RIGHT]: '列を右に挿入',
+  [C.CONTEXTMENU_ITEMS_REMOVE_ROW]: ['行を削除', '行を削除'],
+  [C.CONTEXTMENU_ITEMS_REMOVE_COLUMN]: ['列を削除', '列を削除'],
+  [C.CONTEXTMENU_ITEMS_UNDO]: '元に戻す',
+  [C.CONTEXTMENU_ITEMS_REDO]: 'やり直し',
+  [C.CONTEXTMENU_ITEMS_READ_ONLY]: '読み取り専用',
+  [C.CONTEXTMENU_ITEMS_CLEAR_COLUMN]: '列をクリア',
+
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT]: '配置',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_LEFT]: '左揃え',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_CENTER]: '中央揃え',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_RIGHT]: '右揃え',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_JUSTIFY]: '両端揃え',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_TOP]: '上揃え',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_MIDDLE]: '中央揃え(垂直)',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_BOTTOM]: '下揃え',
+
+  [C.CONTEXTMENU_ITEMS_FREEZE_COLUMN]: '列を固定',
+  [C.CONTEXTMENU_ITEMS_UNFREEZE_COLUMN]: '列の固定を解除',
+
+  [C.CONTEXTMENU_ITEMS_BORDERS]: '枠線',
+  [C.CONTEXTMENU_ITEMS_BORDERS_TOP]: '上',
+  [C.CONTEXTMENU_ITEMS_BORDERS_RIGHT]: '右',
+  [C.CONTEXTMENU_ITEMS_BORDERS_BOTTOM]: '下',
+  [C.CONTEXTMENU_ITEMS_BORDERS_LEFT]: '左',
+  [C.CONTEXTMENU_ITEMS_REMOVE_BORDERS]: '枠線を削除',
+
+  [C.CONTEXTMENU_ITEMS_ADD_COMMENT]: 'コメントを追加',
+  [C.CONTEXTMENU_ITEMS_EDIT_COMMENT]: 'コメントを編集',
+  [C.CONTEXTMENU_ITEMS_REMOVE_COMMENT]: 'コメントを削除',
+  [C.CONTEXTMENU_ITEMS_READ_ONLY_COMMENT]: '読み取り専用コメント',
+
+  [C.CONTEXTMENU_ITEMS_MERGE_CELLS]: 'セルを結合',
+  [C.CONTEXTMENU_ITEMS_UNMERGE_CELLS]: 'セルの結合を解除',
+
+  [C.CONTEXTMENU_ITEMS_COPY]: 'コピー',
+  [C.CONTEXTMENU_ITEMS_COPY_WITH_COLUMN_HEADERS]: ['ヘッダ付きでコピー', 'ヘッダ付きでコピー'],
+  [C.CONTEXTMENU_ITEMS_COPY_WITH_COLUMN_GROUP_HEADERS]: [
+    'グループヘッダ付きでコピー',
+    'グループヘッダ付きでコピー'
+  ],
+  [C.CONTEXTMENU_ITEMS_COPY_COLUMN_HEADERS_ONLY]: ['ヘッダのみコピー', 'ヘッダのみコピー'],
+  [C.CONTEXTMENU_ITEMS_CUT]: '切り取り',
+
+  [C.CONTEXTMENU_ITEMS_EXPORT]: 'エクスポート',
+  [C.CONTEXTMENU_ITEMS_EXPORT_FILE_CSV]: 'CSVへ',
+  [C.CONTEXTMENU_ITEMS_EXPORT_FILE_XLSX]: 'Excelへ',
+  [C.EXPORT_FILE_DIALOG_TITLE]: 'エクスポート中…',
+
+  [C.CONTEXTMENU_ITEMS_NESTED_ROWS_INSERT_CHILD]: '子の行を挿入',
+  [C.CONTEXTMENU_ITEMS_NESTED_ROWS_DETACH_CHILD]: '親の行と切り離す',
+
+  [C.CONTEXTMENU_ITEMS_HIDE_COLUMN]: ['列を非表示', '列を非表示'],
+  [C.CONTEXTMENU_ITEMS_SHOW_COLUMN]: ['列を表示', '列を表示'],
+
+  [C.CONTEXTMENU_ITEMS_HIDE_ROW]: ['行を非表示', '行を非表示'],
+  [C.CONTEXTMENU_ITEMS_SHOW_ROW]: ['行を表示', '行を表示'],
+
+  [C.FILTERS_CONDITIONS_NONE]: 'なし',
+  [C.FILTERS_CONDITIONS_EMPTY]: '空白',
+  [C.FILTERS_CONDITIONS_NOT_EMPTY]: '空白ではない',
+  [C.FILTERS_CONDITIONS_EQUAL]: '次と等しい',
+  [C.FILTERS_CONDITIONS_NOT_EQUAL]: '次と等しくない',
+  [C.FILTERS_CONDITIONS_BEGINS_WITH]: '次で始まる',
+  [C.FILTERS_CONDITIONS_ENDS_WITH]: '次で終わる',
+  [C.FILTERS_CONDITIONS_CONTAINS]: '次を含む',
+  [C.FILTERS_CONDITIONS_NOT_CONTAIN]: '次を含まない',
+  [C.FILTERS_CONDITIONS_GREATER_THAN]: '次より大きい',
+  [C.FILTERS_CONDITIONS_GREATER_THAN_OR_EQUAL]: '以上',
+  [C.FILTERS_CONDITIONS_LESS_THAN]: '次より小さい',
+  [C.FILTERS_CONDITIONS_LESS_THAN_OR_EQUAL]: '以下',
+  [C.FILTERS_CONDITIONS_BETWEEN]: '次の間にある',
+  [C.FILTERS_CONDITIONS_NOT_BETWEEN]: '次の間にない',
+  [C.FILTERS_CONDITIONS_AFTER]: '次より後の日付',
+  [C.FILTERS_CONDITIONS_AFTER_OR_EQUAL]: '次以降の日付',
+  [C.FILTERS_CONDITIONS_BEFORE]: '次より前の日付',
+  [C.FILTERS_CONDITIONS_BEFORE_OR_EQUAL]: '次以前の日付',
+  [C.FILTERS_CONDITIONS_TODAY]: '今日',
+  [C.FILTERS_CONDITIONS_TOMORROW]: '明日',
+  [C.FILTERS_CONDITIONS_YESTERDAY]: '昨日',
+
+  [C.FILTERS_VALUES_BLANK_CELLS]: '空白のセル',
+
+  [C.FILTERS_DIVS_FILTER_BY_CONDITION]: '条件でフィルタ',
+  [C.FILTERS_DIVS_FILTER_BY_VALUE]: '値でフィルタ',
+
+  [C.FILTERS_LABELS_CONJUNCTION]: 'かつ',
+  [C.FILTERS_LABELS_DISJUNCTION]: 'もしくは',
+
+  [C.FILTERS_BUTTONS_SELECT_ALL]: 'すべて選択',
+  [C.FILTERS_BUTTONS_CLEAR]: 'すべて選択解除',
+  [C.FILTERS_BUTTONS_OK]: 'OK',
+  [C.FILTERS_BUTTONS_CANCEL]: 'キャンセル',
+
+  [C.FILTERS_BUTTONS_PLACEHOLDER_SEARCH]: '検索',
+  [C.FILTERS_BUTTONS_PLACEHOLDER_VALUE]: '値',
+  [C.FILTERS_BUTTONS_PLACEHOLDER_SECOND_VALUE]: '値2',
+
+  [C.PAGINATION_SECTION]: 'ページネーション',
+  [C.PAGINATION_PAGE_SIZE_SECTION]: '行数',
+  [C.PAGINATION_PAGE_SIZE_AUTO]: '自動',
+  [C.PAGINATION_COUNTER_SECTION]: '[start] - [end] / 全[total]件',
+  [C.PAGINATION_NAV_SECTION]: 'ページ [currentPage] / [totalPages]',
+  [C.PAGINATION_FIRST_PAGE]: '最初のページへ移動',
+  [C.PAGINATION_PREV_PAGE]: '前のページへ移動',
+  [C.PAGINATION_NEXT_PAGE]: '次のページへ移動',
+  [C.PAGINATION_LAST_PAGE]: '最後のページへ移動',
+
+  [C.SHEETS_BAR_SECTION]: 'シート',
+  [C.SHEETS_BAR_ADD_SHEET]: 'シートを追加',
+  [C.SHEETS_BAR_ALL_SHEETS]: 'すべてのシート',
+  [C.SHEETS_BAR_SHEET_MENU]: 'シート操作：[name]',
+  [C.SHEETS_BAR_RENAME_SHEET]: 'シート名',
+  [C.SHEETS_BAR_ITEMS_DELETE]: '削除',
+  [C.SHEETS_BAR_ITEMS_DUPLICATE]: '複製',
+  [C.SHEETS_BAR_ITEMS_RENAME]: '名前の変更',
+  [C.SHEETS_BAR_ITEMS_MOVE_RIGHT]: '右へ移動',
+  [C.SHEETS_BAR_ITEMS_MOVE_LEFT]: '左へ移動',
+  [C.SHEETS_BAR_PAGE_PREV]: 'シートを後方にスクロール',
+  [C.SHEETS_BAR_PAGE_NEXT]: 'シートを前方にスクロール',
+  [C.SHEETS_BAR_SHEET_CHANGED]: 'シート [name] が有効になりました',
+  [C.SHEETS_BAR_RENAME_REJECTED]: 'シート名は変更されませんでした: [name] は既に使用されています',
+  [C.SHEETS_BAR_RENAME_NOT_CHANGED]: 'シート名は変更されませんでした',
+  [C.SHEETS_BAR_SHEET_DUPLICATED]: 'シート [name] を [copy] として複製しました',
+  [C.SHEETS_BAR_SHEET_MOVED]: 'シート [name] を [count] 中 [position] 番目に移動しました',
+  [C.SHEETS_BAR_DEFAULT_SHEET_NAME]: 'シート',
+
+  [C.LOADING_TITLE]: '読み込み中...',
+  [C.NOTIFICATION_BUTTONS_CLOSE]: '閉じる',
+
+  [C.EMPTY_DATA_STATE_TITLE]: 'データがありません',
+  [C.EMPTY_DATA_STATE_DESCRIPTION]: '表示するデータがまだありません。',
+  [C.EMPTY_DATA_STATE_TITLE_FILTERS]: '結果が見つかりません',
+  [C.EMPTY_DATA_STATE_DESCRIPTION_FILTERS]: '現在のフィルターがすべての結果を非表示にしているようです。',
+  [C.EMPTY_DATA_STATE_BUTTONS_FILTERS_RESET]: 'フィルターをリセット',
+  [C.EMPTY_DATA_STATE_TITLE_LOADING]: 'データを読み込み中',
+  [C.EMPTY_DATA_STATE_DESCRIPTION_LOADING]: 'お待ちください。',
+
+  [C.DATA_PROVIDER_ERRORS_FETCH]: 'データを読み込めませんでした',
+  [C.DATA_PROVIDER_ERRORS_CREATE]: '行を作成できませんでした',
+  [C.DATA_PROVIDER_ERRORS_UPDATE]: '行を更新できませんでした',
+  [C.DATA_PROVIDER_ERRORS_REMOVE]: '行を削除できませんでした',
+  [C.DATA_PROVIDER_ERRORS_REQUEST_FAILED]: 'リクエストに失敗しました',
+  [C.DATA_PROVIDER_BUTTONS_REFETCH]: '再読み込み',
+  [C.ROW_SELECTION_SELECT_ROW]: '行 [row] を選択',
+  [C.ROW_SELECTION_SELECT_ALL]: 'すべての行を選択 ([total] 件中 [selected] 件を選択済み)',
+  [C.CHECKBOX_HEADER_CHECK_ALL]: 'すべてチェック ([total] 件中 [checked] 件チェック済み)',
+  [C.ROW_SELECTION_ANNOUNCE_ROW_SELECTED]: '行 [row] を選択しました',
+  [C.ROW_SELECTION_ANNOUNCE_ROW_DESELECTED]: '行 [row] の選択を解除しました',
+  [C.ROW_SELECTION_ANNOUNCE_COUNT]: '[total] 行中 [selected] 行を選択中',
+  [C.ROW_SELECTION_MENU_REMOVE]: '選択した行を削除 ([count])',
+  [C.ROW_SELECTION_MENU_CLEAR]: '行の選択を解除',
+  [C.FREEZE_BAR_ROWS_TOP]: '上部の 固定された行',
+  [C.FREEZE_BAR_ROWS_BOTTOM]: '下部の 固定された行',
+  [C.FREEZE_BAR_COLUMNS_START]: '先頭の 固定された列',
+  [C.FREEZE_BAR_COLUMNS_END]: '末尾の 固定された列',
+  [C.NESTED_ROWS_ANNOUNCEMENT_EXPANDED]: '行 [label] を展開しました。展開された行数: [count]',
+  [C.NESTED_ROWS_ANNOUNCEMENT_COLLAPSED]: '行 [label] を折りたたみました',
+  [C.FORMULA_BUILDER_EDITOR]: '数式エディター',
+  [C.FORMULA_BUILDER_INPUT]: '数式入力',
+  [C.FORMULA_BUILDER_CELL_ADDRESS]: 'セル アドレス',
+  [C.FORMULA_BUILDER_SUGGESTIONS]: '数式の候補',
+  [C.FORMULA_BUILDER_ACCEPT_HINT]: 'で確定。',
+  [C.FORMULA_BUILDER_NAVIGATE_HINT]: 'で移動',
+  [C.FORMULA_BUILDER_FUNCTION_HELP]: '関数のヘルプ',
+  [C.FORMULA_BUILDER_FUNCTION_HELP_FOR]: '[name] 関数のヘルプ',
+  [C.FORMULA_BUILDER_FUNCTION_EXAMPLE]: '例',
+  [C.FORMULA_BUILDER_FUNCTION_DESCRIPTION]: '説明',
+  [C.FORMULA_BUILDER_OPTIONAL_ARGUMENT]: '省略可能',
+  [C.FORMULA_BUILDER_REPEATABLE_ARGUMENT]: '繰り返し可能',
+  [C.FORMULA_BUILDER_LEARN_MORE]: '詳細情報',
+  [C.FORMULA_BUILDER_CLOSE]: '閉じる',
+  [C.FORMULA_BUILDER_INVALID_ADDRESS]: '無効なセル アドレス: [text]',
+  [C.FORMULA_BUILDER_CELL_UNAVAILABLE]: '[text] を選択できません',
+  [C.FORMULA_BUILDER_CELL_ERROR]: '[cell] のエラー: [message]。',
+  [C.FORMULA_BUILDER_DEPENDENT_ERROR]: 'ほかに [count] 個のセルがエラーになりました。',
+  [C.FORMULA_BUILDER_DEPENDENT_ERRORS]: 'ほかに [count] 個のセルがエラーになりました。',
+};
+
+export default dictionary;

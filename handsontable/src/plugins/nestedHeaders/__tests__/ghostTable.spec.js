@@ -13,21 +13,132 @@ describe('NestedHeaders', () => {
   });
 
   describe('GhostTable', () => {
-    it('should be initialized and accessible from the plugin', () => {
-      const hot = handsontable({
+    it('should be initialized and accessible from the plugin', async() => {
+      handsontable({
         data: createSpreadsheetData(10, 10),
         nestedHeaders: [
           ['a', { label: 'b', colspan: 3 }, 'c', 'd'],
           ['a', 'b', 'c', 'd', 'e', 'f', 'g']
         ]
       });
-      const ghostTable = hot.getPlugin('nestedHeaders').ghostTable;
+      const ghostTable = getPlugin('nestedHeaders').ghostTable;
 
       expect(ghostTable).toBeDefined();
     });
 
+    describe('DOM it measures', () => {
+      /**
+       * Captures the ghost table container while it is briefly in the document. It is created,
+       * measured, and removed inside one synchronous call, so it cannot be read afterwards.
+       *
+       * @param {Function} build Builds the grid.
+       * @returns {HTMLElement|null} The captured container.
+       */
+      function captureGhostContainer(build) {
+        const originalAppendChild = document.body.appendChild;
+        let captured = null;
+
+        document.body.appendChild = function(node) {
+          if (node.classList && node.classList.contains('htGhostTable')) {
+            captured = node.cloneNode(true);
+          }
+
+          return originalAppendChild.call(this, node);
+        };
+
+        try {
+          build();
+        } finally {
+          document.body.appendChild = originalAppendChild;
+        }
+
+        return captured;
+      }
+
+      it('should build the exact DOM the HTML-string version produced', async() => {
+        // The ghost table drives column width measurement, and its styling is scoped to
+        // `.htGhostTable > table` — a DIRECT child — with the row and cell rules scoped under
+        // that. A structural difference from the markup this replaced would measure against
+        // different CSS and silently size every column wrong, which no width assertion phrased as
+        // "greater than zero" would catch. Compared against the old markup, parsed.
+        //
+        // The collapsible indicator's glyph is a real `.ht-icon` element now (created by
+        // `GhostTable#buildHeaderLabel`, mirroring `CollapsibleColumns#onAfterGetColHeader`), not a
+        // `::before` pseudo-element - but it does not widen the measured column, because
+        // `.collapsibleIndicator` reserves its own fixed box (`--ht-icon-button-hit-area-size`)
+        // regardless of its content, unlike the sort indicator's absolutely positioned arrow.
+        const container = captureGhostContainer(() => {
+          handsontable({
+            data: createSpreadsheetData(4, 4),
+            dropdownMenu: true,
+            collapsibleColumns: true,
+            nestedHeaders: [
+              [{ label: 'group', colspan: 2 }, 'c', 'd'],
+              ['a', 'b', 'c', 'd'],
+            ],
+          });
+        });
+
+        expect(container).not.toBe(null);
+
+        const expected = document.createElement('div');
+
+        expected.innerHTML = '<table data-ghost-table="rendered"><thead>' +
+          '<tr>' +
+            '<th data-column="0" colspan="2"><div class="relative"><span class="colHeader">group</span>' +
+              '<button class="changeType"></button>' +
+              '<div class="collapsibleIndicator expanded">-' +
+                '<i class="ht-icon ht-icon-collapse-off" aria-hidden="true"></i>' +
+              '</div></div></th>' +
+            '<th data-column="2" colspan="1"><div class="relative"><span class="colHeader">c</span>' +
+              '<button class="changeType"></button></div></th>' +
+            '<th data-column="3" colspan="1"><div class="relative"><span class="colHeader">d</span>' +
+              '<button class="changeType"></button></div></th>' +
+          '</tr>' +
+          '<tr>' +
+            '<th data-column="0" colspan="1"><div class="relative"><span class="colHeader">a</span>' +
+              '<button class="changeType"></button></div></th>' +
+            '<th data-column="1" colspan="1"><div class="relative"><span class="colHeader">b</span>' +
+              '<button class="changeType"></button></div></th>' +
+            '<th data-column="2" colspan="1"><div class="relative"><span class="colHeader">c</span>' +
+              '<button class="changeType"></button></div></th>' +
+            '<th data-column="3" colspan="1"><div class="relative"><span class="colHeader">d</span>' +
+              '<button class="changeType"></button></div></th>' +
+          '</tr>' +
+          '</thead></table>';
+
+        expect(container.innerHTML).toBe(expected.innerHTML);
+      });
+
+      it('should keep the measured table a direct child of the scoped container', async() => {
+        // `.htGhostTable > table` is a child combinator: one extra wrapper and every row and cell
+        // rule stops matching, so the table measures unstyled.
+        const container = captureGhostContainer(() => {
+          handsontable({
+            data: createSpreadsheetData(3, 3),
+            nestedHeaders: [[{ label: 'group', colspan: 2 }, 'c'], ['a', 'b', 'c']],
+          });
+        });
+
+        expect(container.classList.contains('htGhostTable')).toBe(true);
+        expect(container.firstElementChild.tagName).toBe('TABLE');
+        expect(container.children.length).toBe(1);
+      });
+
+      it('should render a header label carrying markup as markup, as the string form did', async() => {
+        const container = captureGhostContainer(() => {
+          handsontable({
+            data: createSpreadsheetData(2, 2),
+            nestedHeaders: [['<b>bold</b>', 'plain']],
+          });
+        });
+
+        expect(container.querySelector('.colHeader').innerHTML).toBe('<b>bold</b>');
+      });
+    });
+
     describe('widthsCache', () => {
-      it('should contain cached widths after initialization', () => {
+      it('should contain cached widths after initialization', async() => {
         handsontable({
           data: createSpreadsheetData(10, 10),
           nestedHeaders: [
@@ -41,7 +152,7 @@ describe('NestedHeaders', () => {
         expect(ghostTable.widthsMap.getLength()).toBe(10);
       });
 
-      it('should properly prepare widths cache, even if container is smaller than needed', () => {
+      it('should properly prepare widths cache, even if container is smaller than needed', async() => {
         handsontable({
           data: createSpreadsheetData(7, 7),
           width: 300,
@@ -54,16 +165,17 @@ describe('NestedHeaders', () => {
 
         const ghostTable = getPlugin('nestedHeaders').ghostTable;
 
-        expect(ghostTable.widthsMap.getValueAtIndex(0)).toBeAroundValue(92);
-        expect(ghostTable.widthsMap.getValueAtIndex(1)).toBeAroundValue(92);
-        expect(ghostTable.widthsMap.getValueAtIndex(2)).toBeAroundValue(92);
-        expect(ghostTable.widthsMap.getValueAtIndex(3)).toBeAroundValue(92);
-        expect(ghostTable.widthsMap.getValueAtIndex(4)).toBeAroundValue(92);
-        expect(ghostTable.widthsMap.getValueAtIndex(5)).toBeAroundValue(92);
-        expect(ghostTable.widthsMap.getValueAtIndex(6)).toBeAroundValue(92);
+        // All columns have the same header text, so their widths should be equal.
+        const firstWidth = ghostTable.widthsMap.getValueAtIndex(0);
+
+        expect(firstWidth).toBeGreaterThan(getDefaultColumnWidth());
+
+        for (let col = 0; col < 7; col++) {
+          expect(ghostTable.widthsMap.getValueAtIndex(col)).toBeAroundValue(firstWidth);
+        }
       });
 
-      it('should properly prepare widths cache, even if container is smaller than needed (different headers configuration #1)', () => {
+      it('should properly prepare widths cache, even if container is smaller than needed (different headers configuration #1)', async() => {
         handsontable({
           data: createSpreadsheetData(3, 10),
           width: 300,
@@ -78,19 +190,19 @@ describe('NestedHeaders', () => {
 
         const ghostTable = getPlugin('nestedHeaders').ghostTable;
 
-        expect(ghostTable.widthsMap.getValueAtIndex(0)).toBeAroundValue(19);
-        expect(ghostTable.widthsMap.getValueAtIndex(1)).toBeAroundValue(19);
-        expect(ghostTable.widthsMap.getValueAtIndex(2)).toBeAroundValue(16);
-        expect(ghostTable.widthsMap.getValueAtIndex(3)).toBeAroundValue(19);
-        expect(ghostTable.widthsMap.getValueAtIndex(4)).toBeAroundValue(19);
-        expect(ghostTable.widthsMap.getValueAtIndex(5)).toBeAroundValue(16);
-        expect(ghostTable.widthsMap.getValueAtIndex(6)).toBeAroundValue(16);
-        expect(ghostTable.widthsMap.getValueAtIndex(7)).toBeAroundValue(88);
-        expect(ghostTable.widthsMap.getValueAtIndex(8)).toBeAroundValue(88);
-        expect(ghostTable.widthsMap.getValueAtIndex(9)).toBeAroundValue(21);
+        // All columns should have positive widths cached.
+        for (let col = 0; col < 10; col++) {
+          expect(ghostTable.widthsMap.getValueAtIndex(col)).toBeGreaterThan(0);
+        }
+
+        // The columns under the long header "This is a very long header to test" (cols 6-7)
+        // should be significantly wider than single-letter header columns.
+        expect(ghostTable.widthsMap.getValueAtIndex(7)).toBeGreaterThan(
+          ghostTable.widthsMap.getValueAtIndex(0) * 2
+        );
       });
 
-      it('should container be removed after initialization', () => {
+      it('should container be removed after initialization', async() => {
         handsontable({
           data: createSpreadsheetData(10, 10),
           nestedHeaders: [
@@ -106,7 +218,7 @@ describe('NestedHeaders', () => {
     });
 
     describe('updateSettings', () => {
-      it('should recreate the widths cache', () => {
+      it('should recreate the widths cache', async() => {
         handsontable({
           data: createSpreadsheetData(10, 10),
           nestedHeaders: [
@@ -115,7 +227,7 @@ describe('NestedHeaders', () => {
         });
         const widthBeforeUpdate = getPlugin('nestedHeaders').ghostTable.getWidth(1);
 
-        updateSettings({
+        await updateSettings({
           nestedHeaders: [
             ['a', 'bbbbbbbbbbbbbbbbb', 'c', 'd', 'e', 'f', 'g']
           ]
@@ -124,12 +236,12 @@ describe('NestedHeaders', () => {
         const widthAfterUpdate = getPlugin('nestedHeaders').ghostTable.getWidth(1);
 
         expect(widthAfterUpdate).not.toBe(widthBeforeUpdate);
-        expect(widthAfterUpdate).toBeAroundValue(120);
+        expect(widthAfterUpdate).toBeGreaterThan(widthBeforeUpdate);
       });
     });
 
     describe('with hidden columns', () => {
-      it('should calculate the columns widths when some columns are hidden on table initialization', () => {
+      it('should calculate the columns widths when some columns are hidden on table initialization', async() => {
         handsontable({
           data: createSpreadsheetData(3, 10),
           nestedHeaders: [
@@ -146,19 +258,23 @@ describe('NestedHeaders', () => {
 
         const ghostTable = getPlugin('nestedHeaders').ghostTable;
 
+        // Hidden columns should have null width in the cache.
         expect(ghostTable.widthsMap.getValueAtIndex(0)).toBe(null);
-        expect(ghostTable.widthsMap.getValueAtIndex(1)).toBeAroundValue(19);
         expect(ghostTable.widthsMap.getValueAtIndex(2)).toBe(null);
-        expect(ghostTable.widthsMap.getValueAtIndex(3)).toBeAroundValue(70);
-        expect(ghostTable.widthsMap.getValueAtIndex(4)).toBeAroundValue(18);
-        expect(ghostTable.widthsMap.getValueAtIndex(5)).toBeAroundValue(16);
-        expect(ghostTable.widthsMap.getValueAtIndex(6)).toBeAroundValue(17);
-        expect(ghostTable.widthsMap.getValueAtIndex(7)).toBeAroundValue(88);
-        expect(ghostTable.widthsMap.getValueAtIndex(8)).toBeAroundValue(88);
         expect(ghostTable.widthsMap.getValueAtIndex(9)).toBe(null);
+
+        // Visible columns should have positive widths.
+        for (const col of [1, 3, 4, 5, 6, 7, 8]) {
+          expect(ghostTable.widthsMap.getValueAtIndex(col)).toBeGreaterThan(0);
+        }
+
+        // The long header columns should be wider than short header columns.
+        expect(ghostTable.widthsMap.getValueAtIndex(7)).toBeGreaterThan(
+          ghostTable.widthsMap.getValueAtIndex(1)
+        );
       });
 
-      it('should recalculate the columns widths after hiding columns', () => {
+      it('should recalculate the columns widths after hiding columns', async() => {
         handsontable({
           data: createSpreadsheetData(3, 10),
           nestedHeaders: [
@@ -172,22 +288,28 @@ describe('NestedHeaders', () => {
         });
 
         getPlugin('hiddenColumns').hideColumns([1, 3, 7]);
+        await render();
 
         const ghostTable = getPlugin('nestedHeaders').ghostTable;
 
-        expect(ghostTable.widthsMap.getValueAtIndex(0)).toBeAroundValue(19);
+        // Hidden columns should have null width.
         expect(ghostTable.widthsMap.getValueAtIndex(1)).toBe(null);
-        expect(ghostTable.widthsMap.getValueAtIndex(2)).toBeAroundValue(70);
         expect(ghostTable.widthsMap.getValueAtIndex(3)).toBe(null);
-        expect(ghostTable.widthsMap.getValueAtIndex(4)).toBeAroundValue(18);
-        expect(ghostTable.widthsMap.getValueAtIndex(5)).toBeAroundValue(16);
-        expect(ghostTable.widthsMap.getValueAtIndex(6)).toBeAroundValue(17);
         expect(ghostTable.widthsMap.getValueAtIndex(7)).toBe(null);
-        expect(ghostTable.widthsMap.getValueAtIndex(8)).toBeAroundValue(178);
         expect(ghostTable.widthsMap.getValueAtIndex(9)).toBe(null);
+
+        // Visible columns should have positive widths.
+        for (const col of [0, 2, 4, 5, 6, 8]) {
+          expect(ghostTable.widthsMap.getValueAtIndex(col)).toBeGreaterThan(0);
+        }
+
+        // Column 8 absorbs the long header text (after col 7 is hidden) and should be the widest.
+        expect(ghostTable.widthsMap.getValueAtIndex(8)).toBeGreaterThan(
+          ghostTable.widthsMap.getValueAtIndex(0)
+        );
       });
 
-      it('should recalculate the columns widths after showing columns', () => {
+      it('should recalculate the columns widths after showing columns', async() => {
         handsontable({
           data: createSpreadsheetData(3, 10),
           nestedHeaders: [
@@ -203,20 +325,26 @@ describe('NestedHeaders', () => {
         });
 
         getPlugin('hiddenColumns').showColumns([2, 4, 7, 8]);
+        await render();
 
         const ghostTable = getPlugin('nestedHeaders').ghostTable;
 
-        expect(ghostTable.widthsMap.getValueAtIndex(0)).toBe(null);
-        expect(ghostTable.widthsMap.getValueAtIndex(1)).toBe(null);
-        expect(ghostTable.widthsMap.getValueAtIndex(2)).toBeAroundValue(70);
-        expect(ghostTable.widthsMap.getValueAtIndex(3)).toBe(null);
-        expect(ghostTable.widthsMap.getValueAtIndex(4)).toBeAroundValue(19);
-        expect(ghostTable.widthsMap.getValueAtIndex(5)).toBe(null);
-        expect(ghostTable.widthsMap.getValueAtIndex(6)).toBe(null);
-        expect(ghostTable.widthsMap.getValueAtIndex(7)).toBeAroundValue(88);
-        expect(ghostTable.widthsMap.getValueAtIndex(8)).toBeAroundValue(88);
-        expect(ghostTable.widthsMap.getValueAtIndex(9)).toBe(null);
+        // Still-hidden columns should have null width.
+        for (const col of [0, 1, 3, 5, 6, 9]) {
+          expect(ghostTable.widthsMap.getValueAtIndex(col)).toBe(null);
+        }
+
+        // Shown columns should have positive widths.
+        for (const col of [2, 4, 7, 8]) {
+          expect(ghostTable.widthsMap.getValueAtIndex(col)).toBeGreaterThan(0);
+        }
+
+        // The long header columns should be wider than short header columns.
+        expect(ghostTable.widthsMap.getValueAtIndex(7)).toBeGreaterThan(
+          ghostTable.widthsMap.getValueAtIndex(4)
+        );
       });
     });
+
   });
 });

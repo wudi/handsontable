@@ -1,0 +1,409 @@
+import {
+  equalsIgnoreCase,
+  escapeHtml,
+  substitute,
+  stripTags,
+  isJSON,
+  toHyphen,
+  localeLowerCase,
+  decodeHtmlEntities,
+  htmlToPlainText,
+  getCharacterLength,
+  removeCharactersBefore,
+  splitIntoCharacters,
+} from 'handsontable/helpers/string';
+
+describe('String helper', () => {
+  //
+  // Handsontable.helper.equalsIgnoreCase
+  //
+  describe('equalsIgnoreCase', () => {
+    it('should correct equals strings', () => {
+      expect(equalsIgnoreCase()).toEqual(false);
+      expect(equalsIgnoreCase('', '')).toEqual(true);
+      expect(equalsIgnoreCase('True', 'TRUE', 'TrUe', true)).toEqual(true);
+      expect(equalsIgnoreCase('FALSE', 'false')).toEqual(true);
+
+      expect(equalsIgnoreCase('True', 'TRUE', false)).toEqual(false);
+      expect(equalsIgnoreCase('fals e', false)).toEqual(false);
+    });
+  });
+
+  //
+  // Handsontable.helper.substitute
+  //
+  describe('substitute', () => {
+    it('should properly substitute string to specified values', () => {
+      const vars = {
+        zero: 0,
+        empty: '',
+        undef: undefined,
+        string1: 'foo;',
+        string2: 'foo\nbar',
+      };
+
+      expect(substitute('', vars)).toBe('');
+      expect(substitute('[zero]', vars)).toBe('0');
+      expect(substitute('[zero][zero]', vars)).toBe('00');
+      expect(substitute('[empty][zero][string1]', vars)).toBe('0foo;');
+      expect(substitute('BAZ [string2] test', vars)).toBe('BAZ foo\nbar test');
+      expect(substitute('1[undef]', vars)).toBe('1');
+    });
+  });
+
+  //
+  // Handsontable.helper.stripTags
+  //
+  describe('stripTags', () => {
+    it('should strip any HTML tags from the string', () => {
+      expect(stripTags('')).toBe('');
+      expect(stripTags('<i>foo</i>')).toBe('foo');
+      expect(stripTags('<i<test>mg src onerror=alert(1)>test')).toBe('test');
+      expect(stripTags('<script>alert()</script>')).toBe('alert()');
+      expect(stripTags('<strong>Hello</strong> <span class="my">my</span> world<sup>2</sup>')).toBe('Hello my world2');
+      expect(stripTags('This is my <a href="https://handsontable.com">link</a>')).toBe('This is my link');
+    });
+  });
+
+  describe('escapeHtml', () => {
+    it('should escape the characters that carry meaning in HTML', () => {
+      expect(escapeHtml('')).toBe('');
+      expect(escapeHtml('<i>foo</i>')).toBe('&lt;i&gt;foo&lt;/i&gt;');
+      expect(escapeHtml('" onerror="alert(1)')).toBe('&quot; onerror=&quot;alert(1)');
+      expect(escapeHtml('\' onerror=\'alert(1)')).toBe('&#39; onerror=&#39;alert(1)');
+      expect(escapeHtml('Tom & Jerry')).toBe('Tom &amp; Jerry');
+      // the ampersand is escaped first, so an entity in the input survives as literal text
+      expect(escapeHtml('&lt;')).toBe('&amp;lt;');
+    });
+
+    it('should keep text containing comparison signs whole, unlike stripTags', () => {
+      expect(escapeHtml('Loaded 5 < 10 rows')).toBe('Loaded 5 &lt; 10 rows');
+      expect(escapeHtml('a < b and c > d')).toBe('a &lt; b and c &gt; d');
+      expect(stripTags('Loaded 5 < 10 rows')).toBe('Loaded 5 ');
+    });
+  });
+
+  //
+  // Handsontable.helper.isJSON
+  //
+  describe('isJSON', () => {
+    it('should return true for valid JSON object strings', () => {
+      expect(isJSON('{"foo": "bar"}')).toBe(true);
+      expect(isJSON('{"foo": 1, "bar": {"baz": true}}')).toBe(true);
+      expect(isJSON('{"foo": null}')).toBe(true);
+      expect(isJSON('{"foo": [1,2,3]}')).toBe(true);
+    });
+
+    it('should return true for valid JSON array strings', () => {
+      expect(isJSON('[1,2,3]')).toBe(true);
+      expect(isJSON('["foo", "bar"]')).toBe(true);
+      expect(isJSON('[{"foo": "bar"}, {"baz": true}]')).toBe(true);
+      expect(isJSON('[]')).toBe(true);
+    });
+
+    it('should return false for invalid JSON strings', () => {
+      expect(isJSON('{foo:"bar"}')).toBe(false);
+      expect(isJSON('foo: bar')).toBe(false);
+      expect(isJSON('[1,2,')).toBe(false);
+      expect(isJSON('{"foo": undefined}')).toBe(false);
+    });
+
+    it('should return false for non-object/array JSON values', () => {
+      expect(isJSON('"foo"')).toBe(false);
+      expect(isJSON('123')).toBe(false);
+      expect(isJSON('true')).toBe(false);
+      expect(isJSON('null')).toBe(false);
+    });
+
+    it('should return false for non-string inputs', () => {
+      expect(isJSON(null)).toBe(false);
+      expect(isJSON(undefined)).toBe(false);
+      expect(isJSON(123)).toBe(false);
+      expect(isJSON({})).toBe(false);
+      expect(isJSON([])).toBe(false);
+    });
+  });
+
+  //
+  // Handsontable.helper.toHyphen
+  //
+  describe('toHyphen', () => {
+    it('should convert camelCase strings to hyphen-case', () => {
+      expect(toHyphen('camelCase')).toBe('camel-case');
+      expect(toHyphen('backgroundColor')).toBe('background-color');
+      expect(toHyphen('borderTopWidth')).toBe('border-top-width');
+    });
+
+    it('should convert PascalCase strings to hyphen-case', () => {
+      expect(toHyphen('PascalCase')).toBe('-pascal-case');
+      expect(toHyphen('MyComponent')).toBe('-my-component');
+    });
+
+    it('should return the input unchanged for non-string values', () => {
+      expect(toHyphen(123)).toBe(123);
+      expect(toHyphen(null)).toBe(null);
+      expect(toHyphen(undefined)).toBe(undefined);
+      expect(toHyphen({})).toEqual({});
+      expect(toHyphen([])).toEqual([]);
+    });
+
+    it('should handle empty strings', () => {
+      expect(toHyphen('')).toBe('');
+    });
+
+    it('should handle strings that are already hyphenated', () => {
+      expect(toHyphen('already-hyphenated')).toBe('already-hyphenated');
+      expect(toHyphen('my-component')).toBe('my-component');
+    });
+  });
+
+  //
+  // Handsontable.helper.localeLowerCase
+  //
+  describe('localeLowerCase', () => {
+    it('lowercases using the default Unicode mapping for the default and undefined locale', () => {
+      expect(localeLowerCase('ABC')).toBe('abc');
+      expect(localeLowerCase('ABC', 'en-US')).toBe('abc');
+      expect(localeLowerCase('İ', 'en-US')).toBe('İ'.toLowerCase());
+    });
+
+    it('returns output identical to native toLocaleLowerCase for non-tailoring locales', () => {
+      const samples = ['Apple', 'ÄÖÜ', 'STRASSE', 'ОЗЕРО', 'ΟΔΌΣ'];
+      const locales = ['en-US', 'de-DE', 'fr-FR', 'el-GR', 'ru-RU', undefined];
+
+      locales.forEach((locale) => {
+        samples.forEach((sample) => {
+          expect(localeLowerCase(sample, locale)).toBe(sample.toLocaleLowerCase(locale));
+        });
+      });
+    });
+
+    it('preserves Turkish and Azeri locale-aware lowercasing', () => {
+      expect(localeLowerCase('I', 'tr-TR')).toBe('ı');
+      expect(localeLowerCase('İ', 'tr-TR')).toBe('i');
+      expect(localeLowerCase('I', 'az-AZ')).toBe('ı');
+    });
+
+    it('preserves Lithuanian locale-aware lowercasing', () => {
+      expect(localeLowerCase('Ì', 'lt-LT')).toBe('Ì'.toLocaleLowerCase('lt-LT'));
+    });
+
+    it('does not throw on invalid or empty locale tags (falls back to the default mapping)', () => {
+      expect(localeLowerCase('I', '')).toBe('i');
+      expect(localeLowerCase('I', 'en_US')).toBe('i');
+      expect(localeLowerCase('ABC', 'not a locale!!')).toBe('abc');
+    });
+  });
+
+  describe('decodeHtmlEntities', () => {
+    it('should decode the named references that appear in prose', () => {
+      expect(decodeHtmlEntities('&lt;&gt;&amp;&quot;&apos;')).toBe('<>&"\'');
+      expect(decodeHtmlEntities('a&nbsp;b')).toBe('a\xA0b');
+    });
+
+    it('should decode decimal and hexadecimal numeric references', () => {
+      expect(decodeHtmlEntities('&#39;&#60;&#62;')).toBe('\'<>');
+      expect(decodeHtmlEntities('&#x27;&#X3C;')).toBe('\'<');
+    });
+
+    it('should decode in a single pass so a decoded ampersand cannot start another reference', () => {
+      // The HTML parser produces `&lt;` here, not `<`. Decoding twice would differ from what the
+      // surfaces rendered before they stopped going through `innerHTML`.
+      expect(decodeHtmlEntities('&amp;lt;')).toBe('&lt;');
+    });
+
+    it('should leave anything outside the supported set as written', () => {
+      expect(decodeHtmlEntities('&hearts;&notareference;')).toBe('&hearts;&notareference;');
+      expect(decodeHtmlEntities('5 & 6 &#; &#x;')).toBe('5 & 6 &#; &#x;');
+    });
+
+    it('should leave an out-of-range code point as written', () => {
+      expect(decodeHtmlEntities('&#1114112;')).toBe('&#1114112;');
+    });
+
+    it('should replace NUL and lone surrogates with U+FFFD, as the parser does', () => {
+      // `parseInt` succeeds on both, so the finite/range guard cannot catch them. A lone surrogate
+      // passed through is invalid UTF-16 in cell data, which a later JSON or CSV write inherits.
+      expect(decodeHtmlEntities('&#0;')).toBe('\uFFFD');
+      expect(decodeHtmlEntities('&#xD800;')).toBe('\uFFFD');
+      expect(decodeHtmlEntities('&#57343;')).toBe('\uFFFD');
+      // a valid astral code point still resolves, so the guard is not over-broad
+      expect(decodeHtmlEntities('&#x1F600;')).toBe('\u{1F600}');
+    });
+
+    it('should leave an upper-case named reference as written', () => {
+      // HTML5 defines `&AMP;` and `&COPY;`, so the parser decoded them. This lookup is
+      // case-sensitive, which is a documented limit rather than an accident.
+      expect(decodeHtmlEntities('&AMP;&COPY;')).toBe('&AMP;&COPY;');
+    });
+  });
+
+  describe('htmlToPlainText', () => {
+    it('should strip tags and then decode what is left', () => {
+      // Reproduces what these surfaces produced when the string was assigned to `innerHTML` and
+      // read back as `textContent`.
+      expect(htmlToPlainText('Title with <strong>HTML</strong> & special chars: &lt;&gt;&amp;'))
+        .toBe('Title with HTML & special chars: <>&');
+    });
+
+    it('should not let a decoded reference reintroduce a tag', () => {
+      expect(htmlToPlainText('&lt;script&gt;alert(1)&lt;/script&gt;')).toBe('<script>alert(1)</script>');
+    });
+  });
+
+  describe('getCharacterLength', () => {
+    it('should return 0 for an empty string', () => {
+      expect(getCharacterLength('')).toBe(0);
+    });
+
+    it('should count ASCII characters one by one', () => {
+      expect(getCharacterLength('abc')).toBe(3);
+    });
+
+    it('should count a character from the Basic Multilingual Plane as one', () => {
+      expect(getCharacterLength('żółć')).toBe(4);
+    });
+
+    it('should count an emoji as one character, while String#length counts two', () => {
+      expect('😀'.length).toBe(2);
+      expect(getCharacterLength('😀')).toBe(1);
+      expect(getCharacterLength('a😀b')).toBe(3);
+    });
+
+    it('should count a flag (two regional indicators) as one character', () => {
+      expect(getCharacterLength('🇵🇱')).toBe(1);
+      expect(getCharacterLength('🇵🇱🇩🇪')).toBe(2);
+    });
+
+    it('should count an emoji with a skin tone as one character', () => {
+      expect(getCharacterLength('👍🏽')).toBe(1);
+    });
+
+    it('should count a ZWJ family sequence as one character', () => {
+      expect(getCharacterLength('👨‍👩‍👧')).toBe(1);
+    });
+
+    it('should count a heart with a variation selector as one character', () => {
+      expect(getCharacterLength('❤️')).toBe(1);
+    });
+
+    it('should count a letter with a combining mark as one character', () => {
+      expect(getCharacterLength('é')).toBe(1);
+    });
+
+    it('should count a lone surrogate as one character', () => {
+      expect(getCharacterLength('\uD83D')).toBe(1);
+      expect(getCharacterLength('\uDE00')).toBe(1);
+    });
+  });
+
+  describe('splitIntoCharacters', () => {
+    it('should return an empty list for an empty string', () => {
+      expect(splitIntoCharacters('')).toEqual([]);
+    });
+
+    it('should keep every cluster whole', () => {
+      expect(splitIntoCharacters('a🇵🇱é'))
+        .toEqual(['a', '🇵🇱', 'é']);
+    });
+  });
+
+  describe('removeCharactersBefore', () => {
+    it('should remove the characters that end right before the index', () => {
+      expect(removeCharactersBefore('abcdef', 4, 2)).toEqual({ value: 'abef', index: 2 });
+    });
+
+    it('should remove from the end of the string', () => {
+      expect(removeCharactersBefore('abcdef', 6, 3)).toEqual({ value: 'abc', index: 3 });
+    });
+
+    it('should do nothing at the start of the string', () => {
+      expect(removeCharactersBefore('abc', 0, 2)).toEqual({ value: 'abc', index: 0 });
+    });
+
+    it('should do nothing when the count is 0', () => {
+      expect(removeCharactersBefore('abc', 2, 0)).toEqual({ value: 'abc', index: 2 });
+    });
+
+    it('should stop at the start of the string when the count is larger than what is available', () => {
+      expect(removeCharactersBefore('abcdef', 2, 10)).toEqual({ value: 'cdef', index: 0 });
+    });
+
+    it('should remove a whole flag as one character', () => {
+      const flag = '🇵🇱';
+
+      expect(removeCharactersBefore(`a${flag}b`, 5, 1)).toEqual({ value: 'ab', index: 1 });
+    });
+
+    it('should remove a whole family emoji and a whole skin-tone emoji as one character each', () => {
+      const family = '👨‍👩‍👧';
+      const thumb = '👍🏽';
+
+      expect(removeCharactersBefore(`x${family}${thumb}`, 1 + family.length + thumb.length, 2))
+        .toEqual({ value: 'x', index: 1 });
+    });
+
+    it('should remove a letter together with its combining mark', () => {
+      expect(removeCharactersBefore('aé', 3, 1)).toEqual({ value: 'a', index: 1 });
+    });
+
+    it('should keep the text after the index intact', () => {
+      expect(removeCharactersBefore('ab😀cd', 4, 1)).toEqual({ value: 'abcd', index: 2 });
+    });
+
+    it('should not throw when the index falls inside a cluster', () => {
+      const flag = '🇵🇱';
+
+      expect(() => removeCharactersBefore(`a${flag}`, 2, 1)).not.toThrow();
+      expect(() => removeCharactersBefore(`a${flag}`, 3, 1)).not.toThrow();
+    });
+  });
+
+  describe('the fast path for text without combining characters', () => {
+    const segmenter = new Intl.Segmenter();
+    const segmentedLength = (value: string) => Array.from(segmenter.segment(value)).length;
+    const segmentedCharacters = (value: string) => Array.from(segmenter.segment(value), segment => segment.segment);
+
+    it('should agree with the segmenter for every pair of code units below U+0300', () => {
+      const mismatches: string[] = [];
+
+      for (let first = 0; first < 0x300; first++) {
+        for (let second = 0; second < 0x300; second++) {
+          const pair = String.fromCharCode(first) + String.fromCharCode(second);
+
+          if (getCharacterLength(pair) !== segmentedLength(pair)) {
+            mismatches.push(`U+${first.toString(16)} U+${second.toString(16)}`);
+          }
+        }
+      }
+
+      expect(mismatches).toEqual([]);
+    });
+
+    it('should count a carriage return followed by a line feed as one character', () => {
+      expect(getCharacterLength('\r\n')).toBe(1);
+      expect(getCharacterLength('a\r\nb')).toBe(3);
+      expect(splitIntoCharacters('a\r\nb')).toEqual(['a', '\r\n', 'b']);
+    });
+
+    it('should split a string the same way as the segmenter does', () => {
+      const samples = [
+        '',
+        'SKU-4821',
+        'zażółć gęślą jaźń',
+        'line one\nline two',
+        'tab\tseparated',
+        'a\r\nb',
+        'e\u0301',
+        'Ana García',
+        'x 🇵🇱 y',
+        '👨‍👩‍👧',
+      ];
+
+      samples.forEach((sample) => {
+        expect(splitIntoCharacters(sample)).toEqual(segmentedCharacters(sample));
+        expect(getCharacterLength(sample)).toBe(segmentedLength(sample));
+      });
+    });
+  });
+});

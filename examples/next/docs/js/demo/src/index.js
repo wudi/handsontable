@@ -1,9 +1,6 @@
 import Handsontable from "handsontable/base";
-import "handsontable/dist/handsontable.min.css";
-import "pikaday/css/pikaday.css";
 
 import { generateExampleData, isArabicDemoEnabled } from "./utils";
-import { progressBarRenderer, starRenderer } from "./customRenderers";
 import "./styles.css";
 import { registerLanguageDictionary, arAR } from "handsontable/i18n";
 
@@ -50,13 +47,6 @@ registerCellType(NumericCellType);
 
 registerLanguageDictionary(arAR);
 
-import {
-  alignHeaders,
-  addClassesToRows,
-  changeCheckboxCell,
-  drawCheckboxInRowHeaders
-} from "./hooksCallbacks";
-
 const example = document.getElementById("example");
 
 new Handsontable(example, {
@@ -64,15 +54,13 @@ new Handsontable(example, {
   layoutDirection: isArabicDemoEnabled() ? "rtl" : "ltr",
   language: isArabicDemoEnabled() ? arAR.languageCode : "en-US",
   height: 450,
-  colWidths: [140, 192, 100, 90, 90, 110, 97, 100, 126],
+  colWidths: [170, 222, 130, 120, 120, 130, 156],
   colHeaders: [
     "Company name",
     "Name",
     "Sell date",
     "In stock",
     "Qty",
-    "Progress",
-    "Rating",
     "Order ID",
     "Country"
   ],
@@ -83,28 +71,21 @@ new Handsontable(example, {
       data: 4,
       type: "date",
       allowInvalid: false,
-      dateFormat: isArabicDemoEnabled() ? "M/D/YYYY" : "DD/MM/YYYY",
+      dateFormat: { day: "2-digit", month: "2-digit", year: "numeric" },
+      // `language` drives the i18n dictionary; `locale` drives Intl date formatting,
+      // so it follows the same switch as `layoutDirection` and `language` above
+      locale: isArabicDemoEnabled() ? "ar" : "en-GB",
     },
     {
       data: 6,
       type: "checkbox",
-      className: "htCenter"
+      className: "htCenter",
+      headerClassName: "htCenter"
     },
     {
       data: 7,
-      type: "numeric"
-    },
-    {
-      data: 8,
-      renderer: progressBarRenderer,
-      readOnly: true,
-      className: "htMiddle"
-    },
-    {
-      data: 9,
-      renderer: starRenderer,
-      readOnly: true,
-      className: "star htCenter"
+      type: "numeric",
+      headerClassName: 'htRight'
     },
     { data: 5, type: "text" },
     { data: 2, type: "text" }
@@ -118,11 +99,10 @@ new Handsontable(example, {
   filters: true,
   rowHeaders: true,
   manualRowMove: true,
-  afterGetColHeader: alignHeaders,
-  afterGetRowHeader: drawCheckboxInRowHeaders,
-  afterOnCellMouseDown: changeCheckboxCell,
-  beforeRenderer: addClassesToRows,
-  licenseKey: "non-commercial-and-evaluation"
+  navigableHeaders: true,
+  autoWrapCol: true,
+  headerClassName: 'htLeft',
+  // licenseKey: "your-license-key", // get a key at https://handsontable.com/pricing/
 });
 
 console.log(`Handsontable: v${Handsontable.version} (${Handsontable.buildDate})`);

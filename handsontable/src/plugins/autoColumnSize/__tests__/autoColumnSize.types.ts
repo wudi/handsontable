@@ -3,6 +3,7 @@ import Handsontable from 'handsontable';
 const hot = new Handsontable(document.createElement('div'), {
   autoColumnSize: true,
 });
+
 new Handsontable(document.createElement('div'), {
   autoColumnSize: {
     syncLimit: '40%'
@@ -34,11 +35,12 @@ autoColumnSize.calculateAllColumnsWidth();
 autoColumnSize.calculateAllColumnsWidth({ from: 1, to: 2 });
 autoColumnSize.recalculateAllColumnsWidth();
 autoColumnSize.clearCache();
+autoColumnSize.clearCache([1, 2, 3]);
 
 const syncCalculationLimit: number = autoColumnSize.getSyncCalculationLimit();
-const columnWidth1: number = autoColumnSize.getColumnWidth(1);
-const columnWidth2: number = autoColumnSize.getColumnWidth(1, 10);
-const columnWidth3: number = autoColumnSize.getColumnWidth(1, 10, true);
+const columnWidth1: number | undefined = autoColumnSize.getColumnWidth(1);
+const columnWidth2: number | undefined = autoColumnSize.getColumnWidth(1, 10);
+const columnWidth3: number | undefined = autoColumnSize.getColumnWidth(1, 10, true);
 const firstVisibleColumn: number = autoColumnSize.getFirstVisibleColumn();
 const lastVisibleColumn: number = autoColumnSize.getLastVisibleColumn();
 const isNeedRecalculate: boolean = autoColumnSize.isNeedRecalculate();

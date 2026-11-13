@@ -1,0 +1,1648 @@
+---
+type: how-to
+title: Formula calculation
+metaTitle: Formula calculation | Handsontable DataGrid for JavaScript
+description: Perform calculations on cells' values, using a powerful calculation engine that handles about 400 functions, custom functions, named expressions, and more.
+permalink: /formula-calculation
+canonicalUrl: /formula-calculation
+tags:
+  - formulas
+  - formula
+  - excel
+  - spreadsheet
+  - worksheet
+  - workbook
+  - sheet
+  - function
+  - hyperformula
+react:
+  metaTitle: Formula calculation | Handsontable DataGrid for React
+angular:
+  metaTitle: Formula calculation | Handsontable DataGrid for Angular
+vue:
+  metaTitle: Formula calculation | Handsontable DataGrid for Vue
+searchCategory: Guides
+category: Formulas
+menuTag: updated
+---
+The `Formulas` plugin adds spreadsheet-style calculation to Handsontable DataGrid, powered by [HyperFormula](https://handsontable.com/hyperformula/). It supports about 400 built-in functions, cross-sheet references, named expressions, and custom function implementations.
+
+HyperFormula is a separate package that you install and license on its own. For steps, see [Formulas: Installation](@/guides/formulas/installation/installation.md).
+
+Filling formula cells with [autofill](@/guides/cell-features/autofill-values/autofill-values.md) adjusts relative references per target cell, the same way a spreadsheet application does. See [Autofill and formulas](@/guides/cell-features/autofill-values/autofill-values.md#autofill-and-formulas).
+
+For a spreadsheet-style formula editing UI - a formula bar, colored references, reference picking, and autocomplete - see the [Formula builder](@/guides/formulas/formula-builder/formula-builder.md) guide.
+
+[[toc]]
+
+## Basic multi-sheet example
+
+You can use formulas in a single-sheet mode or with multiple Handsontable instances with
+cross-sheet references.
+
+Double click on a cell to open the editor and preview the formula.
+
+::: only-for javascript
+
+::: example #example1 --html 1 --css 2 --js 3 --ts 4
+
+@[code](@/content/guides/formulas/formula-calculation/javascript/example1.html)
+@[code](@/content/guides/formulas/formula-calculation/javascript/example1.css)
+@[code collapse={8-22}](@/content/guides/formulas/formula-calculation/javascript/example1.js)
+@[code collapse={8-22}](@/content/guides/formulas/formula-calculation/javascript/example1.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example1 :react --css 1 --js 2 --ts 3
+
+@[code](@/content/guides/formulas/formula-calculation/react/example1.css)
+@[code collapse={9-23}](@/content/guides/formulas/formula-calculation/react/example1.jsx)
+@[code collapse={9-23}](@/content/guides/formulas/formula-calculation/react/example1.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example1 :angular --ts 1 --html 2
+
+@[code collapse={37-64}](@/content/guides/formulas/formula-calculation/angular/example1.ts)
+@[code](@/content/guides/formulas/formula-calculation/angular/example1.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: tip
+
+When using HyperFormula with Vue 3, always wrap HyperFormula instances with `markRaw()`. Vue's reactivity proxy interferes with the engine's internal state, which leads to subtle bugs and degraded performance. The examples on this page use `markRaw()` for this reason.
+
+:::
+
+::: example #example1 :vue3 --css 1
+
+@[code](@/content/guides/formulas/formula-calculation/vue/example1.css)
+@[code](@/content/guides/formulas/formula-calculation/vue/example1.vue)
+
+:::
+
+:::
+
+## Data grid example
+
+This example is more typical of data grids than spreadsheets. Calculations are present in two places
+– in column “Total due (fx)”, and in the summary row at the bottom.
+
+::: only-for javascript
+
+::: example #example-data-grid --js 1 --ts 2
+
+@[code collapse={8-111}](@/content/guides/formulas/formula-calculation/javascript/example-data-grid.js)
+@[code collapse={8-111}](@/content/guides/formulas/formula-calculation/javascript/example-data-grid.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example-data-grid :react --js 1 --ts 2
+
+@[code collapse={9-112}](@/content/guides/formulas/formula-calculation/react/example-data-grid.jsx)
+@[code collapse={9-112}](@/content/guides/formulas/formula-calculation/react/example-data-grid.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example2 :angular --ts 1 --html 2
+
+@[code collapse={17-126}](@/content/guides/formulas/formula-calculation/angular/example2.ts)
+@[code](@/content/guides/formulas/formula-calculation/angular/example2.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example-data-grid :vue3
+
+@[code collapse={9-112}](@/content/guides/formulas/formula-calculation/vue/example-data-grid.vue)
+
+:::
+
+:::
+
+## Initialization methods
+
+The `formulas` option accepts either the `HyperFormula` class or an already-created HyperFormula
+instance. Choose the pattern that matches your use case.
+
+HyperFormula is licensed separately from Handsontable. For how to set a HyperFormula license key,
+see [License HyperFormula](@/guides/formulas/installation/installation.md#license-hyperformula).
+
+::: tip
+
+Since Handsontable 18.0, HyperFormula is no longer installed with the `handsontable` npm package. Install it separately, and pass it to the `formulas.engine` option. For details, see [Install HyperFormula separately](@/guides/upgrade-and-migration/migrating-from-17.1-to-18.0/migrating-from-17.1-to-18.0.md#install-hyperformula-separately).
+
+:::
+
+All patterns require importing HyperFormula:
+
+```js
+import { HyperFormula } from 'hyperformula';
+```
+
+See [HyperFormula's installation docs](https://handsontable.github.io/hyperformula/guide/client-side-installation.html)
+for alternative installation methods (CDN, UMD, etc.).
+
+```js
+// create an external HyperFormula instance
+const hyperformulaInstance = HyperFormula.buildEmpty({
+  // replace with your HyperFormula license key
+  licenseKey: 'your-hyperformula-license-key',
+});
+```
+
+### Pass the HyperFormula class/instance to Handsontable
+
+::: only-for javascript
+
+```js
+{
+  formulas: {
+    engine: HyperFormula,
+    // [plugin configuration]
+  }
+}
+```
+
+:::
+
+::: only-for react
+
+```jsx
+<HotTable
+  formulas={{
+    engine: HyperFormula,
+    // [plugin configuration]
+  }}
+/>
+```
+
+:::
+
+::: only-for angular
+
+```ts
+{
+  formulas: {
+    engine: HyperFormula,
+    // [plugin configuration]
+  }
+}
+```
+
+:::
+
+::: only-for vue
+
+```js
+const hotSettings = ref({
+  formulas: {
+    engine: HyperFormula,
+    // [plugin configuration]
+  },
+});
+```
+
+:::
+
+Pass a configuration object to customize the engine. For all available options, see the [HyperFormula `ConfigParams` reference](https://handsontable.com/docs/hyperformula/api/interfaces/configparams.html).
+
+::: only-for javascript
+
+```js
+{
+  formulas: {
+    engine: {
+      hyperformula: HyperFormula, // or `engine: hyperformulaInstance`
+      leapYear1900: false,
+      // ...and more engine configuration options.
+    },
+    // [plugin configuration]
+  }
+}
+```
+
+:::
+
+::: only-for react
+
+```jsx
+<HotTable
+  formulas={{
+    engine: {
+      hyperformula: HyperFormula, // or `engine: hyperformulaInstance`
+      leapYear1900: false,
+      // ...and more engine configuration options.
+    },
+    // [plugin configuration]
+  }}
+/>
+```
+
+:::
+
+::: only-for angular
+
+```ts
+{
+  formulas: {
+    engine: {
+      hyperformula: HyperFormula, // or `engine: hyperformulaInstance`
+      leapYear1900: false,
+      // ...and more engine configuration options.
+    },
+    // [plugin configuration]
+  }
+}
+```
+
+:::
+
+::: only-for vue
+
+```js
+const hotSettings = ref({
+  formulas: {
+    engine: {
+      hyperformula: HyperFormula, // or `engine: hyperformulaInstance`
+      leapYear1900: false,
+      // ...and more engine configuration options.
+    },
+    // [plugin configuration]
+  },
+});
+```
+
+:::
+
+### Single Handsontable instance with an external HyperFormula instance
+
+::: only-for javascript
+
+```js
+const hyperformulaInstance = HyperFormula.buildEmpty({
+  // replace with your HyperFormula license key
+  licenseKey: 'your-hyperformula-license-key',
+});
+
+{
+  formulas: {
+    engine: hyperformulaInstance;
+  }
+}
+```
+
+:::
+
+::: only-for react
+
+```jsx
+const ExampleComponent = () => {
+  const hyperformulaInstance = HyperFormula.buildEmpty({
+    // replace with your HyperFormula license key
+    licenseKey: 'your-hyperformula-license-key',
+  });
+
+  return (
+    <HotTable
+      formulas={{
+        engine: hyperformulaInstance,
+      }}
+    />
+  );
+};
+```
+
+:::
+
+::: only-for angular
+
+```ts
+import {GridSettings, HotTableModule} from '@handsontable/angular-wrapper';
+import {HyperFormula} from 'hyperformula';
+
+const hyperformulaInstance = HyperFormula.buildEmpty({
+  // replace with your HyperFormula license key
+  licenseKey: 'your-hyperformula-license-key',
+});
+
+const configurationOptions: GridSettings = {
+  formulas: {
+    engine: hyperformulaInstance
+  }
+};
+```
+
+```html
+<hot-table [settings]="configurationOptions"></hot-table>
+```
+
+:::
+
+::: only-for vue
+
+```js
+const hyperformulaInstance = markRaw(
+  HyperFormula.buildEmpty({
+    // replace with your HyperFormula license key
+    licenseKey: 'your-hyperformula-license-key',
+  })
+);
+
+const hotSettings = ref({
+  formulas: {
+    engine: hyperformulaInstance,
+  },
+});
+```
+
+```html
+<HotTable :settings="hotSettings" />
+```
+
+:::
+
+### Multiple independent Handsontable instances
+
+::: only-for javascript
+
+```js
+// Instance 1
+{
+  formulas: {
+    engine: HyperFormula,
+    // [plugin configuration]
+  }
+}
+
+// Instance 2
+{
+  formulas: {
+    engine: HyperFormula,
+    // [plugin configuration]
+  }
+}
+```
+
+:::
+
+::: only-for react
+
+```jsx
+const ExampleComponent = () => {
+  return (
+    <>
+      <HotTable
+        formulas={{
+          engine: HyperFormula,
+          // [plugin configuration]
+        }}
+      />
+      <HotTable
+        formulas={{
+          engine: HyperFormula,
+          // [plugin configuration]
+        }}
+      />
+    </>
+  );
+};
+```
+
+:::
+
+::: only-for angular
+
+```ts
+// Instance 1
+{
+  formulas: {
+    engine: HyperFormula,
+    // [plugin configuration]
+  }
+}
+
+// Instance 2
+{
+  formulas: {
+    engine: HyperFormula,
+    // [plugin configuration]
+  }
+}
+```
+
+:::
+
+::: only-for vue
+
+```js
+// Instance 1
+const hotSettings1 = ref({
+  formulas: {
+    engine: HyperFormula,
+    // [plugin configuration]
+  },
+});
+
+// Instance 2
+const hotSettings2 = ref({
+  formulas: {
+    engine: HyperFormula,
+    // [plugin configuration]
+  },
+});
+```
+
+```html
+<HotTable :settings="hotSettings1" />
+<HotTable :settings="hotSettings2" />
+```
+
+:::
+
+::: only-for javascript
+
+### Multiple Handsontable instances with a shared HyperFormula instance
+
+```js
+// Instance 1
+{
+  formulas: {
+    engine: HyperFormula,
+    sheetName: 'Sheet1'
+    // [plugin configuration]
+  }
+}
+
+// Instance 2
+{
+  formulas: {
+    engine: hot1.getPlugin('formulas').engine,
+    sheetName: 'Sheet2'
+    // [plugin configuration]
+  }
+}
+```
+
+:::
+
+### Multiple Handsontable instances with an external shared HyperFormula instance
+
+::: only-for javascript
+
+```js
+const hyperformulaInstance = HyperFormula.buildEmpty({
+  // replace with your HyperFormula license key
+  licenseKey: 'your-hyperformula-license-key',
+});
+
+// Instance 1
+{
+  formulas: {
+    engine: hyperformulaInstance,
+    sheetName: 'Sheet1'
+    // [plugin configuration]
+  }
+}
+
+// Instance 2
+{
+  formulas: {
+    engine: hyperformulaInstance,
+    sheetName: 'Sheet2'
+    // [plugin configuration]
+  }
+}
+```
+
+:::
+
+::: only-for react
+
+```jsx
+const ExampleComponent = () => {
+  const hyperformulaInstance = HyperFormula.buildEmpty({
+    // replace with your HyperFormula license key
+    licenseKey: 'your-hyperformula-license-key',
+  });
+
+  return (
+    <>
+      <HotTable
+        formulas={{
+          engine: hyperformulaInstance,
+          sheetName: 'Sheet1',
+          // [plugin configuration]
+        }}
+      />
+      <HotTable
+        formulas={{
+          engine: hyperformulaInstance,
+          sheetName: 'Sheet2',
+          // [plugin configuration]
+        }}
+      />
+    </>
+  );
+};
+```
+
+:::
+
+::: only-for angular
+
+```ts
+const hyperformulaInstance = HyperFormula.buildEmpty({
+  // replace with your HyperFormula license key
+  licenseKey: 'your-hyperformula-license-key',
+});
+
+// Instance 1
+{
+  formulas: {
+    engine: hyperformulaInstance,
+    sheetName: 'Sheet1'
+    // [plugin configuration]
+  }
+}
+
+// Instance 2
+{
+  formulas: {
+    engine: hyperformulaInstance,
+    sheetName: 'Sheet2'
+    // [plugin configuration]
+  }
+}
+```
+
+:::
+
+::: only-for vue
+
+```js
+const hyperformulaInstance = markRaw(
+  HyperFormula.buildEmpty({
+    // replace with your HyperFormula license key
+    licenseKey: 'your-hyperformula-license-key',
+  })
+);
+
+// Instance 1
+const hotSettings1 = ref({
+  formulas: {
+    engine: hyperformulaInstance,
+    sheetName: 'Sheet1',
+    // [plugin configuration]
+  },
+});
+
+// Instance 2
+const hotSettings2 = ref({
+  formulas: {
+    engine: hyperformulaInstance,
+    sheetName: 'Sheet2',
+    // [plugin configuration]
+  },
+});
+```
+
+```html
+<HotTable :settings="hotSettings1" />
+<HotTable :settings="hotSettings2" />
+```
+
+:::
+
+### Write to an external HyperFormula instance
+
+When you write to an external engine directly, for example with `setCellContents()`, the grids
+that read the changed cells repaint right away. A grid repaints once for each write, and the write
+is not copied into the grid's source data.
+
+To repaint once after several writes, wrap them in `engine.batch()`:
+
+```js
+hyperformulaInstance.batch(() => {
+  hyperformulaInstance.setCellContents({ sheet: 0, row: 0, col: 0 }, 10);
+  hyperformulaInstance.setCellContents({ sheet: 0, row: 1, col: 0 }, 20);
+});
+```
+
+Don't write to the engine unconditionally from an `afterRender` hook. Each write repaints the grid,
+which runs the hook again. Check that the value differs first.
+
+#### Validation and the engine's undo history
+
+Handsontable also writes to your engine when it validates a change that it can reject. That is a
+cell with a validator and [`allowInvalid`](@/api/options.md#allowinvalid) set to `false`. The
+validator needs the formula's result, so Handsontable writes the formulas into your engine, reads
+the results, and takes the write back in the same task. Nothing paints the result, and no
+[`afterFormulasValuesUpdate`](@/api/hooks.md#afterformulasvaluesupdate) hook fires for it. The
+exception is a volatile function (`RAND()`, `NOW()`, or `TODAY()`) in your engine: the values it
+recalculated during the write are reported once to every grid on the engine, and those grids repaint.
+This happens whether the validator accepts the change or not.
+
+HyperFormula records each write as an undo entry, and the probe adds up to two entries to the stack
+and takes them back. When your engine's `undoLimit` is reached, HyperFormula drops its oldest
+entries, so the probe can remove up to two of your own undo entries. The grid's own undo and redo
+don't use your engine's stack. If `undoLimit` is lower than 2, Handsontable doesn't write a probe,
+and the validator gets each formula's result calculated on its own.
+
+#### A grid built from an engine sheet
+
+When you build a grid from a sheet your engine already holds, and you don't pass `data`, the grid reads
+its data from that sheet. Each [`updateSettings()`](@/api/core.md#updatesettings) call reloads the sheet
+into the grid. The React and Vue wrappers call `updateSettings()` on every re-render, so a re-render
+reloads it too.
+
+A reload of a sheet that only the grid changed updates the data in place:
+
+- It fires [`beforeUpdateData`](@/api/hooks.md#beforeupdatedata) and
+  [`afterUpdateData`](@/api/hooks.md#afterupdatedata), not `beforeLoadData` and `afterLoadData`.
+- It fires [`afterChange`](@/api/hooks.md#afterchange) with the `'updateData'` source, not `'loadData'`.
+- The grid keeps its cell meta, its sort state, and its moved, hidden, and trimmed rows and columns.
+- An edit that waits for an async validator stays open, and its value is written when the validator
+  accepts it.
+
+If anything else changed the sheet since the grid loaded it - your code through the engine API, or
+another grid bound to the same sheet - the reload replaces the data instead. It fires the load hooks, and
+it drops the cell meta, the sort state, and the waiting edits, because the rows can hold other records.
+
+If you rebuild your own state in `afterLoadData`, or check for the `'loadData'` source in `afterChange`,
+listen to `afterUpdateData` or the `'updateData'` source as well.
+
+## Available options and methods
+
+For the full list of configuration options and plugin methods, see the
+[`Formulas` API reference](@/api/formulas.md).
+
+## Inspect formula dependencies
+
+The plugin exposes two methods that read the dependency graph HyperFormula builds for your formulas.
+Use them to debug why a cell recalculates.
+
+- [`getCellPrecedents(address)`](@/api/formulas.md#getcellprecedents) returns the cells and ranges that a
+  cell's formula reads.
+- [`getCellDependents(address)`](@/api/formulas.md#getcelldependents) returns the cells whose formulas read
+  a given cell.
+
+Both take a HyperFormula address (`{ sheet, row, col }`) or a range (`{ start, end }`), and both return an
+array of addresses and ranges.
+
+```javascript
+const formulas = hot.getPlugin('formulas');
+
+// The cells that reference A1.
+formulas.getCellDependents({ sheet: 0, row: 0, col: 0 });
+
+// The cells that the formula in C1 reads.
+formulas.getCellPrecedents({ sheet: 0, row: 0, col: 2 });
+```
+
+The returned coordinates use HyperFormula's index space, which matches Handsontable's visual coordinates
+only when no rows or columns are trimmed, hidden, moved, or sorted. Results can include cells on other
+sheets and, for a named expression, a `sheet` id of `-1`.
+
+Each result can hold ranges as well as single cells. `getCellDependents` can return a range that contains
+the address you passed, and `getCellPrecedents` can return a range that the address reads. When you pass a
+range, HyperFormula returns some of the related cells and ranges, not always every one, because it
+optimizes how large ranges are stored. Pass a single cell address when you need the complete set for that
+cell.
+
+Both methods throw when `address` is neither a valid address nor a range, names a sheet id that does not
+exist, or is a range whose `start` and `end` are on different sheets. Always set the `sheet` id.
+
+## Available functions
+
+The plugin inherits all calculation capabilities from HyperFormula. The complete function reference
+(about 400 functions across Math, Engineering, Statistical, Financial, Logical, and other categories) is
+in the
+[HyperFormula built-in functions docs](https://handsontable.github.io/hyperformula/guide/built-in-functions.html).
+
+## Render `HYPERLINK` formulas as links
+
+By default, a cell that holds a `HYPERLINK` formula displays the link label as plain text. To render
+it as a clickable link, set the `hyperlinks` property of the [`formulas`](@/api/options.md#formulas)
+option to `true`:
+
+```js
+formulas: {
+  engine: HyperFormula,
+  hyperlinks: true,
+},
+```
+
+With `hyperlinks` enabled, `=HYPERLINK("https://handsontable.com", "Handsontable")` renders
+`Handsontable` as a link that points to `https://handsontable.com`. When you omit the second
+argument, the URL becomes the label.
+
+The example below renders a column of company websites as links. Click a link, or select its cell and press <kbd>**Alt**</kbd>/<kbd>⌥</kbd>+<kbd>**Enter**</kbd>, to open it in a new tab:
+
+::: only-for javascript
+
+::: example #example-hyperlinks --html 1 --js 2 --ts 3
+
+@[code](@/content/guides/formulas/formula-calculation/javascript/example-hyperlinks.html)
+@[code](@/content/guides/formulas/formula-calculation/javascript/example-hyperlinks.js)
+@[code](@/content/guides/formulas/formula-calculation/javascript/example-hyperlinks.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example-hyperlinks :react --js 1 --ts 2
+
+@[code](@/content/guides/formulas/formula-calculation/react/example-hyperlinks.jsx)
+@[code](@/content/guides/formulas/formula-calculation/react/example-hyperlinks.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example-hyperlinks :angular --ts 1 --html 2
+
+@[code](@/content/guides/formulas/formula-calculation/angular/example-hyperlinks.ts)
+@[code](@/content/guides/formulas/formula-calculation/angular/example-hyperlinks.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example-hyperlinks :vue3
+
+@[code](@/content/guides/formulas/formula-calculation/vue/example-hyperlinks.vue)
+
+:::
+
+:::
+
+The cell keeps its own renderer. Handsontable wraps whatever the renderer produced in a link element,
+so a custom renderer, a [cell type](@/guides/cell-types/cell-type/cell-type.md), and the cell's
+configuration all keep working.
+
+Only a cell whose root expression is `HYPERLINK` becomes a link. A nested call such as
+`=CONCATENATE("see ", HYPERLINK("https://handsontable.com"))` evaluates to text, so the cell renders
+as text.
+
+To configure the links, set `hyperlinks` to an object: `target` is `'_blank'` (default) or `'_self'`, and
+`schemes` narrows the allowed URL schemes to a subset of `'http'`, `'https'`, `'mailto'`, and `'tel'`.
+
+```js
+formulas: {
+  engine: HyperFormula,
+  hyperlinks: {
+    target: '_self',
+    schemes: ['http', 'https'],
+  },
+},
+```
+
+### Allowed URL schemes
+
+Handsontable creates a link only for the `http`, `https`, `mailto`, and `tel` schemes. Any other
+scheme, including `javascript:`, renders the label as plain text and logs a warning. This applies to
+the URL that the formula produces, so a URL that comes from cell data is checked the same way.
+
+### Keyboard access
+
+A link inside a cell stays out of the tab order, so tabbing still moves between cells. To open the
+link of the selected cell, press <kbd>**Alt**</kbd>/<kbd>⌥</kbd>+<kbd>**Enter**</kbd>. Links open where the `target` setting says, a new browser tab by default.
+
+### Styling
+
+Each link element gets the `ht-link` and `ht-hyperlink` classes, and takes its color from the `--ht-link-color` and
+`--ht-link-hover-color` [theme variables](@/guides/styling/themes/themes.md).
+
+To render links in cells that hold plain URLs rather than formulas, use the
+[`autoLink`](@/guides/cell-features/clickable-links/clickable-links.md) option.
+
+## Show formulas instead of values
+
+By default, a formula cell displays its calculated value. To display the formula text instead (for
+example, `=SUM(A1:A2)`), call [`showFormulas()`](@/api/formulas.md#showformulas):
+
+```js
+const formulas = hot.getPlugin('formulas');
+
+formulas.showFormulas();
+```
+
+Call [`hideFormulas()`](@/api/formulas.md#hideformulas) to display calculated values again, and
+[`isShowingFormulas()`](@/api/formulas.md#isshowingformulas) to check the current mode.
+
+```js
+formulas.hideFormulas();
+formulas.isShowingFormulas(); // false
+```
+
+While formulas are shown, copying or cutting a formula cell copies its formula text, matching what's
+on screen.
+
+This mode is display-only. Sorting, the [filter-by-value list](@/guides/columns/column-filter/column-filter.md),
+and cell validation keep reading each formula cell's calculated value, not its formula text - the
+same as in Excel and Google Sheets. Pasting is unaffected either way: what lands in a cell depends
+on the clipboard content, not on whether formulas are currently shown.
+
+Column and row sizing (`autoColumnSize`, `autoRowSize`) also keep measuring the calculated value,
+since they sample cells directly rather than through the grid's normal render pass. A column sized
+for a short calculated value can clip a long formula while it's shown.
+
+### Keyboard shortcut
+
+Press <kbd>**Ctrl**</kbd>+<kbd>**`**</kbd> to toggle between showing formulas and showing values.
+On macOS this is still <kbd>**Ctrl**</kbd>+<kbd>**`**</kbd>, not <kbd>**Cmd**</kbd>+<kbd>**`**</kbd> -
+`Cmd`+`` ` `` is the system's window-cycling shortcut.
+
+## [`afterFormulasValuesUpdate`](@/api/hooks.md#afterformulasvaluesupdate) hook
+
+This hook fires whenever the calculation engine recomputes cell values - including cells that
+changed directly and all dependent formula cells. Use it to react to recalculations outside of the
+normal `afterChange` flow.
+
+The hook fires when the engine recomputes the values. For a cell that has a validator and
+[`allowInvalid: false`](@/api/options.md#allowinvalid), that is after validation: Handsontable
+writes the change to the engine only when it applies the change, and a rejected value never reaches
+the engine. For any other cell, the write and the hook happen at once.
+
+::: only-for javascript
+
+```js
+const afterFormulasValuesUpdate = (changes) => {
+  changes.forEach((change) => {
+    console.log('change', change.address, change.newValue);
+  });
+};
+
+new Handsontable(element, {
+  formulas: {
+    engine: HyperFormula,
+  },
+  afterFormulasValuesUpdate,
+});
+```
+
+:::
+
+::: only-for react
+
+```jsx
+const ExampleComponent = () => {
+  const afterFormulasValuesUpdate = (changes) => {
+    changes.forEach((change) => {
+      console.log('change', change.address, change.newValue);
+    });
+  };
+
+  return (
+    <HotTable
+      formulas={{
+        engine: HyperFormula,
+      }}
+      afterFormulasValuesUpdate={afterFormulasValuesUpdate}
+    />
+  );
+};
+```
+
+:::
+
+::: only-for angular
+
+```ts
+import {GridSettings, HotTableModule} from '@handsontable/angular-wrapper';
+import {HyperFormula} from 'hyperformula';
+
+const afterFormulasValuesUpdate = (changes) => {
+  changes.forEach((change) => {
+    console.log('change', change.address, change.newValue);
+  });
+};
+
+const configurationOptions: GridSettings = {
+  formulas: {
+    engine: HyperFormula,
+  },
+  afterFormulasValuesUpdate,
+};
+```
+
+```html
+<hot-table [settings]="configurationOptions"></hot-table>
+```
+
+:::
+
+::: only-for vue
+
+```js
+const hotSettings = ref({
+  formulas: {
+    engine: HyperFormula,
+  },
+  afterFormulasValuesUpdate(changes) {
+    changes.forEach((change) => {
+      console.log('change', change.address, change.newValue);
+    });
+  },
+});
+```
+
+```html
+<HotTable :settings="hotSettings" />
+```
+
+:::
+
+## Batch formula recalculation
+
+By default, HyperFormula recalculates the formulas after each change you make through the grid's API.
+Ten `setDataAtCell()` calls mean ten recalculations, even inside [`batch()`](@/api/core.md#batch).
+
+To recalculate once for the whole batch, set the `batchEvaluation` setting of the
+[`formulas`](@/api/options.md#formulas) option to `true`. The setting is off by default.
+
+::: only-for javascript
+
+```js
+new Handsontable(element, {
+  formulas: {
+    engine: HyperFormula,
+    batchEvaluation: true,
+  },
+});
+```
+
+:::
+
+::: only-for react
+
+```jsx
+<HotTable
+  formulas={{
+    engine: HyperFormula,
+    batchEvaluation: true,
+  }}
+/>
+```
+
+:::
+
+::: only-for angular
+
+```ts
+const configurationOptions: GridSettings = {
+  formulas: {
+    engine: HyperFormula,
+    batchEvaluation: true,
+  },
+};
+```
+
+```html
+<hot-table [settings]="configurationOptions"></hot-table>
+```
+
+:::
+
+::: only-for vue
+
+```js
+const hotSettings = ref({
+  formulas: {
+    engine: HyperFormula,
+    batchEvaluation: true,
+  },
+});
+```
+
+```html
+<HotTable :settings="hotSettings" />
+```
+
+:::
+
+Then wrap your changes in [`batch()`](@/api/core.md#batch), called on the Handsontable instance (`hot`).
+
+::: only-for react
+
+In React, get the instance from the `hotInstance` property of the `HotTable` ref.
+
+:::
+
+::: only-for angular
+
+In Angular, get the instance from the `hotInstance` property of the `HotTable` component.
+
+:::
+
+::: only-for vue
+
+In Vue, get the instance from the `hotInstance` property of the `HotTable` ref.
+
+:::
+
+```js
+// Update the stock of five products. HyperFormula recalculates once, after the callback.
+const updatedStock = [142, 0, 67, 25, 310];
+
+hot.batch(() => {
+  updatedStock.forEach((quantity, row) => {
+    hot.setDataAtCell(row, 1, quantity);
+  });
+});
+```
+
+With `batchEvaluation` on, Handsontable pauses HyperFormula's recalculation at the first change inside
+the batch. When the batch ends, HyperFormula recalculates once, the
+[`afterFormulasValuesUpdate`](@/api/hooks.md#afterformulasvaluesupdate) hook fires once, and Handsontable
+validates the dependent formula cells once.
+
+One `setDataAtCell()` call with an array of changes already recalculates once. The setting helps when
+your code makes many separate calls.
+
+Reads through the grid stay correct inside the batch. For example, `getDataAtCell()` returns the current
+value of a formula cell. To return it, Handsontable recalculates the changes made so far, so each such
+read after a change adds a recalculation.
+
+The setting has these limits:
+
+- Inside the batch, after a change through the grid, a direct HyperFormula read such as
+  `engine.getCellValue()` throws a "Computations are suspended" error. Read through the grid, for example
+  with `getDataAtCell()`, or read from the engine after the batch.
+- The pause covers the whole engine. When several grids share one HyperFormula instance, a grid that
+  doesn't use `batchEvaluation` gets the same error on its direct engine reads during another grid's
+  batch. Its reads through the grid still work. It also gets one
+  [`afterFormulasValuesUpdate`](@/api/hooks.md#afterformulasvaluesupdate) call for the whole batch, and
+  Handsontable validates its dependent cells when the other grid's batch ends.
+- The saving needs changes with no render in between. [`batch()`](@/api/core.md#batch) suspends
+  rendering, so it gets the full saving.
+  [`batchExecution()`](@/api/core.md#batchexecution) and a
+  [`suspendExecution()`](@/api/core.md#suspendexecution) and
+  [`resumeExecution()`](@/api/core.md#resumeexecution) pair don't suspend rendering. Each render inside
+  them recalculates the formulas.
+- Writing formulas into a validated column (for example, a `numeric`, `date`, or `dropdown` column) saves
+  nothing. The validator checks each formula's result, so Handsontable reads it right after the change, and
+  that read recalculates the changes made before it.
+- Inserting, removing, moving, or sorting rows or columns inside the batch recalculates the changes made
+  before it. Handsontable validates their dependent cells before the structure changes, as it does without
+  the setting. A removal also recalculates before the next change.
+- A sort inside the batch takes effect when the batch ends. Handsontable validates a change made after the
+  sort, in the same batch, at the end of the batch, on the sorted rows, so it validates the cells that hold
+  the change. Without the setting, it validates them at the change, before the sort takes effect.
+- A direct `engine.undo()` after an array `setDataAtCell()` call inside the batch reverts only the last
+  change of the array, because the changes are separate engine writes. The grid's own undo is not affected.
+- Loading data with [`loadData()`](@/api/core.md#loaddata) or [`updateData()`](@/api/core.md#updatedata)
+  inside the batch replaces the data. Handsontable doesn't validate the cells of that grid that depend on the
+  changes made before the load. It still validates the dependent cells on other sheets.
+
+For more on batching, see [Batch operations](@/guides/optimization/batch-operations/batch-operations.md).
+
+## Named expressions
+
+A named expression assigns a human-friendly label to a value or formula. Once defined, the name can
+be used anywhere in cell formulas across the workbook - the same way a cell reference or constant
+would be. This is useful for shared constants, computed ranges, or any value you want to reference
+by a meaningful name instead of repeating a formula.
+
+The `expression` field accepts:
+
+- A **number** (e.g. `100`) or **string** (e.g. `'"My Label"'` - note the inner quotes, which are
+  part of HyperFormula formula syntax for string literals).
+- A **formula string** starting with `=`, using the same syntax as cell formulas.
+
+**Plain values** can be registered directly in the `namedExpressions` config array:
+
+```js
+formulas: {
+  engine: HyperFormula,
+  namedExpressions: [
+    { name: 'ADDITIONAL_COST', expression: 100 },
+  ],
+}
+```
+
+**Range-formula expressions** (those that reference cells with `Sheet1!...`) must be registered on
+a pre-built HyperFormula instance after the sheet has been created. Registering them via the config
+array causes a `#REF!` error because the sheet does not exist yet at that point in the
+initialization sequence:
+
+```js
+const hfInstance = HyperFormula.buildEmpty({
+  licenseKey: 'your-hyperformula-license-key',
+});
+
+hfInstance.addSheet('Sheet1');
+hfInstance.addNamedExpression('Q1_TOTAL', '=SUM(Sheet1!$B$1:$B$3)');
+hfInstance.addNamedExpression('COMBINED', '=SUM(Sheet1!$A$1:$A$3)+SUM(Sheet1!$B$1:$B$3)');
+
+new Handsontable(container, {
+  formulas: { engine: hfInstance, sheetName: 'Sheet1' },
+  // ...
+});
+```
+
+::: tip
+
+References inside named expressions must use **absolute notation** (`$A$1`). The sheet name (e.g.
+`Sheet1!`) must match the `sheetName` passed to both `addSheet` and the Handsontable `formulas`
+config. See the
+[HyperFormula named expressions guide](https://handsontable.com/docs/hyperformula/guide/named-expressions.html)
+for the full naming rules and supported expression types.
+
+:::
+
+### Demo: plain-value named expression
+
+The example below registers `ADDITIONAL_COST` as a plain number. Cell formulas in column D add that
+constant to each base price. The input below the grid lets you replace the expression at runtime
+using `changeNamedExpression()`. If HyperFormula rejects the expression - for example when you use a
+relative reference such as `Sheet1!A2` - the demo shows the error message below the input.
+
+::: only-for javascript
+
+::: example #example-named-expressions1 --html 1 --js 2 --ts 3
+
+@[code](@/content/guides/formulas/formula-calculation/javascript/example-named-expressions1.html)
+@[code](@/content/guides/formulas/formula-calculation/javascript/example-named-expressions1.js)
+@[code](@/content/guides/formulas/formula-calculation/javascript/example-named-expressions1.ts)
+
+:::
+
+:::
+
+[//]: # 'TODO: [react-docs] Requires rewriting the input submission logic'
+
+::: only-for react
+
+::: example #example-named-expressions1 :react --js 1 --ts 2
+
+@[code](@/content/guides/formulas/formula-calculation/react/example-named-expressions1.jsx)
+@[code](@/content/guides/formulas/formula-calculation/react/example-named-expressions1.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example3 :angular --ts 1 --html 2
+
+@[code](@/content/guides/formulas/formula-calculation/angular/example3.ts)
+@[code](@/content/guides/formulas/formula-calculation/angular/example3.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example-named-expressions1 :vue3
+
+@[code](@/content/guides/formulas/formula-calculation/vue/example-named-expressions1.vue)
+
+:::
+
+:::
+
+### Demo: formula-based named expressions
+
+The example below registers `Q1_TOTAL` and `Q2_TOTAL` as range-sum formulas on a pre-built
+HyperFormula instance. The "Totals" row references those names directly as `=Q1_TOTAL` and
+`=Q2_TOTAL`.
+
+::: only-for javascript
+
+::: example #example-named-expressions2 --html 1 --js 2 --ts 3
+
+@[code](@/content/guides/formulas/formula-calculation/javascript/example-named-expressions2.html)
+@[code](@/content/guides/formulas/formula-calculation/javascript/example-named-expressions2.js)
+@[code](@/content/guides/formulas/formula-calculation/javascript/example-named-expressions2.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example-named-expressions2 :react --js 1 --ts 2
+
+@[code](@/content/guides/formulas/formula-calculation/react/example-named-expressions2.jsx)
+@[code](@/content/guides/formulas/formula-calculation/react/example-named-expressions2.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example4 :angular --ts 1 --html 2
+
+@[code](@/content/guides/formulas/formula-calculation/angular/example4.ts)
+@[code](@/content/guides/formulas/formula-calculation/angular/example4.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example-named-expressions2 :vue3
+
+@[code](@/content/guides/formulas/formula-calculation/vue/example-named-expressions2.vue)
+
+:::
+
+:::
+
+For more information about named expressions, refer to the
+[HyperFormula named expressions docs](https://handsontable.com/docs/hyperformula/guide/named-expressions.html).
+
+## Custom functions
+
+Use custom functions when the built-in HyperFormula functions do not cover your business logic. HyperFormula lets you extend the formula engine with your own functions. A custom function
+is a class that extends `FunctionPlugin` and declares its supported functions in a static
+`implementedFunctions` property. Register it with `HyperFormula.registerFunctionPlugin()`
+**before** passing the `HyperFormula` class to the `formulas.engine` option -- if you register
+after Handsontable has already built the engine, the custom function is not available.
+
+The `parameters` array in `implementedFunctions` specifies argument types. Common values:
+
+- `FunctionArgumentType.NUMBER` -- a numeric argument.
+- `FunctionArgumentType.STRING` -- a string argument.
+- `FunctionArgumentType.ANY` -- accepts any type.
+
+The second argument to `registerFunctionPlugin` maps your function name to each registered language pack. Without it, HyperFormula does not recognize the function name in formulas and returns `#NAME?`.
+
+```javascript
+import { FunctionPlugin, FunctionArgumentType, HyperFormula } from 'hyperformula';
+
+class CommissionPlugin extends FunctionPlugin {
+  commission(ast, state) {
+    return this.runFunction(ast.args, state, this.metadata('COMMISSION'), (revenue, rate) => {
+      return revenue * (rate / 100);
+    });
+  }
+}
+
+CommissionPlugin.implementedFunctions = {
+  COMMISSION: {
+    method: 'commission',
+    parameters: [
+      { argumentType: FunctionArgumentType.NUMBER },
+      { argumentType: FunctionArgumentType.NUMBER },
+    ],
+  },
+};
+
+// Call this before new Handsontable(...) or HyperFormula.buildEmpty().
+HyperFormula.registerFunctionPlugin(CommissionPlugin, {
+  enGB: { COMMISSION: 'COMMISSION' },
+});
+```
+
+### Demo: custom COMMISSION function
+
+The example below defines a `COMMISSION(revenue, rate)` function that computes
+`revenue * rate / 100`. Column D in the grid uses `=COMMISSION(B2,C2)` to calculate
+each sales representative's commission amount.
+
+::: only-for javascript
+
+::: example #example-custom-functions --html 1 --js 2 --ts 3
+
+@[code](@/content/guides/formulas/formula-calculation/javascript/example-custom-functions.html)
+@[code](@/content/guides/formulas/formula-calculation/javascript/example-custom-functions.js)
+@[code](@/content/guides/formulas/formula-calculation/javascript/example-custom-functions.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example-custom-functions :react --js 1 --ts 2
+
+@[code](@/content/guides/formulas/formula-calculation/react/example-custom-functions.jsx)
+@[code](@/content/guides/formulas/formula-calculation/react/example-custom-functions.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example-custom-functions :angular --ts 1 --html 2
+
+@[code](@/content/guides/formulas/formula-calculation/angular/example-custom-functions.ts)
+@[code](@/content/guides/formulas/formula-calculation/angular/example-custom-functions.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example-custom-functions :vue3
+
+@[code](@/content/guides/formulas/formula-calculation/vue/example-custom-functions.vue)
+
+:::
+
+:::
+
+For the full argument type reference, error handling patterns, and advanced options such as
+function aliases and async functions, see the
+[HyperFormula custom functions guide](https://handsontable.com/docs/hyperformula/guide/custom-functions.html).
+
+## Change the formula language
+
+HyperFormula ships with built-in language packs that translate function names and control
+locale-specific formula syntax, such as the argument separator. By default, Handsontable uses
+the English (`enGB`) language pack.
+
+To use a different language, import a language pack from `hyperformula/es/i18n/languages` and
+pass it to the `formulas.language` option:
+
+```javascript
+import { HyperFormula } from 'hyperformula';
+import plPL from 'hyperformula/es/i18n/languages/plPL';
+
+const hot = new Handsontable(container, {
+  data: [
+    ['Company', 'Revenue Q1', 'Revenue Q2', 'Total'],
+    ['Acme Corp', 4200000, 4800000, '=SUMA(B1:C1)'],
+  ],
+  formulas: {
+    engine: HyperFormula,
+    sheetName: 'Sheet1',
+    language: plPL,
+  },
+  // licenseKey: 'your-license-key', // get a key at https://handsontable.com/pricing/
+});
+```
+
+You can also change the language after initialization, with `updateSettings()`:
+
+```javascript
+hot.updateSettings({
+  formulas: {
+    language: plPL,
+  },
+});
+```
+
+For the full list of available language packs, see the
+[HyperFormula localizing functions guide](https://handsontable.com/docs/hyperformula/guide/localizing-functions.html).
+
+## Preserve text values
+
+By default, the engine parses number-like strings into numbers, following the behavior known
+from spreadsheet software. A cell of the [`text`](@/guides/cell-types/cell-type/cell-type.md)
+type that holds `0123456` reaches formulas as `123456`, so the leading zero is lost.
+
+To keep such values as strings on the engine side, enable the
+[`preserveTextValue`](@/api/options.md#preservetextvalue) option on the `text`-type cells.
+The value then stays a string: `=LEN(A1)` returns `7`, and concatenation keeps the leading zero.
+
+::: only-for javascript
+
+```js
+const hot = new Handsontable(container, {
+  data: [
+    ['0123456'],
+    ['=LEN(A1)'],
+  ],
+  columns: [
+    {
+      type: 'text',
+      preserveTextValue: true,
+    },
+  ],
+  formulas: {
+    engine: HyperFormula,
+  },
+  // licenseKey: 'your-license-key', // get a key at https://handsontable.com/pricing/
+});
+```
+
+:::
+
+::: only-for react
+
+```jsx
+const ExampleComponent = () => {
+  return (
+    <HotTable
+      // licenseKey="your-license-key" // get a key at https://handsontable.com/pricing/
+      data={[
+        ['0123456'],
+        ['=LEN(A1)'],
+      ]}
+      columns={[
+        {
+          type: 'text',
+          preserveTextValue: true,
+        },
+      ]}
+      formulas={{
+        engine: HyperFormula,
+      }}
+    />
+  );
+};
+```
+
+:::
+
+::: only-for angular
+
+```ts
+import {GridSettings, HotTableModule} from '@handsontable/angular-wrapper';
+import {HyperFormula} from 'hyperformula';
+
+const configurationOptions: GridSettings = {
+  data: [
+    ['0123456'],
+    ['=LEN(A1)'],
+  ],
+  columns: [
+    {
+      type: 'text',
+      preserveTextValue: true,
+    },
+  ],
+  formulas: {
+    engine: HyperFormula,
+  },
+  // licenseKey: 'your-license-key', // get a key at https://handsontable.com/pricing/
+};
+```
+
+```html
+<hot-table [settings]="configurationOptions"></hot-table>
+```
+
+:::
+
+::: only-for vue
+
+```js
+const hotSettings = ref({
+  data: [
+    ['0123456'],
+    ['=LEN(A1)'],
+  ],
+  columns: [
+    {
+      type: 'text',
+      preserveTextValue: true,
+    },
+  ],
+  formulas: {
+    engine: HyperFormula,
+  },
+  // licenseKey: 'your-license-key', // get a key at https://handsontable.com/pricing/
+});
+```
+
+```html
+<HotTable :settings="hotSettings" />
+```
+
+:::
+
+## View the explainer video
+
+<div class="docs-video-embed">
+  <iframe src="https://www.youtube.com/embed/JJXUmACTDdk"></iframe>
+</div>
+
+## Known limitations
+
+- Using the [`IndexMapper`](@/api/indexMapper.md) API to programmatically [move rows](@/guides/rows/row-moving/row-moving.md) or [columns](@/guides/columns/column-moving/column-moving.md) that contain formulas is not supported. Instead, use the [`ManualRowMove`](@/api/manualRowMove.md) or [`ManualColumnMove`](@/api/manualColumnMove.md) APIs.
+- Formulas don't support [`getSourceData()`](@/api/core.md#getsourcedata), as this method operates on source data (using [physical indexes](@/api/indexMapper.md)), whereas formulas operate on visual data (using visual indexes).
+- Formulas don't support nested data, i.e., when Handsontable's [`data`](@/api/options.md#data) is set to an [array of nested objects](@/guides/getting-started/binding-to-data/binding-to-data.md#array-of-objects).
+- [`preserveTextValue`](@/api/options.md#preservetextvalue) works only with the built-in [`text`](@/guides/cell-types/cell-type/cell-type.md) cell type. Custom cell types are not supported, even when they reuse the text editor or renderer.
+- Sorting a column that contains formulas can produce `#REF!`. Handsontable does not rewrite formula references to follow sorted rows. See [Sorting formula cells](#sorting-formula-cells).
+- With HyperFormula older than 3.1.1, adding or removing a sheet in an engine that the [`Formulas`](@/api/formulas.md) plugin created turns spilled arrays into `#SPILL!`. This also happens when a second Handsontable instance connects to that engine. Use HyperFormula 3.1.1 or later.
+- `SHEET()` returns the sheet's number in the engine, not its position. After you remove a sheet from the middle, the sheets after it keep their numbers, so `SHEET()` can be greater than `SHEETS()`.
+- When you add, remove, or rename a sheet, Handsontable recalculates `SHEET()` and `SHEETS()` only in an engine that the [`Formulas`](@/api/formulas.md) plugin created. In an engine instance that you create and pass to the plugin, they keep their old values until the formula changes.
+- A formula that calls `SHEET()` or `SHEETS()` and also references a sheet that doesn't exist, for example inside `IFERROR()`, keeps its old value after you add, remove, or rename a sheet.
+
+### Sorting formula cells
+
+Sorting a column that contains formulas can produce `#REF!`. A later sort does not restore the original formulas.
+
+This is a known limitation. Handsontable does not rewrite formula references to follow sorted rows.
+
+Keep summary and totals formulas on a [`fixedRowsBottom`](@/api/options.md#fixedrowsbottom) row. Frozen footer rows stay out of the sortable body by default. See [Frozen rows stay out of the sort by default](@/guides/rows/rows-sorting/rows-sorting.md#frozen-rows-stay-out-of-the-sort-by-default) and [#12627](https://github.com/handsontable/handsontable/pull/12627).
+
+A hook or snippet that pins a non-frozen totals row does not protect other formula cells in the sortable range.
+
+### HyperFormula version support
+
+Different versions of Handsontable support different versions of HyperFormula.
+
+To find out which HyperFormula version to use, see the table below:
+
+| Handsontable version                                                                    | HyperFormula version                                                        |
+|-----------------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| [`8.x.x`](https://github.com/handsontable/handsontable/releases/tag/8.0.0) and lower    | No HyperFormula support
+| [`9.x.x`](https://github.com/handsontable/handsontable/releases/tag/9.0.0)              | [`0.6.2`](https://github.com/handsontable/hyperformula/releases/tag/0.6.2)  |
+| [`10.x.x`](https://github.com/handsontable/handsontable/releases/tag/10.0.0)            | [`^1.2.0`](https://github.com/handsontable/hyperformula/releases/tag/1.2.0) |
+| [`11.x.x`](https://github.com/handsontable/handsontable/releases/tag/11.0.0)            | [`^1.2.0`](https://github.com/handsontable/hyperformula/releases/tag/1.2.0) |
+| [`12.x.x`](https://github.com/handsontable/handsontable/releases/tag/12.0.0)            | [`^2.0.0`](https://github.com/handsontable/hyperformula/releases/tag/2.0.0) |
+| [`13.x.x`](https://github.com/handsontable/handsontable/releases/tag/13.0.0)            | [`^2.4.0`](https://github.com/handsontable/hyperformula/releases/tag/2.4.0) |
+| [`14.x.x`](https://github.com/handsontable/handsontable/releases/tag/14.0.0)            | [`^2.4.0`](https://github.com/handsontable/hyperformula/releases/tag/2.4.0) |
+| [`14.3.x - 15.0.x`](https://github.com/handsontable/handsontable/releases/tag/14.3.0)   | [`^2.6.2`](https://github.com/handsontable/hyperformula/releases/tag/2.6.2) |
+| [`15.1.x`](https://github.com/handsontable/handsontable/releases/tag/15.1.0) and higher | [`^3.0.0`](https://github.com/handsontable/hyperformula/releases/tag/3.0.0) |
+
+## Result
+
+After setting up the `Formulas` plugin with a HyperFormula engine, cells that contain a formula (starting with `=`) are evaluated automatically. Editing a cell updates all dependent formula cells in real time, and cross-sheet references stay in sync across linked Handsontable instances.
+
+## Related articles
+
+**HyperFormula documentation**
+
+<div class="boxes-list">
+
+- [HyperFormula guides](https://handsontable.github.io/hyperformula/)
+- [HyperFormula API reference](https://handsontable.github.io/hyperformula/api/)
+
+</div>
+
+**Related blog articles**
+
+<div class="boxes-list">
+
+- [HyperFormula 3.2.0: Expanding Excel parity and removing scalability limits](https://handsontable.com/blog/hyperformula-3.2.0-expanding-excel-parity-and-removing-scalability-limits)
+- [HyperFormula 3.1.1: Improved lazy computations and easier sheet dependency handling](https://handsontable.com/blog/hyperformula-3.1.1-improved-lazy-computations-and-easier-sheet-dependency-handling)
+- [HyperFormula 3.1.0: Improved cross-sheet operations, easier APIs, and clearer docs](https://handsontable.com/blog/hyperformula-3.1.0-improved-cross-sheet-operations-easier-apis-and-clearer-docs)
+- [HyperFormula 3.0.1: Community fixes, improved docs, and roadmap insights](https://handsontable.com/blog/hyperformula-3.0.1-community-fixes-improved-docs-and-roadmap-insights)
+- [HyperFormula 3.0: Introducing the XLOOKUP function](https://handsontable.com/blog/hyperformula-3-0-introducing-the-xlookup-function)
+- [Handsontable 9.0.0: New formula plugin](https://handsontable.com/blog/handsontable-9.0.0-new-formula-plugin)
+- [8 examples of useful Excel functions in HyperFormula](https://handsontable.com/blog/8-examples-of-useful-excel-functions-in-hyperformula)
+
+</div>
+
+**Configuration options**
+
+<div class="boxes-list">
+
+- [formulas](@/api/options.md#formulas)
+
+</div>
+
+**Hooks**
+
+<div class="boxes-list">
+
+- [afterFormulasValuesUpdate](@/api/hooks.md#afterformulasvaluesupdate)
+- [afterNamedExpressionAdded](@/api/hooks.md#afternamedexpressionadded)
+- [afterNamedExpressionRemoved](@/api/hooks.md#afternamedexpressionremoved)
+- [afterSheetAdded](@/api/hooks.md#aftersheetadded)
+- [afterSheetRemoved](@/api/hooks.md#aftersheetremoved)
+- [afterSheetRenamed](@/api/hooks.md#aftersheetrenamed)
+
+</div>
+
+**Plugins**
+
+<div class="boxes-list">
+
+- [Formulas](@/api/formulas.md)
+
+</div>
+
+Microsoft and Excel are registered trademarks of Microsoft Corporation. Google Sheets is a trademark of Google LLC.

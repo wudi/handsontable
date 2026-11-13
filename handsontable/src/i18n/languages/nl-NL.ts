@@ -1,0 +1,198 @@
+/**
+ * @preserve
+ * Authors: Tomas Rapkauskas, Anton Brouwer, webjazznl
+ * Last updated: Dec 5, 2022
+ *
+ * Description: Definition file for Dutch - The Netherlands language-country.
+ */
+import * as C from '../constants';
+
+const dictionary = {
+  languageCode: 'nl-NL',
+
+  [C.OK]: 'OK',
+  [C.CANCEL]: 'Annuleren',
+
+  [C.CONTEXTMENU_ITEMS_ROW_ABOVE]: 'Rij boven invoegen',
+  [C.CONTEXTMENU_ITEMS_ROW_BELOW]: 'Rij onder invoegen',
+  [C.CONTEXTMENU_ITEMS_INSERT_LEFT]: 'Kolom links invoegen',
+  [C.CONTEXTMENU_ITEMS_INSERT_RIGHT]: 'Kolom rechts invoegen',
+  [C.CONTEXTMENU_ITEMS_REMOVE_ROW]: ['Rij verwijderen', 'Rijen verwijderen'],
+  [C.CONTEXTMENU_ITEMS_REMOVE_COLUMN]: ['Kolom verwijderen', 'Kolommen verwijderen'],
+  [C.CONTEXTMENU_ITEMS_UNDO]: 'Ongedaan maken',
+  [C.CONTEXTMENU_ITEMS_REDO]: 'Opnieuw uitvoeren',
+  [C.CONTEXTMENU_ITEMS_READ_ONLY]: 'Alleen lezen',
+  [C.CONTEXTMENU_ITEMS_CLEAR_COLUMN]: 'Kolom leegmaken',
+
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT]: 'Uitlijning',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_LEFT]: 'Links',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_CENTER]: 'Gecentreerd',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_RIGHT]: 'Rechts',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_JUSTIFY]: 'Uitvullen',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_TOP]: 'Boven',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_MIDDLE]: 'Midden',
+  [C.CONTEXTMENU_ITEMS_ALIGNMENT_BOTTOM]: 'Onder',
+
+  [C.CONTEXTMENU_ITEMS_FREEZE_COLUMN]: 'Kolom blokkeren',
+  [C.CONTEXTMENU_ITEMS_UNFREEZE_COLUMN]: 'Kolom blokkering opheffen',
+
+  [C.CONTEXTMENU_ITEMS_BORDERS]: 'Randen',
+  [C.CONTEXTMENU_ITEMS_BORDERS_TOP]: 'Boven',
+  [C.CONTEXTMENU_ITEMS_BORDERS_RIGHT]: 'Rechts',
+  [C.CONTEXTMENU_ITEMS_BORDERS_BOTTOM]: 'Onder',
+  [C.CONTEXTMENU_ITEMS_BORDERS_LEFT]: 'Links',
+  [C.CONTEXTMENU_ITEMS_REMOVE_BORDERS]: 'Rand(en) verwijderen',
+
+  [C.CONTEXTMENU_ITEMS_ADD_COMMENT]: 'Opmerking toevoegen',
+  [C.CONTEXTMENU_ITEMS_EDIT_COMMENT]: 'Opmerking bewerken',
+  [C.CONTEXTMENU_ITEMS_REMOVE_COMMENT]: 'Opmerking verwijderen',
+  [C.CONTEXTMENU_ITEMS_READ_ONLY_COMMENT]: 'Opmerking Alleen-lezen',
+
+  [C.CONTEXTMENU_ITEMS_MERGE_CELLS]: 'Cellen samenvoegen',
+  [C.CONTEXTMENU_ITEMS_UNMERGE_CELLS]: 'Samenvoeging van cellen opheffen',
+
+  [C.CONTEXTMENU_ITEMS_COPY]: 'Kopiëren',
+  [C.CONTEXTMENU_ITEMS_COPY_WITH_COLUMN_HEADERS]: ['Kopiëren met koptekst', 'Kopiëren met kopteksten'],
+  [C.CONTEXTMENU_ITEMS_COPY_WITH_COLUMN_GROUP_HEADERS]: [
+    'Kopiëren met groepskoptekst',
+    'Kopiëren met groepskopteksten'
+  ],
+  [C.CONTEXTMENU_ITEMS_COPY_COLUMN_HEADERS_ONLY]: ['Kopiëren koptekst', 'Kopiëren kopteksten'],
+  [C.CONTEXTMENU_ITEMS_CUT]: 'Knippen',
+
+  [C.CONTEXTMENU_ITEMS_EXPORT]: 'Exporteren',
+  [C.CONTEXTMENU_ITEMS_EXPORT_FILE_CSV]: 'Naar CSV',
+  [C.CONTEXTMENU_ITEMS_EXPORT_FILE_XLSX]: 'Naar Excel',
+  [C.EXPORT_FILE_DIALOG_TITLE]: 'Exporteren…',
+
+  [C.CONTEXTMENU_ITEMS_NESTED_ROWS_INSERT_CHILD]: 'Geneste rij invoegen',
+  [C.CONTEXTMENU_ITEMS_NESTED_ROWS_DETACH_CHILD]: 'Geneste rij ontkoppelen',
+
+  [C.CONTEXTMENU_ITEMS_HIDE_COLUMN]: ['Kolom verbergen', 'Kolommen verbergen'],
+  [C.CONTEXTMENU_ITEMS_SHOW_COLUMN]: ['Kolom zichbaar maken', 'Kolommen zichtbaar maken'],
+
+  [C.CONTEXTMENU_ITEMS_HIDE_ROW]: ['Rij verbergen', 'Rijen verbergen'],
+  [C.CONTEXTMENU_ITEMS_SHOW_ROW]: ['Rij zichtbaar maken', 'Rijen zichtbaar maken'],
+
+  [C.FILTERS_CONDITIONS_NONE]: 'Geen',
+  [C.FILTERS_CONDITIONS_EMPTY]: 'Is leeg',
+  [C.FILTERS_CONDITIONS_NOT_EMPTY]: 'Is niet leeg',
+  [C.FILTERS_CONDITIONS_EQUAL]: 'Is gelijk aan',
+  [C.FILTERS_CONDITIONS_NOT_EQUAL]: 'Is niet gelijk aan',
+  [C.FILTERS_CONDITIONS_BEGINS_WITH]: 'Begint met',
+  [C.FILTERS_CONDITIONS_ENDS_WITH]: 'Eindigt op',
+  [C.FILTERS_CONDITIONS_CONTAINS]: 'Bevat',
+  [C.FILTERS_CONDITIONS_NOT_CONTAIN]: 'Bevat niet',
+  [C.FILTERS_CONDITIONS_GREATER_THAN]: 'Is groter',
+  [C.FILTERS_CONDITIONS_GREATER_THAN_OR_EQUAL]: 'Is groter of gelijk aan',
+  [C.FILTERS_CONDITIONS_LESS_THAN]: 'Is kleiner dan',
+  [C.FILTERS_CONDITIONS_LESS_THAN_OR_EQUAL]: 'Is kleiner dan of gelijk aan',
+  [C.FILTERS_CONDITIONS_BETWEEN]: 'Is tussen',
+  [C.FILTERS_CONDITIONS_NOT_BETWEEN]: 'Ligt niet tussen',
+  [C.FILTERS_CONDITIONS_AFTER]: 'Na',
+  [C.FILTERS_CONDITIONS_AFTER_OR_EQUAL]: 'Na of gelijk aan',
+  [C.FILTERS_CONDITIONS_BEFORE]: 'Voor',
+  [C.FILTERS_CONDITIONS_BEFORE_OR_EQUAL]: 'Voor of gelijk aan',
+  [C.FILTERS_CONDITIONS_TODAY]: 'Vandaag',
+  [C.FILTERS_CONDITIONS_TOMORROW]: 'Morgen',
+  [C.FILTERS_CONDITIONS_YESTERDAY]: 'Gisteren',
+
+  [C.FILTERS_VALUES_BLANK_CELLS]: 'Cellen leegmaken',
+
+  [C.FILTERS_DIVS_FILTER_BY_CONDITION]: 'Filteren op conditie',
+  [C.FILTERS_DIVS_FILTER_BY_VALUE]: 'Filteren op waarde',
+
+  [C.FILTERS_LABELS_CONJUNCTION]: 'En',
+  [C.FILTERS_LABELS_DISJUNCTION]: 'Of',
+
+  [C.FILTERS_BUTTONS_SELECT_ALL]: 'Alles selecteren',
+  [C.FILTERS_BUTTONS_CLEAR]: 'Niets selecteren',
+  [C.FILTERS_BUTTONS_OK]: 'OK',
+  [C.FILTERS_BUTTONS_CANCEL]: 'Annuleren',
+
+  [C.FILTERS_BUTTONS_PLACEHOLDER_SEARCH]: 'Zoeken',
+  [C.FILTERS_BUTTONS_PLACEHOLDER_VALUE]: 'Waarde',
+  [C.FILTERS_BUTTONS_PLACEHOLDER_SECOND_VALUE]: 'Tweede waarde',
+
+  [C.PAGINATION_SECTION]: 'Paginering',
+  [C.PAGINATION_PAGE_SIZE_SECTION]: 'Aantal rijen',
+  [C.PAGINATION_PAGE_SIZE_AUTO]: 'Auto',
+  [C.PAGINATION_COUNTER_SECTION]: '[start] - [end] van [total]',
+  [C.PAGINATION_NAV_SECTION]: 'Pagina [currentPage] van [totalPages]',
+  [C.PAGINATION_FIRST_PAGE]: 'Ga naar eerste pagina',
+  [C.PAGINATION_PREV_PAGE]: 'Ga naar vorige pagina',
+  [C.PAGINATION_NEXT_PAGE]: 'Ga naar volgende pagina',
+  [C.PAGINATION_LAST_PAGE]: 'Ga naar laatste pagina',
+
+  [C.SHEETS_BAR_SECTION]: 'Bladen',
+  [C.SHEETS_BAR_ADD_SHEET]: 'Blad toevoegen',
+  [C.SHEETS_BAR_ALL_SHEETS]: 'Alle bladen',
+  [C.SHEETS_BAR_SHEET_MENU]: 'Bladacties: [name]',
+  [C.SHEETS_BAR_RENAME_SHEET]: 'Bladnaam',
+  [C.SHEETS_BAR_ITEMS_DELETE]: 'Verwijderen',
+  [C.SHEETS_BAR_ITEMS_DUPLICATE]: 'Dupliceren',
+  [C.SHEETS_BAR_ITEMS_RENAME]: 'Naam wijzigen',
+  [C.SHEETS_BAR_ITEMS_MOVE_RIGHT]: 'Naar rechts verplaatsen',
+  [C.SHEETS_BAR_ITEMS_MOVE_LEFT]: 'Naar links verplaatsen',
+  [C.SHEETS_BAR_PAGE_PREV]: 'Bladen terug scrollen',
+  [C.SHEETS_BAR_PAGE_NEXT]: 'Bladen vooruit scrollen',
+  [C.SHEETS_BAR_SHEET_CHANGED]: 'Blad [name] geactiveerd',
+  [C.SHEETS_BAR_RENAME_REJECTED]: 'Bladnaam niet gewijzigd: [name] is al in gebruik',
+  [C.SHEETS_BAR_RENAME_NOT_CHANGED]: 'Bladnaam niet gewijzigd',
+  [C.SHEETS_BAR_SHEET_DUPLICATED]: 'Blad [name] gedupliceerd als [copy]',
+  [C.SHEETS_BAR_SHEET_MOVED]: 'Blad [name] verplaatst naar positie [position] van [count]',
+  [C.SHEETS_BAR_DEFAULT_SHEET_NAME]: 'Blad',
+
+  [C.LOADING_TITLE]: 'Laden...',
+  [C.NOTIFICATION_BUTTONS_CLOSE]: 'Sluiten',
+
+  [C.EMPTY_DATA_STATE_TITLE]: 'Geen gegevens beschikbaar',
+  [C.EMPTY_DATA_STATE_DESCRIPTION]: 'Er is nog niets te tonen.',
+  [C.EMPTY_DATA_STATE_TITLE_FILTERS]: 'Geen resultaten gevonden',
+  [C.EMPTY_DATA_STATE_DESCRIPTION_FILTERS]: 'Het lijkt erop dat uw huidige filters alle resultaten verbergen.',
+  [C.EMPTY_DATA_STATE_BUTTONS_FILTERS_RESET]: 'Filters resetten',
+  [C.EMPTY_DATA_STATE_TITLE_LOADING]: 'Gegevens laden',
+  [C.EMPTY_DATA_STATE_DESCRIPTION_LOADING]: 'Even geduld.',
+
+  [C.DATA_PROVIDER_ERRORS_FETCH]: 'Gegevens konden niet worden geladen',
+  [C.DATA_PROVIDER_ERRORS_CREATE]: 'Rijen konden niet worden aangemaakt',
+  [C.DATA_PROVIDER_ERRORS_UPDATE]: 'Rijen konden niet worden bijgewerkt',
+  [C.DATA_PROVIDER_ERRORS_REMOVE]: 'Rijen konden niet worden verwijderd',
+  [C.DATA_PROVIDER_ERRORS_REQUEST_FAILED]: 'Verzoek mislukt',
+  [C.DATA_PROVIDER_BUTTONS_REFETCH]: 'Opnieuw laden',
+  [C.ROW_SELECTION_SELECT_ROW]: 'Rij [row] selecteren',
+  [C.ROW_SELECTION_SELECT_ALL]: 'Alle rijen selecteren ([selected] van [total] geselecteerd)',
+  [C.CHECKBOX_HEADER_CHECK_ALL]: 'Alles aanvinken ([checked] van [total] aangevinkt)',
+  [C.ROW_SELECTION_ANNOUNCE_ROW_SELECTED]: 'Rij [row] geselecteerd',
+  [C.ROW_SELECTION_ANNOUNCE_ROW_DESELECTED]: 'Selectie van rij [row] opgeheven',
+  [C.ROW_SELECTION_ANNOUNCE_COUNT]: '[selected] van [total] rijen geselecteerd',
+  [C.ROW_SELECTION_MENU_REMOVE]: 'Geselecteerde rijen verwijderen ([count])',
+  [C.ROW_SELECTION_MENU_CLEAR]: 'Rijselectie wissen',
+  [C.FREEZE_BAR_ROWS_TOP]: 'Vastgezette rijen bovenaan',
+  [C.FREEZE_BAR_ROWS_BOTTOM]: 'Vastgezette rijen onderaan',
+  [C.FREEZE_BAR_COLUMNS_START]: 'Vastgezette kolommen aan het begin',
+  [C.FREEZE_BAR_COLUMNS_END]: 'Vastgezette kolommen aan het einde',
+  [C.NESTED_ROWS_ANNOUNCEMENT_EXPANDED]: 'Rij [label] uitgevouwen, getoonde uitgevouwen rijen: [count]',
+  [C.NESTED_ROWS_ANNOUNCEMENT_COLLAPSED]: 'Rij [label] samengevouwen',
+  [C.FORMULA_BUILDER_EDITOR]: 'Formule-editor',
+  [C.FORMULA_BUILDER_INPUT]: 'Formule-invoer',
+  [C.FORMULA_BUILDER_CELL_ADDRESS]: 'Celadres',
+  [C.FORMULA_BUILDER_SUGGESTIONS]: 'Formulesuggesties',
+  [C.FORMULA_BUILDER_ACCEPT_HINT]: 'om te accepteren.',
+  [C.FORMULA_BUILDER_NAVIGATE_HINT]: 'om te navigeren',
+  [C.FORMULA_BUILDER_FUNCTION_HELP]: 'Functiehulp',
+  [C.FORMULA_BUILDER_FUNCTION_HELP_FOR]: 'Hulp bij de functie [name]',
+  [C.FORMULA_BUILDER_FUNCTION_EXAMPLE]: 'Voorbeeld',
+  [C.FORMULA_BUILDER_FUNCTION_DESCRIPTION]: 'Over',
+  [C.FORMULA_BUILDER_OPTIONAL_ARGUMENT]: 'optioneel',
+  [C.FORMULA_BUILDER_REPEATABLE_ARGUMENT]: 'herhaalbaar',
+  [C.FORMULA_BUILDER_LEARN_MORE]: 'Meer informatie',
+  [C.FORMULA_BUILDER_CLOSE]: 'Sluiten',
+  [C.FORMULA_BUILDER_INVALID_ADDRESS]: 'Ongeldig celadres: [text]',
+  [C.FORMULA_BUILDER_CELL_UNAVAILABLE]: 'Kan [text] niet selecteren',
+  [C.FORMULA_BUILDER_CELL_ERROR]: 'Fout in [cell]: [message].',
+  [C.FORMULA_BUILDER_DEPENDENT_ERROR]: 'Nog [count] cel bevat nu een fout.',
+  [C.FORMULA_BUILDER_DEPENDENT_ERRORS]: 'Nog [count] cellen bevatten nu fouten.',
+};
+
+export default dictionary;

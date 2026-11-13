@@ -25,6 +25,61 @@ describe('CopyPaste', () => {
   };
 
   describe('paste', () => {
+    it('should paste the data by default to the last selection layer', async() => {
+      handsontable({
+        data: createSpreadsheetData(5, 5),
+        rowHeaders: true,
+        colHeaders: true,
+        copyPaste: true,
+        navigableHeaders: true,
+      });
+
+      await selectCells([
+        [0, 0, 2, 2],
+        [2, 1, 2, 3],
+        [1, 4, 3, 4],
+      ]);
+
+      triggerPaste('Kia\nNissan\nToyota');
+
+      expect(getData()).toEqual([
+        ['A1', 'B1', 'C1', 'D1', 'E1'],
+        ['A2', 'B2', 'C2', 'D2', 'Kia'],
+        ['A3', 'B3', 'C3', 'D3', 'Nissan'],
+        ['A4', 'B4', 'C4', 'D4', 'Toyota'],
+        ['A5', 'B5', 'C5', 'D5', 'E5'],
+      ]);
+    });
+
+    it('should paste the data to the active selection layer', async() => {
+      handsontable({
+        data: createSpreadsheetData(5, 5),
+        rowHeaders: true,
+        colHeaders: true,
+        copyPaste: true,
+        navigableHeaders: true,
+      });
+
+      await selectCells([
+        [0, 0, 2, 2],
+        [2, 1, 2, 3],
+        [1, 4, 3, 4],
+      ]);
+
+      await keyDownUp(['shift', 'tab']);
+      await keyDownUp(['shift', 'tab']); // select C3 of the second layer
+
+      triggerPaste('Kia\nNissan\nToyota');
+
+      expect(getData()).toEqual([
+        ['A1', 'B1', 'C1', 'D1', 'E1'],
+        ['A2', 'B2', 'C2', 'D2', 'E2'],
+        ['A3', 'Kia', 'Kia', 'Kia', 'E3'],
+        ['A4', 'Nissan', 'Nissan', 'Nissan', 'E4'],
+        ['A5', 'Toyota', 'Toyota', 'Toyota', 'E5'],
+      ]);
+    });
+
     it('should not create new rows or columns when allowInsertRow and allowInsertColumn equal false', async() => {
       handsontable({
         data: arrayOfArrays(),
@@ -35,15 +90,22 @@ describe('CopyPaste', () => {
         allowInsertColumn: false
       });
 
-      selectCell(3, 4); // selectAll
+      await selectCell(3, 4); // selectAll
       triggerPaste('Kia\tNissan\tToyota');
 
-      await sleep(60);
+      await waitForNextAnimationFrames(2);
 
       const expected = arrayOfArrays();
 
       expected[3][4] = 'Kia';
       expect(getData()).toEqual(expected);
+
+      // `getData()` is bounded by `countCols()`, so on its own it cannot tell a dropped value from
+      // one written into a column the grid does not render. The paste is three wide and starts on
+      // the last column, so check the source row too: `allowInsertColumn: false` must drop the two
+      // overflow values rather than park them past the end of the row.
+      expect(getSourceDataAtRow(3).length).toBe(5);
+      expect(getDataAtCell(3, 5)).toBe(null);
     });
 
     it('should shift data down instead of overwrite when paste (when allowInsertRow = false)', async() => {
@@ -55,10 +117,10 @@ describe('CopyPaste', () => {
         allowInsertRow: false
       });
 
-      selectCell(1, 0); // selectAll
+      await selectCell(1, 0); // selectAll
       triggerPaste('Kia\tNissan\tToyota');
 
-      await sleep(60);
+      await waitForNextAnimationFrames(2);
 
       expect(getData().length).toEqual(4);
       expect(getData(0, 0, 2, 4)).toEqual([
@@ -77,10 +139,10 @@ describe('CopyPaste', () => {
         minSpareRows: 1
       });
 
-      selectCell(1, 0); // selectAll
+      await selectCell(1, 0); // selectAll
       triggerPaste('Kia\tNissan\tToyota');
 
-      await sleep(60);
+      await waitForNextAnimationFrames(2);
 
       expect(getData().length).toEqual(6);
       expect(getData(0, 0, 2, 4)).toEqual([
@@ -99,10 +161,10 @@ describe('CopyPaste', () => {
         allowInsertColumn: false
       });
 
-      selectCell(1, 0); // selectAll
+      await selectCell(1, 0); // selectAll
       triggerPaste('Kia\tNissan\tToyota');
 
-      await sleep(60);
+      await waitForNextAnimationFrames(2);
 
       expect(getData()[0].length).toEqual(5);
       expect(getDataAtRow(1)).toEqual(['Kia', 'Nissan', 'Toyota', '2008', 10]);
@@ -117,10 +179,10 @@ describe('CopyPaste', () => {
         minSpareCols: 1
       });
 
-      selectCell(1, 0); // selectAll
+      await selectCell(1, 0); // selectAll
       triggerPaste('Kia\tNissan\tToyota');
 
-      await sleep(60);
+      await waitForNextAnimationFrames(2);
       expect(getData()[0].length).toEqual(9);
       expect(getDataAtRow(1)).toEqual(['Kia', 'Nissan', 'Toyota', '2008', 10, 11, 12, 13, null]);
     });
@@ -136,35 +198,37 @@ describe('CopyPaste', () => {
               return;
             }
 
+            // eslint-disable-next-line handsontable/require-await
             loadData(arrayOfArrays());
           }
         });
 
-        selectCell(1, 0); // selectAll
+        await selectCell(1, 0); // selectAll
         triggerPaste('Kia\tNissan\tToyota');
 
       } catch (e) {
         errors += 1;
       }
 
-      await sleep(60);
+      await waitForNextAnimationFrames(2);
 
       expect(errors).toEqual(0);
     });
 
-    it('should not throw an error while pasting when headers are selected by corner click', () => {
-      const hot = handsontable({
+    it('should not throw an error while pasting when headers are selected by corner click', async() => {
+      handsontable({
         data: arrayOfArrays(),
         rowHeaders: true,
         colHeaders: true,
       });
 
-      selectAll();
-      hot.listen();
+      await listen();
+
+      await selectAll();
 
       expect(() => {
         triggerPaste('Kia\tNissan\tToyota');
-      }).not.toThrowError();
+      }).not.toThrowWithCause(undefined, { handsontable: true });
     });
 
     it('should not paste any data, if no cell is selected', async() => {
@@ -172,7 +236,7 @@ describe('CopyPaste', () => {
       const copiedData2 = 'bar';
 
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(3, 1)
+        data: createSpreadsheetData(3, 1)
       });
 
       expect(spec().$container.find('tbody tr:eq(0) td:eq(0)').text()).toEqual('A1');
@@ -182,16 +246,16 @@ describe('CopyPaste', () => {
 
       triggerPaste(copiedData1);
 
-      await sleep(100);
+      await waitForNextAnimationFrames(2);
       expect(spec().$container.find('tbody tr:eq(0) td:eq(0)').text()).toEqual('A1');
       expect(spec().$container.find('tbody tr:eq(1) td:eq(0)').text()).toEqual('A2');
       expect(spec().$container.find('tbody tr:eq(2) td:eq(0)').text()).toEqual('A3');
 
-      await sleep(100);
-      selectCell(1, 0, 2, 0);
+      await waitForNextAnimationFrames(2);
+      await selectCell(1, 0, 2, 0);
       triggerPaste(copiedData2);
 
-      await sleep(100);
+      await waitForNextAnimationFrames(2);
       expect(spec().$container.find('tbody tr:eq(0) td:eq(0)').text()).toEqual('A1');
       expect(spec().$container.find('tbody tr:eq(1) td:eq(0)').text()).toEqual(copiedData2);
       expect(spec().$container.find('tbody tr:eq(2) td:eq(0)').text()).toEqual(copiedData2);
@@ -201,7 +265,7 @@ describe('CopyPaste', () => {
       const copiedData = 'foo';
 
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(3, 1)
+        data: createSpreadsheetData(3, 1)
       });
 
       expect(spec().$container.find('tbody tr:eq(0) td:eq(0)').text()).toEqual('A1');
@@ -219,7 +283,7 @@ describe('CopyPaste', () => {
 
       triggerPaste(copiedData);
 
-      await sleep(100);
+      await waitForNextAnimationFrames(2);
 
       expect(spec().$container.find('tbody tr:eq(0) td:eq(0)').text()).toEqual('A1');
       expect(spec().$container.find('tbody tr:eq(1) td:eq(0)').text()).toEqual('A2');
@@ -231,16 +295,16 @@ describe('CopyPaste', () => {
       const afterPasteSpy = jasmine.createSpy('afterPaste');
 
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(2, 2),
+        data: createSpreadsheetData(2, 2),
         beforePaste: beforePasteSpy,
         afterPaste: afterPasteSpy
       });
 
-      selectCell(0, 0);
-      keyDownUp(['control/meta', 'v']);
+      await selectCell(0, 0);
+      await keyDownUp(['control/meta', 'v']);
       triggerPaste('Kia');
 
-      await sleep(60);
+      await waitForNextAnimationFrames(2);
 
       expect(beforePasteSpy.calls.count()).toEqual(1);
       expect(beforePasteSpy).toHaveBeenCalledWith(
@@ -255,35 +319,35 @@ describe('CopyPaste', () => {
       const afterPasteSpy = jasmine.createSpy('afterPaste');
 
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(2, 2),
+        data: createSpreadsheetData(2, 2),
         beforePaste() {
           return false;
         },
         afterPaste: afterPasteSpy
       });
 
-      selectCell(0, 0);
-      keyDownUp(['control/meta', 'v']);
+      await selectCell(0, 0);
+      await keyDownUp(['control/meta', 'v']);
       triggerPaste('Kia');
 
-      await sleep(60);
+      await waitForNextAnimationFrames(2);
 
       expect(afterPasteSpy.calls.count()).toEqual(0);
     });
 
     it('should be possible modification of changes', async() => {
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(2, 2),
+        data: createSpreadsheetData(2, 2),
         beforePaste(changes) {
           changes.splice(0, 1);
         }
       });
 
-      selectCell(0, 0);
-      keyDownUp(['control/meta', 'v']);
+      await selectCell(0, 0);
+      await keyDownUp(['control/meta', 'v']);
       triggerPaste('Kia\nToyota');
 
-      await sleep(60);
+      await waitForNextAnimationFrames(2);
 
       expect(spec().$container.find('tbody tr:eq(0) td:eq(0)').text()).toEqual('Toyota');
       expect(spec().$container.find('tbody tr:eq(1) td:eq(0)').text()).toEqual('A2');
@@ -291,7 +355,7 @@ describe('CopyPaste', () => {
 
     it('should be possible to paste copied data from the same instance', async() => {
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(5, 5),
+        data: createSpreadsheetData(5, 5),
       });
 
       expect(getDataAtCell(3, 1, 3, 1)).toEqual('B4');
@@ -299,11 +363,11 @@ describe('CopyPaste', () => {
       const copyEvent = getClipboardEvent();
       const plugin = getPlugin('CopyPaste');
 
-      selectCell(0, 0, 1, 4);
+      await selectCell(0, 0, 1, 4);
 
       plugin.onCopy(copyEvent);
 
-      selectCell(4, 1);
+      await selectCell(4, 1);
 
       plugin.onPaste(copyEvent);
 
@@ -325,11 +389,11 @@ describe('CopyPaste', () => {
       const copyEvent = getClipboardEvent();
       const plugin = getPlugin('CopyPaste');
 
-      selectCell(0, 1, 2, 1);
+      await selectCell(0, 1, 2, 1);
 
       plugin.onCopy(copyEvent);
 
-      selectCell(2, 0);
+      await selectCell(2, 0);
 
       plugin.onPaste(copyEvent);
 
@@ -348,25 +412,25 @@ describe('CopyPaste', () => {
       const copyEvent = getClipboardEvent();
       const plugin = getPlugin('CopyPaste');
 
-      selectCell(0, 0, 2, 0);
+      await selectCell(0, 0, 2, 0);
 
       plugin.onCopy(copyEvent);
 
-      selectCell(0, 1);
+      await selectCell(0, 1);
 
       plugin.onPaste(copyEvent);
 
       expect(getDataAtCol(1)).toEqual(['{""""}', '{""""}{""""}', '{""""}{""""}{""""}']);
     });
 
-    it('should properly parse newline in text/plain on Windows', () => {
+    it('should properly parse newline in text/plain on Windows', async() => {
       const afterChangeSpy = jasmine.createSpy('afterChange');
 
       handsontable({
         afterChange: afterChangeSpy,
       });
 
-      selectCell(0, 0);
+      await selectCell(0, 0);
 
       triggerPaste('Kia\r\nNissan\r\nToyota');
 
@@ -390,11 +454,27 @@ describe('CopyPaste', () => {
         'text</td></tr></tbody></table>'
       ].join('\r\n'));
 
-      selectCell(0, 0);
+      await selectCell(0, 0);
 
       plugin.onPaste(clipboardEvent);
 
       expect(getDataAtCell(0, 0)).toEqual('very\r\nlong\r\n\r\ntext');
+    });
+
+    it('should keep a single quoted cell with bare mid-cell quote chars on one row (issue #11001)', async() => {
+      handsontable({
+        data: createSpreadsheetData(5, 2),
+      });
+
+      await selectCell(0, 0);
+
+      // Apple Numbers wraps a multi-line cell with `"..."` and writes bare ASCII `"` chars
+      // (not `""`-escaped) inside the content. Internal `\n` characters must not split the
+      // cell into multiple rows, and bare `"` chars must be preserved.
+      triggerPaste('"Test: Some stage\nClick "check balance" on 42” tile.\nNote: text."');
+
+      expect(getDataAtCell(0, 0)).toBe('Test: Some stage\nClick "check balance" on 42” tile.\nNote: text.');
+      expect(getDataAtCell(1, 0)).toBe('A2');
     });
 
     it('should properly paste data with excel-style multiline text', async() => {
@@ -416,7 +496,7 @@ describe('CopyPaste', () => {
         '    Line 5</td></tr></tbody></table>',
       ].join(''));
 
-      selectCell(0, 0);
+      await selectCell(0, 0);
 
       plugin.onPaste(clipboardEvent);
 
@@ -433,7 +513,7 @@ describe('CopyPaste', () => {
         '<table><tbody><tr><td colspan="2" rowspan="2">A1</td><td>C1</td></tr><tr><td>C2</td></tr></tbody></table>'
       ].join('\r\n'));
 
-      selectCell(0, 0);
+      await selectCell(0, 0);
 
       plugin.onPaste(clipboardEvent);
 
@@ -455,7 +535,7 @@ describe('CopyPaste', () => {
         '<table><tbody><tr><td colspan="2" rowspan="2">A1</td><td>C1</td></tr><tr><td>C2</td></tr></tbody></table>'
       ].join('\r\n'));
 
-      selectCell(0, 0);
+      await selectCell(0, 0);
 
       plugin.onPaste(clipboardEvent);
 
@@ -467,9 +547,42 @@ describe('CopyPaste', () => {
       expect(getDataAtCell(1, 2)).toEqual('C2');
     });
 
-    it('should populate data just within selection - there was bug #5961', () => {
+    it('should preserve all cells when pasting Excel range with shape (nested td in cell)', async() => {
       handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+        data: createSpreadsheetData(1, 5),
+      });
+
+      const clipboardEvent = getClipboardEvent();
+      const plugin = getPlugin('CopyPaste');
+      const excelLikeHTMLWithShape = [
+        '<meta name="Generator" content="Microsoft Excel 15">',
+        '<table><tr>',
+        '<td>text</td>',
+        '<td width=116><!--[if gte vml 1]><v:shape></v:shape><![endif]-->',
+        '<span><table><tr><td></td></tr></table></span></td>',
+        '<td>text2</td>',
+        '<td width=124><!--[if gte vml 1]><v:shape></v:shape><![endif]-->',
+        '<span><table><tr><td></td></tr></table></span></td>',
+        '<td>test</td>',
+        '</tr></table>'
+      ].join('');
+
+      clipboardEvent.clipboardData.setData('text/html', excelLikeHTMLWithShape);
+
+      await selectCell(0, 0);
+
+      plugin.onPaste(clipboardEvent);
+
+      expect(getDataAtCell(0, 0)).toEqual('text');
+      expect(getDataAtCell(0, 1)).toEqual('');
+      expect(getDataAtCell(0, 2)).toEqual('text2');
+      expect(getDataAtCell(0, 3)).toEqual('');
+      expect(getDataAtCell(0, 4)).toEqual('test');
+    });
+
+    it('should populate data just within selection - there was bug #5961', async() => {
+      handsontable({
+        data: createSpreadsheetData(10, 10),
         rowHeaders: true,
         colHeaders: true,
         hiddenRows: {
@@ -485,11 +598,11 @@ describe('CopyPaste', () => {
       const copyEvent = getClipboardEvent();
       const plugin = getPlugin('CopyPaste');
 
-      selectCell(0, 0, 9, 0);
+      await selectCell(0, 0, 9, 0);
 
       plugin.onCopy(copyEvent);
 
-      selectColumns(1, 9);
+      await selectColumns(1, 9);
 
       plugin.onPaste(copyEvent);
 
@@ -505,35 +618,284 @@ describe('CopyPaste', () => {
         ['A9', 'A9', 'A9', 'A9', 'E9', 'F9', 'A9', 'A9', 'A9', 'A9'],
         ['A10', 'A10', 'A10', 'A10', 'E10', 'F10', 'A10', 'A10', 'A10', 'A10'],
       ]);
-
-      expect(getSelected()).toEqual([[0, 1, 9, 9]]);
-      expect(getSelectedRangeLast().highlight.row).toBe(0);
-      expect(getSelectedRangeLast().highlight.col).toBe(1);
-      expect(getSelectedRangeLast().from.row).toBe(0);
-      expect(getSelectedRangeLast().from.col).toBe(1);
-      expect(getSelectedRangeLast().to.row).toBe(9);
-      expect(getSelectedRangeLast().to.col).toBe(9);
+      expect(getSelectedRange()).toEqualCellRange(['highlight: 0,1 from: 0,1 to: 9,9']);
     });
 
-    it('should sanitize pasted HTML', async() => {
+    it('should paste data without scrolling the viewport', async() => {
+      // Size the container so row 6 fits inside the viewport regardless of theme row height;
+      // otherwise `selectCell(6, 2)` below would auto-scroll and defeat the purpose of the test.
+      handsontable({
+        data: createSpreadsheetData(50, 50),
+        width: 200,
+        height: containerHeightForRows(7),
+      });
+
+      await selectCell(6, 2);
+      triggerPaste([
+        'test\ttest\ttest\ttest\ttest\ttest',
+        'test\ttest\ttest\ttest\ttest\ttest',
+        'test\ttest\ttest\ttest\ttest\ttest',
+        'test\ttest\ttest\ttest\ttest\ttest',
+        'test\ttest\ttest\ttest\ttest\ttest',
+        'test\ttest\ttest\ttest\ttest\ttest',
+      ].join('\n'));
+
+      expect(topOverlay().getScrollPosition()).toBe(0);
+      expect(inlineStartOverlay().getScrollPosition()).toBe(0);
+    });
+
+    it('should warn once when HTML is pasted without a sanitizer configured', async() => {
       handsontable();
+
+      const warnSpy = spyOnConsoleWarn();
+      const clipboardEvent = getClipboardEvent();
+      const plugin = getPlugin('CopyPaste');
+
+      clipboardEvent.clipboardData.setData('text/html', '<table><tr><td>A</td></tr></table>');
+
+      await selectCell(0, 0);
+
+      plugin.onPaste(clipboardEvent);
+      await waitForNextAnimationFrames(2);
+
+      expect(warnSpy).toHaveBeenCalledWith(jasmine.stringMatching(/without a sanitizer/));
+
+      // Second paste must NOT emit a second warning (once per instance).
+      warnSpy.calls.reset();
+      plugin.onPaste(clipboardEvent);
+      await waitForNextAnimationFrames(2);
+
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it('should sanitize pasted HTML when custom sanitizer is set', async() => {
+      handsontable({
+        sanitizer: (content) => {
+          return content.replace(/\s+onerror\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)/gi, '');
+        },
+      });
+
+      window.__testFunction = () => {};
 
       const onErrorSpy = spyOn(window, 'onerror');
       const clipboardEvent = getClipboardEvent();
       const plugin = getPlugin('CopyPaste');
 
+      spyOn(window, '__testFunction');
+
       clipboardEvent.clipboardData.setData('text/html', [
-        '<table><tr></tr></table><img src onerror="boom()">'
+        '<table><tr></tr></table><img src onerror="__testFunction()">'
       ].join('\r\n'));
 
-      selectCell(0, 0);
+      await selectCell(0, 0);
 
       plugin.onPaste(clipboardEvent);
 
-      await sleep(100);
+      await waitForNextAnimationFrames(2);
 
       expect(onErrorSpy).not.toHaveBeenCalled();
+      expect(window.__testFunction).not.toHaveBeenCalled();
       expect(getDataAtCell(0, 0)).toEqual(null);
+
+      delete window.__testFunction;
+    });
+
+    it('should be possible to paste text into the outside element of the table when the `outsideClickDeselects` is disabled', async() => {
+      handsontable({
+        data: createSpreadsheetData(5, 5),
+        outsideClickDeselects: false,
+      });
+
+      const testElement = $('<div id="testElement">Test</div>');
+
+      spec().$container.after(testElement);
+
+      const pasteEvent = getClipboardEvent({
+        target: testElement[0],
+      });
+      const plugin = getPlugin('CopyPaste');
+
+      await selectCell(1, 1);
+
+      pasteEvent.target = testElement[0]; // native paste event is triggered on the element outside the table
+      plugin.onPaste(pasteEvent); // trigger the plugin's method that is normally triggered by the native "paste" event
+
+      // the data in HoT should not be changed as the paste was triggered on the outside element
+      expect(getDataAtCell(1, 1)).toBe('B2');
+
+      testElement.remove();
+    });
+
+    it('should skip processing the event when the target element has the "data-hot-input" attribute and it\'s not an editor', async() => {
+      handsontable({
+        data: createSpreadsheetData(5, 5),
+      });
+
+      const copyEvent = getClipboardEvent({
+        target: $('<div id="testElement" data-hot-input="true">Test</div>')[0],
+      });
+      const plugin = getPlugin('CopyPaste');
+
+      spyOn(copyEvent, 'preventDefault');
+
+      await selectCell(1, 1);
+
+      copyEvent.target = $('<div id="testElement" data-hot-input="true">Test</div>')[0];
+      plugin.onPaste(copyEvent); // trigger the plugin's method that is normally triggered by the native "paste" event
+
+      expect(copyEvent.preventDefault).not.toHaveBeenCalled();
+    });
+
+    it('should not skip processing the event when the target element has the "data-hot-input" attribute and it\'s an editor', async() => {
+      handsontable({
+        data: createSpreadsheetData(5, 5),
+      });
+
+      const plugin = getPlugin('CopyPaste');
+
+      await selectCell(1, 1);
+
+      const copyEvent = getClipboardEvent({
+        target: getActiveEditor().TEXTAREA,
+      });
+
+      spyOn(copyEvent, 'preventDefault');
+
+      copyEvent.target = getActiveEditor().TEXTAREA;
+      plugin.onPaste(copyEvent); // trigger the plugin's method that is normally triggered by the native "paste" event
+
+      expect(copyEvent.preventDefault).toHaveBeenCalled();
+    });
+
+    it('should skip processing the event when the target element does not have the "data-hot-input" attribute and it\'s not a BODY element', async() => {
+      handsontable({
+        data: createSpreadsheetData(5, 5),
+      });
+
+      const copyEvent = getClipboardEvent({
+        target: $('<div id="testElement">Test</div>')[0],
+      });
+      const plugin = getPlugin('CopyPaste');
+
+      spyOn(copyEvent, 'preventDefault');
+
+      await selectCell(1, 1);
+
+      copyEvent.target = $('<div id="testElement">Test</div>')[0];
+      plugin.onPaste(copyEvent); // trigger the plugin's method that is normally triggered by the native "paste" event
+
+      expect(copyEvent.preventDefault).not.toHaveBeenCalled();
+    });
+
+    it('should not skip processing the event when the target element does not have the "data-hot-input" attribute and it\'s a BODY element', async() => {
+      handsontable({
+        data: createSpreadsheetData(5, 5),
+      });
+
+      const copyEvent = getClipboardEvent({
+        target: document.body,
+      });
+      const plugin = getPlugin('CopyPaste');
+
+      spyOn(copyEvent, 'preventDefault');
+
+      await selectCell(1, 1);
+
+      copyEvent.target = document.body;
+      plugin.onPaste(copyEvent); // trigger the plugin's method that is normally triggered by the native "paste" event
+
+      expect(copyEvent.preventDefault).toHaveBeenCalled();
+    });
+
+    it('should not skip processing the event when the target element does not have the "data-hot-input" attribute and it\'s a TD element (#dev-2225)', async() => {
+      handsontable({
+        data: createSpreadsheetData(5, 5),
+      });
+
+      const copyEvent = getClipboardEvent({
+        target: getCell(1, 1),
+      });
+      const plugin = getPlugin('CopyPaste');
+
+      spyOn(copyEvent, 'preventDefault');
+
+      await selectCell(1, 1);
+
+      copyEvent.target = getCell(1, 1);
+      plugin.onPaste(copyEvent); // trigger the plugin's method that is normally triggered by the native "paste" event
+
+      expect(copyEvent.preventDefault).toHaveBeenCalled();
+    });
+
+    it('should be possible to paste data having selected a range that reaches outside of the rendered viewport (#dev-2298)', async() => {
+      handsontable({
+        data: createSpreadsheetData(1, 50),
+        width: 100,
+        height: 50,
+      });
+
+      const plugin = getPlugin('CopyPaste');
+
+      await selectCells([[0, 0, 0, 49]]);
+      await waitForNextAnimationFrames(1);
+
+      const pasteEvent = getClipboardEvent({
+        target: document.activeElement,
+      });
+
+      spyOn(pasteEvent, 'preventDefault');
+
+      plugin.onPaste(pasteEvent); // emulate native "paste" event
+
+      expect(pasteEvent.preventDefault).toHaveBeenCalled();
+    });
+
+    it('should paste the object-based cells as their displayed value, when the target cell is not object-based', async() => {
+      handsontable({
+        data: [
+          [{ id: 1, value: 'A1' }, 'test'],
+          [{ id: 2, value: 'A2' }, 'test2'],
+        ],
+        columns: [
+          {
+            valueGetter: value => value?.value,
+          },
+          {},
+        ],
+      });
+
+      const plugin = getPlugin('CopyPaste');
+      const event = getClipboardEvent();
+
+      await selectCell(0, 0);
+      plugin.onCopy(event);
+
+      await selectCell(1, 1);
+      plugin.onPaste(event);
+
+      expect(getDataAtCell(1, 1)).toEqual('A1');
+    });
+
+    it('should not paste the object-based cells, when the target cell is object-based, but it\'s data schema doesn\'t match the pasted content', async() => {
+      handsontable({
+        data: [
+          [{ id: 1, value: 'A1' }, { sth: 0, label: 'test' }],
+          [{ id: 2, value: 'A2' }, { sth: 1, label: 'test2' }],
+        ],
+        valueGetter: value => value?.value ?? value?.label,
+      });
+
+      const plugin = getPlugin('CopyPaste');
+      const event = getClipboardEvent();
+
+      await selectCell(0, 0);
+      plugin.onCopy(event);
+
+      await selectCell(1, 1);
+      plugin.onPaste(event);
+
+      expect(getDataAtCell(1, 1)).toEqual('test2');
+      expect(getCopyableSourceData(1, 1)).toEqual({ sth: 1, label: 'test2' });
     });
   });
 });

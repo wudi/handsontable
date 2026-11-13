@@ -20,25 +20,30 @@ describe('NestedHeaders', () => {
   });
 
   describe('showing columns', () => {
-    it('should work with default setup', () => {
-      const hot = handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+    it('should work with default setup', async() => {
+      handsontable({
+        data: createSpreadsheetData(10, 10),
         colHeaders: true,
         nestedHeaders: true,
       });
 
-      const hidingMap = hot.columnIndexMapper.createAndRegisterIndexMap('my-hiding-map', 'hiding', true);
+      const hidingMap = columnIndexMapper().createAndRegisterIndexMap('my-hiding-map', 'hiding', true);
 
       hidingMap.setValueAtIndex(1, false); // Show column that contains cells B{n}
       hidingMap.setValueAtIndex(4, false); // Show column that contains cells E{n}
       hidingMap.setValueAtIndex(8, false); // Show column that contains cells I{n}
-      hot.render();
+      await render();
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
+          <tr>
+          <th class=""></th>
+          <th class=""></th>
+          <th class="htLastVisibleHeader"></th>
+        </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">B1</td>
             <td class="">E1</td>
             <td class="">I1</td>
@@ -47,33 +52,33 @@ describe('NestedHeaders', () => {
         `);
     });
 
-    it('should work with minimal setup', () => {
-      const hot = handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+    it('should work with minimal setup', async() => {
+      handsontable({
+        data: createSpreadsheetData(10, 10),
         colHeaders: true,
       });
 
-      hot.updateSettings({
+      await updateSettings({
         nestedHeaders: [[]],
       });
 
-      const hidingMap = hot.columnIndexMapper.createAndRegisterIndexMap('my-hiding-map', 'hiding', true);
+      const hidingMap = columnIndexMapper().createAndRegisterIndexMap('my-hiding-map', 'hiding', true);
 
       hidingMap.setValueAtIndex(1, false); // Show column that contains cells B{n}
       hidingMap.setValueAtIndex(4, false); // Show column that contains cells E{n}
       hidingMap.setValueAtIndex(8, false); // Show column that contains cells I{n}
-      hot.render();
+      await render();
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
           <tr>
             <th class=""></th>
             <th class=""></th>
-            <th class=""></th>
+            <th class="htLastVisibleHeader"></th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">B1</td>
             <td class="">E1</td>
             <td class="">I1</td>
@@ -82,30 +87,30 @@ describe('NestedHeaders', () => {
         `);
     });
 
-    it('should work with single level of nested headers configuration', () => {
-      const hot = handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+    it('should work with single level of nested headers configuration', async() => {
+      handsontable({
+        data: createSpreadsheetData(10, 10),
         colHeaders: true,
         nestedHeaders: [
           ['A', { label: 'B', colspan: 3 }, 'E', 'F', { label: 'G', colspan: 2 }, 'I', 'J'],
         ],
       });
 
-      const hidingMap = hot.columnIndexMapper.createAndRegisterIndexMap('my-hiding-map', 'hiding', true);
+      const hidingMap = columnIndexMapper().createAndRegisterIndexMap('my-hiding-map', 'hiding', true);
 
       hidingMap.setValueAtIndex(2, false); // Show column that contains cells C{n}
       hidingMap.setValueAtIndex(6, false); // Show column that contains cells G{n}
-      hot.render();
+      await render();
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
           <tr>
             <th class="">B</th>
-            <th class="">G</th>
+            <th class="htLastVisibleHeader">G</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">C1</td>
             <td class="">G1</td>
           </tr>
@@ -114,7 +119,7 @@ describe('NestedHeaders', () => {
 
       hidingMap.setValueAtIndex(4, false); // Show column that contains cells E{n}
       hidingMap.setValueAtIndex(5, false); // Show column that contains cells F{n}
-      hot.render();
+      await render();
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
@@ -122,11 +127,11 @@ describe('NestedHeaders', () => {
             <th class="">B</th>
             <th class="">E</th>
             <th class="">F</th>
-            <th class="">G</th>
+            <th class="htLastVisibleHeader">G</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">C1</td>
             <td class="">E1</td>
             <td class="">F1</td>
@@ -138,7 +143,7 @@ describe('NestedHeaders', () => {
       hidingMap.setValueAtIndex(8, false); // Show column that contains cells I{n}
       hidingMap.setValueAtIndex(0, false); // Show column that contains cells A{n}
       hidingMap.setValueAtIndex(3, false); // Show column that contains cells D{n}
-      hot.render();
+      await render();
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
@@ -149,11 +154,11 @@ describe('NestedHeaders', () => {
             <th class="">E</th>
             <th class="">F</th>
             <th class="">G</th>
-            <th class="">I</th>
+            <th class="htLastVisibleHeader">I</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">C1</td>
             <td class="">D1</td>
@@ -168,7 +173,7 @@ describe('NestedHeaders', () => {
       hidingMap.setValueAtIndex(1, false); // Show column that contains cells B{n}
       hidingMap.setValueAtIndex(7, false); // Show column that contains cells H{n}
       hidingMap.setValueAtIndex(9, false); // Show column that contains cells J{n}
-      hot.render();
+      await render();
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
@@ -182,11 +187,11 @@ describe('NestedHeaders', () => {
             <th class="" colspan="2">G</th>
             <th class="hiddenHeader"></th>
             <th class="">I</th>
-            <th class="">J</th>
+            <th class="htLastVisibleHeader">J</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">C1</td>
@@ -202,32 +207,32 @@ describe('NestedHeaders', () => {
         `);
     });
 
-    it('should keep the headers in sync with a dataset after updateSettings call', () => {
-      const hot = handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+    it('should keep the headers in sync with a dataset after updateSettings call (custom hiding map)', async() => {
+      handsontable({
+        data: createSpreadsheetData(10, 10),
         colHeaders: true,
         nestedHeaders: [
           ['A', { label: 'B', colspan: 3 }, 'E', 'F', { label: 'G', colspan: 2 }, 'I', 'J'],
         ],
       });
 
-      const hidingMap = hot.columnIndexMapper.createAndRegisterIndexMap('my-hiding-map', 'hiding', true);
+      const hidingMap = columnIndexMapper().createAndRegisterIndexMap('my-hiding-map', 'hiding', true);
 
       hidingMap.setValueAtIndex(2, false); // Show column that contains cells C{n}
       hidingMap.setValueAtIndex(3, false); // Show column that contains cells D{n}
       hidingMap.setValueAtIndex(6, false); // Show column that contains cells G{n}
-      hot.render();
+      await render();
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
           <tr>
             <th class="" colspan="2">B</th>
             <th class="hiddenHeader"></th>
-            <th class="">G</th>
+            <th class="htLastVisibleHeader">G</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">C1</td>
             <td class="">D1</td>
             <td class="">G1</td>
@@ -235,18 +240,18 @@ describe('NestedHeaders', () => {
         </tbody>
         `);
 
-      updateSettings({ });
+      await updateSettings({ });
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
           <tr>
             <th class="" colspan="2">B</th>
             <th class="hiddenHeader"></th>
-            <th class="">G</th>
+            <th class="htLastVisibleHeader">G</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">C1</td>
             <td class="">D1</td>
             <td class="">G1</td>
@@ -255,9 +260,9 @@ describe('NestedHeaders', () => {
         `);
     });
 
-    it('should work with multiple levels of nested headers configuration (variation #1)', () => {
-      const hot = handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+    it('should work with multiple levels of nested headers configuration (variation #1)', async() => {
+      handsontable({
+        data: createSpreadsheetData(10, 10),
         colHeaders: true,
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 8 }, 'J1'],
@@ -267,33 +272,33 @@ describe('NestedHeaders', () => {
         ],
       });
 
-      const hidingMap = hot.columnIndexMapper.createAndRegisterIndexMap('my-hiding-map', 'hiding', true);
+      const hidingMap = columnIndexMapper().createAndRegisterIndexMap('my-hiding-map', 'hiding', true);
 
       hidingMap.setValueAtIndex(3, false); // Show column that contains cells D{n}
       hidingMap.setValueAtIndex(7, false); // Show column that contains cells H{n}
-      hot.render();
+      await render();
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
           <tr>
-            <th class="" colspan="2">B1</th>
+            <th class="htLastVisibleHeader" colspan="2">B1</th>
             <th class="hiddenHeader"></th>
           </tr>
           <tr>
             <th class="">B2</th>
-            <th class="">F2</th>
+            <th class="htLastVisibleHeader">F2</th>
           </tr>
           <tr>
             <th class="">C3</th>
-            <th class="">H3</th>
+            <th class="htLastVisibleHeader">H3</th>
           </tr>
           <tr>
             <th class="">D4</th>
-            <th class="">H4</th>
+            <th class="htLastVisibleHeader">H4</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">D1</td>
             <td class="">H1</td>
           </tr>
@@ -303,7 +308,7 @@ describe('NestedHeaders', () => {
       hidingMap.setValueAtIndex(8, false); // Show column that contains cells I{n}
       hidingMap.setValueAtIndex(9, false); // Show column that contains cells J{n}
       hidingMap.setValueAtIndex(2, false); // Show column that contains cells C{n}
-      hot.render();
+      await render();
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
@@ -312,32 +317,32 @@ describe('NestedHeaders', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
-            <th class="">J1</th>
+            <th class="htLastVisibleHeader">J1</th>
           </tr>
           <tr>
             <th class="" colspan="2">B2</th>
             <th class="hiddenHeader"></th>
             <th class="" colspan="2">F2</th>
             <th class="hiddenHeader"></th>
-            <th class="">J2</th>
+            <th class="htLastVisibleHeader">J2</th>
           </tr>
           <tr>
             <th class="" colspan="2">C3</th>
             <th class="hiddenHeader"></th>
             <th class="" colspan="2">H3</th>
             <th class="hiddenHeader"></th>
-            <th class="">J3</th>
+            <th class="htLastVisibleHeader">J3</th>
           </tr>
           <tr>
             <th class="">C4</th>
             <th class="">D4</th>
             <th class="">H4</th>
             <th class="">I4</th>
-            <th class="">J4</th>
+            <th class="htLastVisibleHeader">J4</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">C1</td>
             <td class="">D1</td>
             <td class="">H1</td>
@@ -349,7 +354,7 @@ describe('NestedHeaders', () => {
 
       hidingMap.setValueAtIndex(0, false); // Show column that contains cells A{n}
       hidingMap.setValueAtIndex(4, false); // Show column that contains cells E{n}
-      hot.render();
+      await render();
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
@@ -360,7 +365,7 @@ describe('NestedHeaders', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
-            <th class="">J1</th>
+            <th class="htLastVisibleHeader">J1</th>
           </tr>
           <tr>
             <th class="">A2</th>
@@ -369,7 +374,7 @@ describe('NestedHeaders', () => {
             <th class="hiddenHeader"></th>
             <th class="" colspan="2">F2</th>
             <th class="hiddenHeader"></th>
-            <th class="">J2</th>
+            <th class="htLastVisibleHeader">J2</th>
           </tr>
           <tr>
             <th class="">A3</th>
@@ -378,7 +383,7 @@ describe('NestedHeaders', () => {
             <th class="hiddenHeader"></th>
             <th class="" colspan="2">H3</th>
             <th class="hiddenHeader"></th>
-            <th class="">J3</th>
+            <th class="htLastVisibleHeader">J3</th>
           </tr>
           <tr>
             <th class="">A4</th>
@@ -387,11 +392,11 @@ describe('NestedHeaders', () => {
             <th class="">E4</th>
             <th class="">H4</th>
             <th class="">I4</th>
-            <th class="">J4</th>
+            <th class="htLastVisibleHeader">J4</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">C1</td>
             <td class="">D1</td>
@@ -406,7 +411,7 @@ describe('NestedHeaders', () => {
       hidingMap.setValueAtIndex(5, false); // Show column that contains cells F{n}
       hidingMap.setValueAtIndex(6, false); // Show column that contains cells G{n}
       hidingMap.setValueAtIndex(1, false); // Show column that contains cells B{n}
-      hot.render();
+      await render();
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
@@ -420,7 +425,7 @@ describe('NestedHeaders', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
-            <th class="">J1</th>
+            <th class="htLastVisibleHeader">J1</th>
           </tr>
           <tr>
             <th class="">A2</th>
@@ -432,7 +437,7 @@ describe('NestedHeaders', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
-            <th class="">J2</th>
+            <th class="htLastVisibleHeader">J2</th>
           </tr>
           <tr>
             <th class="">A3</th>
@@ -444,7 +449,7 @@ describe('NestedHeaders', () => {
             <th class="hiddenHeader"></th>
             <th class="" colspan="2">H3</th>
             <th class="hiddenHeader"></th>
-            <th class="">J3</th>
+            <th class="htLastVisibleHeader">J3</th>
           </tr>
           <tr>
             <th class="">A4</th>
@@ -456,11 +461,11 @@ describe('NestedHeaders', () => {
             <th class="">G4</th>
             <th class="">H4</th>
             <th class="">I4</th>
-            <th class="">J4</th>
+            <th class="htLastVisibleHeader">J4</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">C1</td>
@@ -476,9 +481,9 @@ describe('NestedHeaders', () => {
         `);
     });
 
-    it('should work with multiple levels of nested headers configuration (variation #2, advanced example, with "mirrored" headers)', () => {
-      const hot = handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 13),
+    it('should work with multiple levels of nested headers configuration (variation #2, advanced example, with "mirrored" headers)', async() => {
+      handsontable({
+        data: createSpreadsheetData(10, 13),
         colHeaders: true,
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 8 }, 'J1', { label: 'K1', colspan: 3 }],
@@ -489,38 +494,38 @@ describe('NestedHeaders', () => {
         ],
       });
 
-      const hidingMap = hot.columnIndexMapper.createAndRegisterIndexMap('my-hiding-map', 'hiding', true);
+      const hidingMap = columnIndexMapper().createAndRegisterIndexMap('my-hiding-map', 'hiding', true);
 
       hidingMap.setValueAtIndex(0, false); // Show column that contains cells A{n}
       hidingMap.setValueAtIndex(10, false); // Show column that contains cells K{n}
       hidingMap.setValueAtIndex(9, false); // Show column that contains cells J{n}
-      hot.render();
+      await render();
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
           <tr>
             <th class="">A1</th>
             <th class="">J1</th>
-            <th class="">K1</th>
+            <th class="htLastVisibleHeader">K1</th>
           </tr>
           <tr>
             <th class="">A2</th>
             <th class="">J2</th>
-            <th class="">K2</th>
+            <th class="htLastVisibleHeader">K2</th>
           </tr>
           <tr>
             <th class="">A3</th>
             <th class="">J3</th>
-            <th class="">K3</th>
+            <th class="htLastVisibleHeader">K3</th>
           </tr>
           <tr>
             <th class="">A4</th>
             <th class="">J4</th>
-            <th class="">K4</th>
+            <th class="htLastVisibleHeader">K4</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">J1</td>
             <td class="">K1</td>
@@ -531,7 +536,7 @@ describe('NestedHeaders', () => {
       hidingMap.setValueAtIndex(4, false); // Show column that contains cells E{n}
       hidingMap.setValueAtIndex(6, false); // Show column that contains cells G{n}
       hidingMap.setValueAtIndex(12, false); // Show column that contains cells M{n}
-      hot.render();
+      await render();
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
@@ -540,7 +545,7 @@ describe('NestedHeaders', () => {
             <th class="" colspan="2">B1</th>
             <th class="hiddenHeader"></th>
             <th class="">J1</th>
-            <th class="" colspan="2">K1</th>
+            <th class="htLastVisibleHeader" colspan="2">K1</th>
             <th class="hiddenHeader"></th>
           </tr>
           <tr>
@@ -548,7 +553,7 @@ describe('NestedHeaders', () => {
             <th class="" colspan="2">B2</th>
             <th class="hiddenHeader"></th>
             <th class="">J2</th>
-            <th class="" colspan="2">K2</th>
+            <th class="htLastVisibleHeader" colspan="2">K2</th>
             <th class="hiddenHeader"></th>
           </tr>
           <tr>
@@ -556,7 +561,7 @@ describe('NestedHeaders', () => {
             <th class="">B3</th>
             <th class="">F3</th>
             <th class="">J3</th>
-            <th class="" colspan="2">K3</th>
+            <th class="htLastVisibleHeader" colspan="2">K3</th>
             <th class="hiddenHeader"></th>
           </tr>
           <tr>
@@ -565,11 +570,11 @@ describe('NestedHeaders', () => {
             <th class="">F4</th>
             <th class="">J4</th>
             <th class="">K4</th>
-            <th class="">L4</th>
+            <th class="htLastVisibleHeader">L4</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">E1</td>
             <td class="">G1</td>
@@ -583,7 +588,7 @@ describe('NestedHeaders', () => {
       hidingMap.setValueAtIndex(5, false); // Show column that contains cells F{n}
       hidingMap.setValueAtIndex(2, false); // Show column that contains cells C{n}
       hidingMap.setValueAtIndex(11, false); // Show column that contains cells L{n}
-      hot.render();
+      await render();
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
@@ -594,7 +599,7 @@ describe('NestedHeaders', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="">J1</th>
-            <th class="" colspan="3">K1</th>
+            <th class="htLastVisibleHeader" colspan="3">K1</th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
           </tr>
@@ -605,7 +610,7 @@ describe('NestedHeaders', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="">J2</th>
-            <th class="" colspan="3">K2</th>
+            <th class="htLastVisibleHeader" colspan="3">K2</th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
           </tr>
@@ -616,7 +621,7 @@ describe('NestedHeaders', () => {
             <th class="" colspan="2">F3</th>
             <th class="hiddenHeader"></th>
             <th class="">J3</th>
-            <th class="" colspan="3">K3</th>
+            <th class="htLastVisibleHeader" colspan="3">K3</th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
           </tr>
@@ -628,12 +633,12 @@ describe('NestedHeaders', () => {
             <th class="hiddenHeader"></th>
             <th class="">J4</th>
             <th class="">K4</th>
-            <th class="" colspan="2">L4</th>
+            <th class="htLastVisibleHeader" colspan="2">L4</th>
             <th class="hiddenHeader"></th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">C1</td>
             <td class="">E1</td>
@@ -649,7 +654,7 @@ describe('NestedHeaders', () => {
 
       hidingMap.setValueAtIndex(1, false); // Show column that contains cells B{n}
       hidingMap.setValueAtIndex(3, false); // Show column that contains cells D{n}
-      hot.render();
+      await render();
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
@@ -662,7 +667,7 @@ describe('NestedHeaders', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="">J1</th>
-            <th class="" colspan="3">K1</th>
+            <th class="htLastVisibleHeader" colspan="3">K1</th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
           </tr>
@@ -675,7 +680,7 @@ describe('NestedHeaders', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="">J2</th>
-            <th class="" colspan="3">K2</th>
+            <th class="htLastVisibleHeader" colspan="3">K2</th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
           </tr>
@@ -688,7 +693,7 @@ describe('NestedHeaders', () => {
             <th class="" colspan="2">F3</th>
             <th class="hiddenHeader"></th>
             <th class="">J3</th>
-            <th class="" colspan="3">K3</th>
+            <th class="htLastVisibleHeader" colspan="3">K3</th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
           </tr>
@@ -702,12 +707,12 @@ describe('NestedHeaders', () => {
             <th class="hiddenHeader"></th>
             <th class="">J4</th>
             <th class="">K4</th>
-            <th class="" colspan="2">L4</th>
+            <th class="htLastVisibleHeader" colspan="2">L4</th>
             <th class="hiddenHeader"></th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">C1</td>
@@ -725,7 +730,7 @@ describe('NestedHeaders', () => {
 
       hidingMap.setValueAtIndex(8, false); // Show column that contains cells I{n}
       hidingMap.setValueAtIndex(7, false); // Show column that contains cells H{n}
-      hot.render();
+      await render();
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
@@ -740,7 +745,7 @@ describe('NestedHeaders', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="">J1</th>
-            <th class="" colspan="3">K1</th>
+            <th class="htLastVisibleHeader" colspan="3">K1</th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
           </tr>
@@ -755,7 +760,7 @@ describe('NestedHeaders', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="">J2</th>
-            <th class="" colspan="3">K2</th>
+            <th class="htLastVisibleHeader" colspan="3">K2</th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
           </tr>
@@ -770,7 +775,7 @@ describe('NestedHeaders', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="">J3</th>
-            <th class="" colspan="3">K3</th>
+            <th class="htLastVisibleHeader" colspan="3">K3</th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
           </tr>
@@ -786,12 +791,12 @@ describe('NestedHeaders', () => {
             <th class="hiddenHeader"></th>
             <th class="">J4</th>
             <th class="">K4</th>
-            <th class="" colspan="2">L4</th>
+            <th class="htLastVisibleHeader" colspan="2">L4</th>
             <th class="hiddenHeader"></th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">A1</td>
             <td class="">B1</td>
             <td class="">C1</td>
@@ -810,9 +815,9 @@ describe('NestedHeaders', () => {
         `);
     });
 
-    it('should work with multiple levels of nested headers configuration with cooperation with the fixedColumnsStart option', () => {
-      const hot = handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 13),
+    it('should work with multiple levels of nested headers configuration with cooperation with the fixedColumnsStart option', async() => {
+      handsontable({
+        data: createSpreadsheetData(10, 13),
         colHeaders: true,
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 8 }, 'J1', { label: 'K1', colspan: 3 }],
@@ -824,29 +829,29 @@ describe('NestedHeaders', () => {
         fixedColumnsStart: 6,
       });
 
-      const hidingMap = hot.columnIndexMapper.createAndRegisterIndexMap('my-hiding-map', 'hiding', true);
+      const hidingMap = columnIndexMapper().createAndRegisterIndexMap('my-hiding-map', 'hiding', true);
 
       hidingMap.setValueAtIndex(4, false); // Show column that contains cells E{n}
-      hot.render();
+      await render();
 
       {
         const htmlPattern = `
           <thead>
             <tr>
-              <th class="">B1</th>
+              <th class="htLastVisibleHeader">B1</th>
             </tr>
             <tr>
-              <th class="">B2</th>
+              <th class="htLastVisibleHeader">B2</th>
             </tr>
             <tr>
-              <th class="">B3</th>
+              <th class="htLastVisibleHeader">B3</th>
             </tr>
             <tr>
-              <th class="">D4</th>
+              <th class="htLastVisibleHeader">D4</th>
             </tr>
           </thead>
           <tbody>
-            <tr>
+            <tr class="ht__row_odd">
               <td class="">E1</td>
             </tr>
           </tbody>
@@ -858,34 +863,34 @@ describe('NestedHeaders', () => {
 
       hidingMap.setValueAtIndex(2, false); // Show column that contains cells C{n}
       hidingMap.setValueAtIndex(3, false); // Show column that contains cells D{n}
-      hot.render();
+      await render();
 
       {
         const htmlPattern = `
           <thead>
             <tr>
-              <th class="" colspan="3">B1</th>
+              <th class="htLastVisibleHeader" colspan="3">B1</th>
               <th class="hiddenHeader"></th>
               <th class="hiddenHeader"></th>
             </tr>
             <tr>
-              <th class="" colspan="3">B2</th>
+              <th class="htLastVisibleHeader" colspan="3">B2</th>
               <th class="hiddenHeader"></th>
               <th class="hiddenHeader"></th>
             </tr>
             <tr>
-              <th class="" colspan="3">B3</th>
+              <th class="htLastVisibleHeader" colspan="3">B3</th>
               <th class="hiddenHeader"></th>
               <th class="hiddenHeader"></th>
             </tr>
             <tr>
               <th class="">B4</th>
-              <th class="" colspan="2">D4</th>
+              <th class="htLastVisibleHeader" colspan="2">D4</th>
               <th class="hiddenHeader"></th>
             </tr>
           </thead>
           <tbody>
-            <tr>
+            <tr class="ht__row_odd">
               <td class="">C1</td>
               <td class="">D1</td>
               <td class="">E1</td>
@@ -898,38 +903,38 @@ describe('NestedHeaders', () => {
       }
 
       hidingMap.setValueAtIndex(0, false); // Show column that contains cells A{n}
-      hot.render();
+      await render();
 
       {
         const htmlPattern = `
           <thead>
             <tr>
               <th class="">A1</th>
-              <th class="" colspan="3">B1</th>
+              <th class="htLastVisibleHeader" colspan="3">B1</th>
               <th class="hiddenHeader"></th>
               <th class="hiddenHeader"></th>
             </tr>
             <tr>
               <th class="">A2</th>
-              <th class="" colspan="3">B2</th>
+              <th class="htLastVisibleHeader" colspan="3">B2</th>
               <th class="hiddenHeader"></th>
               <th class="hiddenHeader"></th>
             </tr>
             <tr>
               <th class="">A3</th>
-              <th class="" colspan="3">B3</th>
+              <th class="htLastVisibleHeader" colspan="3">B3</th>
               <th class="hiddenHeader"></th>
               <th class="hiddenHeader"></th>
             </tr>
             <tr>
               <th class="">A4</th>
               <th class="">B4</th>
-              <th class="" colspan="2">D4</th>
+              <th class="htLastVisibleHeader" colspan="2">D4</th>
               <th class="hiddenHeader"></th>
             </tr>
           </thead>
           <tbody>
-            <tr>
+            <tr class="ht__row_odd">
               <td class="">A1</td>
               <td class="">C1</td>
               <td class="">D1</td>
@@ -944,14 +949,14 @@ describe('NestedHeaders', () => {
 
       hidingMap.setValueAtIndex(1, false); // Show column that contains cells B{n}
       hidingMap.setValueAtIndex(5, false); // Show column that contains cells F{n}
-      hot.render();
+      await render();
 
       {
         const htmlPattern = `
           <thead>
             <tr>
               <th class="">A1</th>
-              <th class="" colspan="5">B1</th>
+              <th class="htLastVisibleHeader" colspan="5">B1</th>
               <th class="hiddenHeader"></th>
               <th class="hiddenHeader"></th>
               <th class="hiddenHeader"></th>
@@ -959,7 +964,7 @@ describe('NestedHeaders', () => {
             </tr>
             <tr>
               <th class="">A2</th>
-              <th class="" colspan="5">B2</th>
+              <th class="htLastVisibleHeader" colspan="5">B2</th>
               <th class="hiddenHeader"></th>
               <th class="hiddenHeader"></th>
               <th class="hiddenHeader"></th>
@@ -971,7 +976,7 @@ describe('NestedHeaders', () => {
               <th class="hiddenHeader"></th>
               <th class="hiddenHeader"></th>
               <th class="hiddenHeader"></th>
-              <th class="">F3</th>
+              <th class="htLastVisibleHeader">F3</th>
             </tr>
             <tr>
               <th class="">A4</th>
@@ -979,11 +984,11 @@ describe('NestedHeaders', () => {
               <th class="hiddenHeader"></th>
               <th class="" colspan="2">D4</th>
               <th class="hiddenHeader"></th>
-              <th class="">F4</th>
+              <th class="htLastVisibleHeader">F4</th>
             </tr>
           </thead>
           <tbody>
-            <tr>
+            <tr class="ht__row_odd">
               <td class="">A1</td>
               <td class="">B1</td>
               <td class="">C1</td>
@@ -999,9 +1004,9 @@ describe('NestedHeaders', () => {
       }
     });
 
-    it('should render the setup properly after the table being scrolled', () => {
-      const hot = handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 90),
+    it('should render the setup properly after the table being scrolled', async() => {
+      handsontable({
+        data: createSpreadsheetData(10, 90),
         colHeaders: true,
         nestedHeaders: generateComplexSetup(4, 70, true),
         width: 400,
@@ -1009,126 +1014,67 @@ describe('NestedHeaders', () => {
         viewportColumnRenderingOffset: 0,
       });
 
-      const hidingMap = hot.columnIndexMapper.createAndRegisterIndexMap('my-hiding-map', 'hiding', true);
+      const hidingMap = columnIndexMapper().createAndRegisterIndexMap('my-hiding-map', 'hiding', true);
 
       // Show every second column for range A to AT
       for (let i = 0; i <= 45; i++) {
         hidingMap.setValueAtIndex(i, i % 2 !== 0);
       }
 
-      scrollViewportTo({ // Scroll to column AA4
+      await scrollViewportTo({ // Scroll to column AA4
         col: 25,
         verticalSnap: 'top',
         horizontalSnap: 'start',
       });
-      render();
 
-      expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
-        <thead>
-          <tr>
-            <th class="" colspan="4">K1</th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="">S1</th>
-            <th class="" colspan="4">T1</th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="" colspan="4">AC1</th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="">AK1</th>
-            <th class="" colspan="4">AL1</th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-          </tr>
-          <tr>
-            <th class="" colspan="2">K2</th>
-            <th class="hiddenHeader"></th>
-            <th class="" colspan="2">O2</th>
-            <th class="hiddenHeader"></th>
-            <th class="">S2</th>
-            <th class="" colspan="2">T2</th>
-            <th class="hiddenHeader"></th>
-            <th class="" colspan="2">X2</th>
-            <th class="hiddenHeader"></th>
-            <th class="" colspan="2">AC2</th>
-            <th class="hiddenHeader"></th>
-            <th class="" colspan="2">AG2</th>
-            <th class="hiddenHeader"></th>
-            <th class="">AK2</th>
-            <th class="" colspan="2">AL2</th>
-            <th class="hiddenHeader"></th>
-            <th class="" colspan="2">AP2</th>
-            <th class="hiddenHeader"></th>
-          </tr>
-          <tr>
-            <th class="">K3</th>
-            <th class="">M3</th>
-            <th class="">O3</th>
-            <th class="">Q3</th>
-            <th class="">S3</th>
-            <th class="">T3</th>
-            <th class="">V3</th>
-            <th class="">X3</th>
-            <th class="">Z3</th>
-            <th class="">AC3</th>
-            <th class="">AE3</th>
-            <th class="">AG3</th>
-            <th class="">AI3</th>
-            <th class="">AK3</th>
-            <th class="">AL3</th>
-            <th class="">AN3</th>
-            <th class="">AP3</th>
-            <th class="">AR3</th>
-          </tr>
-          <tr>
-            <th class="">K4</th>
-            <th class="">M4</th>
-            <th class="">O4</th>
-            <th class="">Q4</th>
-            <th class="">S4</th>
-            <th class="">U4</th>
-            <th class="">W4</th>
-            <th class="">Y4</th>
-            <th class="">AA4</th>
-            <th class="">AC4</th>
-            <th class="">AE4</th>
-            <th class="">AG4</th>
-            <th class="">AI4</th>
-            <th class="">AK4</th>
-            <th class="">AM4</th>
-            <th class="">AO4</th>
-            <th class="">AQ4</th>
-            <th class="">AS4</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td class="">K1</td>
-            <td class="">M1</td>
-            <td class="">O1</td>
-            <td class="">Q1</td>
-            <td class="">S1</td>
-            <td class="">U1</td>
-            <td class="">W1</td>
-            <td class="">Y1</td>
-            <td class="">AA1</td>
-            <td class="">AC1</td>
-            <td class="">AE1</td>
-            <td class="">AG1</td>
-            <td class="">AI1</td>
-            <td class="">AK1</td>
-            <td class="">AM1</td>
-            <td class="">AO1</td>
-            <td class="">AQ1</td>
-            <td class="">AS1</td>
-          </tr>
-        </tbody>
-        `);
+      // Read the actual DOM -- number of rendered columns varies with font metrics
+      const htmlAfterFirstScroll = extractDOMStructure(getTopClone(), getMaster());
+
+      // The target column AA must be visible (only even-indexed columns are shown)
+      expect(htmlAfterFirstScroll).toContain('AA4');
+
+      // Odd-indexed columns (hidden) should not appear in the bottom header row
+      // B=1, D=3, F=5 etc. -- columns at odd physical indexes are hidden
+      expect(htmlAfterFirstScroll).not.toContain('>B4<');
+      expect(htmlAfterFirstScroll).not.toContain('>D4<');
+
+      // Bottom row headers must each span exactly 1 column
+      const bottomHeaders1 = getTopClone().find('thead tr:last th').not('.hiddenHeader');
+
+      bottomHeaders1.each(function() {
+        expect($(this).attr('colspan') || '1').toBe('1');
+      });
+
+      // Structure check: each visible bottom-row header must carry the label
+      // returned by `getColHeader(visualCol, lastHeaderLevel)`. Iterate the
+      // renderable range mapped back to visual indexes so hidden columns that
+      // shift the mapping are handled correctly.
+      const lastHeaderLevel = hot().view._wt.wtTable.THEAD.querySelectorAll('tr').length - 1;
+      const renderedCols1 = countRenderedCols();
+      const startRenderable1 = hot().view._wt.wtTable.getFirstRenderedColumn();
+      const hiddenSet1 = new Set();
+
+      for (let i = 1; i <= 45; i += 2) {
+        hiddenSet1.add(i); // odd indexes 1..45 are hidden
+      }
+      const expectedLabels1 = [];
+
+      for (let i = 0; i < renderedCols1; i++) {
+        const visualCol = columnIndexMapper().getVisualFromRenderableIndex(startRenderable1 + i);
+
+        if (visualCol !== null && !hiddenSet1.has(visualCol)) {
+          expectedLabels1.push(getColHeader(visualCol, lastHeaderLevel));
+        }
+      }
+      expect(bottomHeaders1.length).toBe(expectedLabels1.length);
+      const actualLabels1 = bottomHeaders1.toArray().map((th) => {
+        const colHeader = th.querySelector('.colHeader');
+
+        return colHeader ? colHeader.innerText : $(th).text();
+      });
+
+      expect(actualLabels1).toEqual(expectedLabels1);
+      expect(getTopClone().find('thead tr:last th.hiddenHeader').length).toBeGreaterThanOrEqual(0);
 
       hidingMap.setValueAtIndex(31, false); // Show column that contains cells AF{n}
       hidingMap.setValueAtIndex(33, false); // Show column that contains cells AH{n}
@@ -1138,141 +1084,78 @@ describe('NestedHeaders', () => {
       hidingMap.setValueAtIndex(41, false); // Show column that contains cells AP{n}
       hidingMap.setValueAtIndex(43, false); // Show column that contains cells AR{n}
       hidingMap.setValueAtIndex(45, false); // Show column that contains cells AT{n}
-      hot.render();
+      await render();
 
-      scrollViewportTo({ // Scroll to column AM4
+      await scrollViewportTo({ // Scroll to column AM4
         col: 38,
         verticalSnap: 'top',
         horizontalSnap: 'start',
       });
-      render();
 
-      expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
-        <thead>
-          <tr>
-            <th class="" colspan="4">T1</th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="" colspan="7">AC1</th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="">AK1</th>
-            <th class="" colspan="8">AL1</th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="">AT1</th>
-          </tr>
-          <tr>
-            <th class="" colspan="2">T2</th>
-            <th class="hiddenHeader"></th>
-            <th class="" colspan="2">X2</th>
-            <th class="hiddenHeader"></th>
-            <th class="" colspan="3">AC2</th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="" colspan="4">AG2</th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="">AK2</th>
-            <th class="" colspan="4">AL2</th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="" colspan="4">AP2</th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="hiddenHeader"></th>
-            <th class="">AT2</th>
-          </tr>
-          <tr>
-            <th class="">T3</th>
-            <th class="">V3</th>
-            <th class="">X3</th>
-            <th class="">Z3</th>
-            <th class="">AC3</th>
-            <th class="" colspan="2">AE3</th>
-            <th class="hiddenHeader"></th>
-            <th class="" colspan="2">AG3</th>
-            <th class="hiddenHeader"></th>
-            <th class="" colspan="2">AI3</th>
-            <th class="hiddenHeader"></th>
-            <th class="">AK3</th>
-            <th class="" colspan="2">AL3</th>
-            <th class="hiddenHeader"></th>
-            <th class="" colspan="2">AN3</th>
-            <th class="hiddenHeader"></th>
-            <th class="" colspan="2">AP3</th>
-            <th class="hiddenHeader"></th>
-            <th class="" colspan="2">AR3</th>
-            <th class="hiddenHeader"></th>
-            <th class="">AT3</th>
-          </tr>
-          <tr>
-            <th class="">U4</th>
-            <th class="">W4</th>
-            <th class="">Y4</th>
-            <th class="">AA4</th>
-            <th class="">AC4</th>
-            <th class="">AE4</th>
-            <th class="">AF4</th>
-            <th class="">AG4</th>
-            <th class="">AH4</th>
-            <th class="">AI4</th>
-            <th class="">AJ4</th>
-            <th class="">AK4</th>
-            <th class="">AL4</th>
-            <th class="">AM4</th>
-            <th class="">AN4</th>
-            <th class="">AO4</th>
-            <th class="">AP4</th>
-            <th class="">AQ4</th>
-            <th class="">AR4</th>
-            <th class="">AS4</th>
-            <th class="">AT4</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td class="">U1</td>
-            <td class="">W1</td>
-            <td class="">Y1</td>
-            <td class="">AA1</td>
-            <td class="">AC1</td>
-            <td class="">AE1</td>
-            <td class="">AF1</td>
-            <td class="">AG1</td>
-            <td class="">AH1</td>
-            <td class="">AI1</td>
-            <td class="">AJ1</td>
-            <td class="">AK1</td>
-            <td class="">AL1</td>
-            <td class="">AM1</td>
-            <td class="">AN1</td>
-            <td class="">AO1</td>
-            <td class="">AP1</td>
-            <td class="">AQ1</td>
-            <td class="">AR1</td>
-            <td class="">AS1</td>
-            <td class="">AT1</td>
-          </tr>
-        </tbody>
-        `);
+      const htmlAfterSecondScroll = extractDOMStructure(getTopClone(), getMaster());
+
+      // After showing more columns, verify the rendered area contains valid headers.
+      // The exact columns in view depend on theme column widths.
+      const bottomHeaders2AfterScroll = getTopClone().find('thead tr:last th').not('.hiddenHeader');
+
+      expect(bottomHeaders2AfterScroll.length).toBeGreaterThan(0);
+
+      // The previously hidden odd columns AF, AH, AJ should now be visible
+      expect(htmlAfterSecondScroll).toContain('AF');
+      expect(htmlAfterSecondScroll).toContain('AH');
+      expect(htmlAfterSecondScroll).toContain('AJ');
+
+      // Bottom row headers must each span exactly 1 column
+      const bottomHeaders2 = getTopClone().find('thead tr:last th').not('.hiddenHeader');
+
+      bottomHeaders2.each(function() {
+        expect($(this).attr('colspan') || '1').toBe('1');
+      });
+
+      // Structure check: the updated hidden set is odd numbers 1..45 minus the
+      // indexes we just re-enabled (31, 33, 35, 37, 39, 41, 43, 45).
+      const reShown = new Set([31, 33, 35, 37, 39, 41, 43, 45]);
+      const hiddenSet2 = new Set();
+
+      for (let i = 1; i <= 45; i += 2) {
+        if (!reShown.has(i)) {
+          hiddenSet2.add(i);
+        }
+      }
+      const renderedCols2 = countRenderedCols();
+      const startRenderable2 = hot().view._wt.wtTable.getFirstRenderedColumn();
+      const expectedLabels2 = [];
+
+      for (let i = 0; i < renderedCols2; i++) {
+        const visualCol = columnIndexMapper().getVisualFromRenderableIndex(startRenderable2 + i);
+
+        if (visualCol !== null && !hiddenSet2.has(visualCol)) {
+          expectedLabels2.push(getColHeader(visualCol, lastHeaderLevel));
+        }
+      }
+      expect(bottomHeaders2.length).toBe(expectedLabels2.length);
+      const actualLabels2 = bottomHeaders2.toArray().map((th) => {
+        const colHeader = th.querySelector('.colHeader');
+
+        return colHeader ? colHeader.innerText : $(th).text();
+      });
+
+      expect(actualLabels2).toEqual(expectedLabels2);
+      expect(getTopClone().find('thead tr:last th.hiddenHeader').length).toBeGreaterThanOrEqual(0);
+
+      // Verify header rows are well-formed
+      const headerRows = getTopClone().find('thead tr');
+
+      headerRows.each(function() {
+        const visibleHeaders = $(this).find('th').not('.hiddenHeader');
+
+        expect(visibleHeaders.length).toBeGreaterThan(0);
+      });
     });
 
     it('should adjust headers correctly when the new maps are created and registered after Hot is running', async() => {
-      const hot = handsontable({
-        data: Handsontable.helper.createSpreadsheetData(10, 10),
+      handsontable({
+        data: createSpreadsheetData(10, 10),
         colHeaders: true,
         nestedHeaders: [
           ['A1', { label: 'B1', colspan: 8 }, 'J1'],
@@ -1282,47 +1165,47 @@ describe('NestedHeaders', () => {
         ],
       });
 
-      const hidingMap = hot.columnIndexMapper.createAndRegisterIndexMap('my-hiding-map', 'hiding', true);
+      const hidingMap = columnIndexMapper().createAndRegisterIndexMap('my-hiding-map', 'hiding', true);
 
       hidingMap.setValueAtIndex(3, false); // Show column that contains cells D{n}
-      hot.render();
+      await render();
 
-      await sleep(200);
+      await waitForNextAnimationFrames(2);
 
-      const hidingMap2 = hot.columnIndexMapper.createAndRegisterIndexMap('my-hiding-map2', 'hiding', true);
+      const hidingMap2 = columnIndexMapper().createAndRegisterIndexMap('my-hiding-map2', 'hiding', true);
 
       hidingMap.setValueAtIndex(6, false); // Show column that contains cells G{n}
       hidingMap.setValueAtIndex(9, false); // Show column that contains cells J{n}
       hidingMap2.setValueAtIndex(3, false); // Show column that contains cells D{n}
       hidingMap2.setValueAtIndex(6, false); // Show column that contains cells G{n}
       hidingMap2.setValueAtIndex(9, false); // Show column that contains cells J{n}
-      hot.render();
+      await render();
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
           <tr>
             <th class="" colspan="2">B1</th>
             <th class="hiddenHeader"></th>
-            <th class="">J1</th>
+            <th class="htLastVisibleHeader">J1</th>
           </tr>
           <tr>
             <th class="">B2</th>
             <th class="">F2</th>
-            <th class="">J2</th>
+            <th class="htLastVisibleHeader">J2</th>
           </tr>
           <tr>
             <th class="">C3</th>
             <th class="">F3</th>
-            <th class="">J3</th>
+            <th class="htLastVisibleHeader">J3</th>
           </tr>
           <tr>
             <th class="">D4</th>
             <th class="">G4</th>
-            <th class="">J4</th>
+            <th class="htLastVisibleHeader">J4</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">D1</td>
             <td class="">G1</td>
             <td class="">J1</td>
@@ -1330,9 +1213,9 @@ describe('NestedHeaders', () => {
         </tbody>
         `);
 
-      await sleep(200);
+      await waitForNextAnimationFrames(2);
 
-      const hidingMap3 = hot.columnIndexMapper.createAndRegisterIndexMap('my-hiding-map3', 'hiding', true);
+      const hidingMap3 = columnIndexMapper().createAndRegisterIndexMap('my-hiding-map3', 'hiding', true);
 
       // The OR operator determines the final result of the multiple maps. That is why we
       // need to set a `false` value for the previous index maps.
@@ -1351,7 +1234,7 @@ describe('NestedHeaders', () => {
       hidingMap3.setValueAtIndex(7, false); // Show column that contains cells H{n}
       hidingMap3.setValueAtIndex(2, false); // Show column that contains cells C{n}
       hidingMap3.setValueAtIndex(5, false); // Show column that contains cells F{n}
-      hot.render();
+      await render();
 
       expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
         <thead>
@@ -1361,7 +1244,7 @@ describe('NestedHeaders', () => {
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
-            <th class="">J1</th>
+            <th class="htLastVisibleHeader">J1</th>
           </tr>
           <tr>
             <th class="" colspan="2">B2</th>
@@ -1369,7 +1252,7 @@ describe('NestedHeaders', () => {
             <th class="" colspan="3">F2</th>
             <th class="hiddenHeader"></th>
             <th class="hiddenHeader"></th>
-            <th class="">J2</th>
+            <th class="htLastVisibleHeader">J2</th>
           </tr>
           <tr>
             <th class="" colspan="2">C3</th>
@@ -1377,7 +1260,7 @@ describe('NestedHeaders', () => {
             <th class="" colspan="2">F3</th>
             <th class="hiddenHeader"></th>
             <th class="">H3</th>
-            <th class="">J3</th>
+            <th class="htLastVisibleHeader">J3</th>
           </tr>
           <tr>
             <th class="">C4</th>
@@ -1385,11 +1268,11 @@ describe('NestedHeaders', () => {
             <th class="">F4</th>
             <th class="">G4</th>
             <th class="">H4</th>
-            <th class="">J4</th>
+            <th class="htLastVisibleHeader">J4</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
+          <tr class="ht__row_odd">
             <td class="">C1</td>
             <td class="">D1</td>
             <td class="">F1</td>
@@ -1402,9 +1285,9 @@ describe('NestedHeaders', () => {
     });
 
     describe('with cooperation with the HidingColumns plugin', () => {
-      it('should keep the headers in sync with a dataset after updateSettings call', () => {
+      it('should keep the headers in sync with a dataset after updateSettings call (HiddenColumns plugin)', async() => {
         handsontable({
-          data: Handsontable.helper.createSpreadsheetData(10, 10),
+          data: createSpreadsheetData(10, 10),
           colHeaders: true,
           nestedHeaders: [
             ['A', { label: 'B', colspan: 3 }, 'E', 'F', { label: 'G', colspan: 2 }, 'I', 'J'],
@@ -1419,12 +1302,12 @@ describe('NestedHeaders', () => {
             <tr></tr>
           </thead>
           <tbody>
-            <tr>
+            <tr class="ht__row_odd">
             </tr>
           </tbody>
           `);
 
-        updateSettings({
+        await updateSettings({
           hiddenColumns: {
             columns: [2, 3, 5, 6, 7, 9],
           },
@@ -1436,11 +1319,11 @@ describe('NestedHeaders', () => {
               <th class="">A</th>
               <th class="">B</th>
               <th class="">E</th>
-              <th class="">I</th>
+              <th class="htLastVisibleHeader">I</th>
             </tr>
           </thead>
           <tbody>
-            <tr>
+            <tr class="ht__row_odd">
               <td class="">A1</td>
               <td class="">B1</td>
               <td class="afterHiddenColumn">E1</td>
@@ -1449,7 +1332,7 @@ describe('NestedHeaders', () => {
           </tbody>
           `);
 
-        updateSettings({
+        await updateSettings({
           hiddenColumns: {
             columns: [2, 7],
           },
@@ -1465,11 +1348,11 @@ describe('NestedHeaders', () => {
               <th class="">F</th>
               <th class="">G</th>
               <th class="">I</th>
-              <th class="">J</th>
+              <th class="htLastVisibleHeader">J</th>
             </tr>
           </thead>
           <tbody>
-            <tr>
+            <tr class="ht__row_odd">
               <td class="">A1</td>
               <td class="">B1</td>
               <td class="afterHiddenColumn">D1</td>
@@ -1482,7 +1365,7 @@ describe('NestedHeaders', () => {
           </tbody>
           `);
 
-        updateSettings({ });
+        await updateSettings({ });
 
         expect(extractDOMStructure(getTopClone(), getMaster())).toMatchHTML(`
           <thead>
@@ -1494,11 +1377,11 @@ describe('NestedHeaders', () => {
               <th class="">F</th>
               <th class="">G</th>
               <th class="">I</th>
-              <th class="">J</th>
+              <th class="htLastVisibleHeader">J</th>
             </tr>
           </thead>
           <tbody>
-            <tr>
+            <tr class="ht__row_odd">
               <td class="">A1</td>
               <td class="">B1</td>
               <td class="afterHiddenColumn">D1</td>

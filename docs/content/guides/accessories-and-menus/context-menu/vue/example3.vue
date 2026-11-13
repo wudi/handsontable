@@ -1,0 +1,143 @@
+<script setup lang="ts">
+import { ref } from 'vue';
+import { HotTable } from '@handsontable/vue3';
+import type Handsontable from 'handsontable/base';
+import { ContextMenu } from 'handsontable/plugins/contextMenu';
+import { registerAllModules } from 'handsontable/registry';
+import type { GridSettings } from 'handsontable/settings';
+
+registerAllModules();
+
+const ALLOWED_TAGS = ['B', 'I', 'EM', 'STRONG', 'BR', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TD', 'TH'];
+const ALLOWED_ATTRIBUTES = ['colspan', 'rowspan'];
+const DROPPED_TAGS = ['SCRIPT', 'STYLE', 'TEXTAREA', 'TITLE'];
+
+// Handsontable has no built-in sanitizer since v18.0, and `sanitizer` is grid-level:
+// it also filters pasted HTML, so the table tags have to survive -- otherwise pasting
+// a range degrades to plain text. In production, use a vetted library such as DOMPurify.
+// See https://handsontable.com/docs/security/
+const sanitizeMenuLabel = (html: string): string => {
+  const template = document.createElement('template');
+
+  template.innerHTML = html;
+
+  template.content.querySelectorAll('*').forEach((element) => {
+    if (DROPPED_TAGS.includes(element.tagName)) {
+      // Unwrapping these would promote their source text into the output
+      element.remove();
+    } else if (ALLOWED_TAGS.includes(element.tagName)) {
+      Array.from(element.attributes).forEach((attribute) => {
+        if (!ALLOWED_ATTRIBUTES.includes(attribute.name)) {
+          element.removeAttribute(attribute.name);
+        }
+      });
+    } else {
+      // Unwrap a disallowed element, keeping its text content
+      element.replaceWith(...Array.from(element.childNodes));
+    }
+  });
+
+  return template.innerHTML;
+};
+
+const contextMenuSettings = {
+  callback(key: string, selection: unknown[], clickEvent?: Event) {
+    console.log(key, selection, clickEvent);
+  },
+  items: {
+    row_above: {
+      disabled(this: Handsontable.Core) {
+        return this.getSelectedLast()?.[0] === 0;
+      },
+    },
+    sp1: ContextMenu.SEPARATOR,
+    row_below: {
+      name: 'Click to add row below',
+    },
+    about: {
+      name() {
+        return '<b>Custom option</b>';
+      },
+      hidden(this: Handsontable.Core) {
+        return this.getSelectedLast()?.[1] == 0;
+      },
+      callback() {
+        setTimeout(() => {
+          alert('Hello world!');
+        }, 0);
+      },
+    },
+    colors: {
+      name: 'Colors...',
+      submenu: {
+        items: [
+          {
+            key: 'colors:red',
+            name: 'Red',
+            callback() {
+              setTimeout(() => {
+                alert('You clicked red!');
+              }, 0);
+            },
+          },
+          {
+            key: 'colors:green',
+            name: 'Green',
+            callback() {
+              setTimeout(() => {
+                alert('You clicked green!');
+              }, 0);
+            },
+          },
+          {
+            key: 'colors:blue',
+            name: 'Blue',
+            callback() {
+              setTimeout(() => {
+                alert('You clicked blue!');
+              }, 0);
+            },
+          },
+        ],
+      },
+    },
+    credits: {
+      renderer() {
+        const elem = document.createElement('marquee');
+
+        elem.style.cssText = 'background: lightgray; color: #222222;';
+        elem.textContent = 'Brought to you by...';
+
+        return elem;
+      },
+      disableSelection: true,
+      isCommand: false,
+    },
+  },
+};
+
+const hotSettings = ref<GridSettings>({
+  data: [
+    ['Hydrogen', 'H', 1, 1.008, 7],
+    ['Helium', 'He', 2, 4.003, 9],
+    ['Lithium', 'Li', 3, 6.94, 9],
+    ['Beryllium', 'Be', 4, 9.012, 11],
+    ['Boron', 'B', 5, 10.81, 15],
+  ],
+  rowHeaders: true,
+  colHeaders: ['Name', 'Symbol', 'Atomic Number', 'Atomic Mass (u)', 'Known Isotopes'],
+  autoWrapRow: true,
+  autoWrapCol: true,
+  height: 'auto',
+  contextMenu: contextMenuSettings,
+  // Required for the HTML in the `about` item's label to be rendered safely
+  sanitizer: sanitizeMenuLabel,
+  // licenseKey: 'your-license-key', // get a key at https://handsontable.com/pricing/
+});
+</script>
+
+<template>
+  <div id="example3">
+    <HotTable :settings="hotSettings" />
+  </div>
+</template>

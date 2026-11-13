@@ -1,0 +1,467 @@
+---
+type: how-to
+title: Dialog
+metaTitle: Dialog | Handsontable DataGrid for JavaScript
+description: Display modal dialogs, alerts, loading indicators, and notifications to enhance user interaction and provide feedback in your data grid application.
+permalink: /dialog
+canonicalUrl: /dialog
+tags:
+  - dialog
+  - modal
+  - popup
+  - alert
+  - confirm
+  - prompt
+react:
+  metaTitle: Dialog | Handsontable DataGrid for React
+angular:
+  metaTitle: Dialog | Handsontable DataGrid for Angular
+vue:
+  metaTitle: Dialog | Handsontable DataGrid for Vue
+searchCategory: Guides
+category: Dialog
+menuTag: updated
+addedIn: "16.1.0"
+---
+Display modal dialogs, alerts, loading indicators, and notifications to enhance user interaction and provide feedback in your data grid application.
+
+[[toc]]
+
+## Overview
+
+The Dialog plugin provides a modal dialog system for Handsontable DataGrid that allows you to display custom content in modal dialogs that overlay the table. This is useful for showing notifications, error messages, loading indicators, or any other interactive content that requires user attention.
+
+The dialog system is designed to be flexible and customizable, supporting various content types including plain text, HTML, and DOM elements. It also provides options for styling, animations, and user interaction controls.
+
+The plugin works on the main grid only. A grid nested in a cell, that is a cell of the [`handsontable`](@/guides/cell-types/handsontable-cell-type/handsontable-cell-type.md), [`autocomplete`](@/guides/cell-types/autocomplete-cell-type/autocomplete-cell-type.md), or [`dropdown`](@/guides/cell-types/dropdown-cell-type/dropdown-cell-type.md) cell type, has no overlay layer to render a dialog into, so the [`dialog`](@/api/options.md#dialog) option has no effect there.
+
+## Basic configuration
+
+To enable the Dialog plugin, set the [`dialog`](@/api/options.md#dialog) option to `true` or provide a configuration object.
+
+::: only-for javascript
+
+::: example #example1 --js 1 --ts 2
+
+@[code](@/content/guides/dialog/dialog/javascript/example1.js)
+@[code](@/content/guides/dialog/dialog/javascript/example1.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example1 :react --js 1 --ts 2
+
+@[code](@/content/guides/dialog/dialog/react/example1.jsx)
+@[code](@/content/guides/dialog/dialog/react/example1.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example1 :angular --ts 1 --html 2
+
+@[code](@/content/guides/dialog/dialog/angular/example1.ts)
+@[code](@/content/guides/dialog/dialog/angular/example1.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example1 :vue3
+
+@[code collapse={11-32,50-54}](@/content/guides/dialog/dialog/vue/example1.vue)
+
+:::
+
+:::
+
+## Content types
+
+The dialog supports multiple content types including plain text, HTML strings, and DOM elements.
+
+### Plain text content
+
+::: only-for javascript
+
+::: example #example2 --js 1 --ts 2
+
+@[code](@/content/guides/dialog/dialog/javascript/example2.js)
+@[code](@/content/guides/dialog/dialog/javascript/example2.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example2 :react --js 1 --ts 2
+
+@[code](@/content/guides/dialog/dialog/react/example2.jsx)
+@[code](@/content/guides/dialog/dialog/react/example2.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example2 :angular --ts 1 --html 2
+
+@[code](@/content/guides/dialog/dialog/angular/example2.ts)
+@[code](@/content/guides/dialog/dialog/angular/example2.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example2 :vue3
+
+@[code collapse={11-32,55-57}](@/content/guides/dialog/dialog/vue/example2.vue)
+
+:::
+
+:::
+
+### HTML content
+
+::: only-for javascript
+
+::: example #example3 --js 1 --ts 2
+
+@[code](@/content/guides/dialog/dialog/javascript/example3.js)
+@[code](@/content/guides/dialog/dialog/javascript/example3.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example3 :react --js 1 --ts 2
+
+@[code](@/content/guides/dialog/dialog/react/example3.jsx)
+@[code](@/content/guides/dialog/dialog/react/example3.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example3 :angular --ts 1 --html 2
+
+@[code](@/content/guides/dialog/dialog/angular/example3.ts)
+@[code](@/content/guides/dialog/dialog/angular/example3.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example3 :vue3
+
+@[code collapse={11-32,55-67}](@/content/guides/dialog/dialog/vue/example3.vue)
+
+:::
+
+:::
+
+## Template types
+
+As the `content` option allows you to use plain text, HTML strings, and DOM elements, the `template` option allows you to use predefined dialog templates instead of custom content which can be useful for displaying alerts, confirmations, and other common ready-to-use dialogs.
+
+The plugin offers two new methods to display predefined dialog templates: [`showAlert`](@/api/dialog.md#showalert) and [`showConfirm`](@/api/dialog.md#showconfirm). For users looking for more customizability, the [`show`](@/api/dialog.md#show) method allows using templates with other options that the dialog offers, such as background variants, content background, and more.
+
+::: only-for javascript
+::: example #example4 --html 1 --js 2 --ts 3
+
+@[code](@/content/guides/dialog/dialog/javascript/example4.html)
+@[code](@/content/guides/dialog/dialog/javascript/example4.js)
+@[code](@/content/guides/dialog/dialog/javascript/example4.ts)
+
+:::
+:::
+
+::: only-for react
+::: example #example4 :react --js 1 --ts 2
+
+@[code](@/content/guides/dialog/dialog/react/example4.jsx)
+@[code](@/content/guides/dialog/dialog/react/example4.tsx)
+
+:::
+:::
+
+::: only-for angular
+::: example #example4 :angular --ts 1 --html 2
+
+@[code](@/content/guides/dialog/dialog/angular/example4.ts)
+@[code](@/content/guides/dialog/dialog/angular/example4.html)
+
+:::
+:::
+
+::: only-for vue
+
+::: example #example4 :vue3
+
+@[code collapse={11-32,50-147}](@/content/guides/dialog/dialog/vue/example4.vue)
+
+:::
+
+:::
+
+## Background variants
+
+The dialog supports two background variants: `solid` and `semi-transparent`.
+
+::: only-for javascript
+
+::: example #example5 --html 1 --js 2 --ts 3
+
+@[code](@/content/guides/dialog/dialog/javascript/example5.html)
+@[code](@/content/guides/dialog/dialog/javascript/example5.js)
+@[code](@/content/guides/dialog/dialog/javascript/example5.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example5 :react --js 1 --ts 2
+
+@[code](@/content/guides/dialog/dialog/react/example5.jsx)
+@[code](@/content/guides/dialog/dialog/react/example5.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example5 :angular --ts 1 --html 2
+
+@[code](@/content/guides/dialog/dialog/angular/example5.ts)
+@[code](@/content/guides/dialog/dialog/angular/example5.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example5 :vue3
+
+@[code collapse={19-40,95-101}](@/content/guides/dialog/dialog/vue/example5.vue)
+
+:::
+
+:::
+
+## Content background
+
+The dialog content can have a background color using the `contentBackground` option.
+
+::: only-for javascript
+
+::: example #example6 --js 1 --ts 2
+
+@[code](@/content/guides/dialog/dialog/javascript/example6.js)
+@[code](@/content/guides/dialog/dialog/javascript/example6.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example6 :react --js 1 --ts 2
+
+@[code](@/content/guides/dialog/dialog/react/example6.jsx)
+@[code](@/content/guides/dialog/dialog/react/example6.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example6 :angular --ts 1 --html 2
+
+@[code](@/content/guides/dialog/dialog/angular/example6.ts)
+@[code](@/content/guides/dialog/dialog/angular/example6.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example6 :vue3
+
+@[code collapse={11-32,55-57}](@/content/guides/dialog/dialog/vue/example6.vue)
+
+:::
+
+:::
+
+## Dialog accessibility
+
+The dialog plugin provides accessibility features through ARIA attributes. You can configure the dialog's accessibility properties using the `a11y` option, which includes:
+
+- `role` - Sets the ARIA role (defaults to "dialog")
+- `ariaLabel` - Sets the dialog's accessible name (defaults to "Dialog"). This is used when there is no visible dialog title that can be referenced by `ariaLabelledby`. If both `ariaLabel` and `ariaLabelledby` are provided, `ariaLabelledby` takes precedence
+- `ariaLabelledby` - References an element that labels the dialog
+- `ariaDescribedby` - References an element that describes the dialog
+
+::: only-for javascript
+
+::: example #example7 --js 1 --ts 2
+
+@[code](@/content/guides/dialog/dialog/javascript/example7.js)
+@[code](@/content/guides/dialog/dialog/javascript/example7.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example7 :react --js 1 --ts 2
+
+@[code](@/content/guides/dialog/dialog/react/example7.jsx)
+@[code](@/content/guides/dialog/dialog/react/example7.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example7 :angular --ts 1 --html 2
+
+@[code](@/content/guides/dialog/dialog/angular/example7.ts)
+@[code](@/content/guides/dialog/dialog/angular/example7.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example7 :vue3
+
+@[code collapse={11-32,59-61}](@/content/guides/dialog/dialog/vue/example7.vue)
+
+:::
+
+:::
+
+### Keyboard navigation and focus
+
+When a dialog opens, focus moves into it. Where it lands depends on how you configured the dialog:
+
+- With the `confirm` template, focus moves to the first button. If the template has no buttons, focus moves to the dialog's content area.
+- With the `content` option, focus moves to the dialog box itself. Handsontable does not search your HTML for focusable elements, so it never moves focus to a button inside your content. To place focus yourself, listen to the [`afterDialogFocus`](@/api/hooks.md#afterdialogfocus) hook and call `focus()` on the element you want. The [Loading](@/guides/dialog/loading/loading.md) plugin listens to the same hook, but it moves focus to the dialog box only while the dialog shows its own loading screen, so it leaves the focus of your dialogs alone.
+
+Focus moves only if the grid was focused when the dialog opened. If the user has not interacted with the grid yet, the dialog opens without taking focus away from the rest of the page. The [`afterDialogFocus`](@/api/hooks.md#afterdialogfocus) hook follows the same rule, so it does not run in that case either.
+
+While the dialog is open, **Tab** and **Shift+Tab** move between the focusable elements inside it and skip the grid. They still reach the other elements on your page. **Escape** closes the dialog, but only when `closable` is set to `true`. The [`showAlert()`](@/api/dialog.md#showalert) and [`showConfirm()`](@/api/dialog.md#showconfirm) methods set `closable` to `false`, so **Escape** does not close those dialogs.
+
+The [`dialogFocusNextElement`](@/api/hooks.md#dialogfocusnextelement) and [`dialogFocusPreviousElement`](@/api/hooks.md#dialogfocuspreviouselement) hooks run once per **Tab** and **Shift+Tab** press made while the focus is inside the dialog, after the browser handled the key. They receive no arguments, so read `document.activeElement` to see where the focus is.
+
+The browser decides which elements **Tab** reaches. Safari skips buttons by default. To reach them, press **Option+Tab**, or turn on "Press Tab to highlight each item on a webpage" in Safari's settings. This is a browser setting, so it applies to the buttons in your own `content` as well.
+
+To move focus to the dialog box at any time, call the [`focus()`](@/api/dialog.md#focus) method.
+
+## Programmatic control
+
+You can control the dialog programmatically using the plugin's methods.
+
+### Show and hide dialog
+
+::: only-for javascript
+
+::: example #example8 --html 1 --js 2 --ts 3
+
+@[code](@/content/guides/dialog/dialog/javascript/example8.html)
+@[code](@/content/guides/dialog/dialog/javascript/example8.js)
+@[code](@/content/guides/dialog/dialog/javascript/example8.ts)
+
+:::
+
+:::
+
+::: only-for react
+
+::: example #example8 :react --js 1 --ts 2
+
+@[code](@/content/guides/dialog/dialog/react/example8.jsx)
+@[code](@/content/guides/dialog/dialog/react/example8.tsx)
+
+:::
+
+:::
+
+::: only-for angular
+
+::: example #example8 :angular --ts 1 --html 2
+
+@[code](@/content/guides/dialog/dialog/angular/example8.ts)
+@[code](@/content/guides/dialog/dialog/angular/example8.html)
+
+:::
+
+:::
+
+::: only-for vue
+
+::: example #example8 :vue3
+
+@[code collapse={11-32,52-58}](@/content/guides/dialog/dialog/vue/example8.vue)
+
+:::
+
+:::
+
+## Related API reference
+
+**Configuration options**
+
+<div class="boxes-list">
+
+- [dialog](@/api/options.md#dialog)
+
+</div>
+
+**Plugins**
+
+<div class="boxes-list">
+
+- [Dialog](@/api/dialog.md)
+
+</div>
+
+**Hooks**
+
+<div class="boxes-list">
+
+- [afterDialogFocus](@/api/hooks.md#afterdialogfocus)
+- [afterDialogHide](@/api/hooks.md#afterdialoghide)
+- [afterDialogShow](@/api/hooks.md#afterdialogshow)
+- [beforeDialogHide](@/api/hooks.md#beforedialoghide)
+- [beforeDialogShow](@/api/hooks.md#beforedialogshow)
+- [dialogFocusNextElement](@/api/hooks.md#dialogfocusnextelement)
+- [dialogFocusPreviousElement](@/api/hooks.md#dialogfocuspreviouselement)
+
+</div>

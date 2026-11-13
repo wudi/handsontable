@@ -1,4 +1,5 @@
 import {
+  AsyncValues,
   AutoColumnSize,
   Autofill,
   AutoRowSize,
@@ -15,7 +16,9 @@ import {
   DropdownMenu,
   ExportFile,
   Filters,
+  FormulaBuilder,
   Formulas,
+  FreezeBar,
   HiddenColumns,
   HiddenRows,
   ManualColumnFreeze,
@@ -24,14 +27,18 @@ import {
   ManualRowMove,
   ManualRowResize,
   MergeCells,
+  MoveCells,
   MultiColumnSorting,
   MultipleSelectionHandles,
   NestedHeaders,
   NestedRows,
-  PersistentState,
   Search,
+  SelectionHandles,
   TouchScroll,
   TrimRows,
+  Dialog,
+  Loading,
+  EmptyDataState,
   UndoRedo,
   getPlugin,
   registerAllPlugins,
@@ -40,6 +47,7 @@ import {
 
 registerAllPlugins();
 
+registerPlugin(AsyncValues);
 registerPlugin(AutoColumnSize);
 registerPlugin(Autofill);
 registerPlugin(AutoRowSize);
@@ -55,7 +63,9 @@ registerPlugin(DragToScroll);
 registerPlugin(DropdownMenu);
 registerPlugin(ExportFile);
 registerPlugin(Filters);
+registerPlugin(FormulaBuilder);
 registerPlugin(Formulas);
+registerPlugin(FreezeBar);
 registerPlugin(HiddenColumns);
 registerPlugin(HiddenRows);
 registerPlugin(ManualColumnFreeze);
@@ -64,48 +74,60 @@ registerPlugin(ManualColumnResize);
 registerPlugin(ManualRowMove);
 registerPlugin(ManualRowResize);
 registerPlugin(MergeCells);
+registerPlugin(MoveCells);
 registerPlugin(MultiColumnSorting);
 registerPlugin(MultipleSelectionHandles);
 registerPlugin(NestedHeaders);
 registerPlugin(NestedRows);
-registerPlugin(PersistentState);
 registerPlugin(Search);
+registerPlugin(SelectionHandles);
 registerPlugin(TouchScroll);
 registerPlugin(TrimRows);
+registerPlugin(Dialog);
+registerPlugin(Loading);
+registerPlugin(EmptyDataState);
 registerPlugin(UndoRedo);
 registerPlugin('custom', class CustomPlugin extends BasePlugin {});
 
-const autoColumnSize: AutoColumnSize = getPlugin('autoColumnSize');
-const autofill: Autofill = getPlugin('autofill');
-const autoRowSize: AutoRowSize = getPlugin('autoRowSize');
-const bindRowsWithHeaders: BindRowsWithHeaders = getPlugin('bindRowsWithHeaders');
-const collapsibleColumns: CollapsibleColumns = getPlugin('collapsibleColumns');
-const columnSorting: ColumnSorting = getPlugin('columnSorting');
-const columnSummary: ColumnSummary = getPlugin('columnSummary');
-const comments: Comments = getPlugin('comments');
-const contextMenu: ContextMenu = getPlugin('contextMenu');
-const copyPaste: CopyPaste = getPlugin('copyPaste');
-const customBorders: CustomBorders = getPlugin('customBorders');
-const dragToScroll: DragToScroll = getPlugin('dragToScroll');
-const dropdownMenu: DropdownMenu = getPlugin('dropdownMenu');
-const exportFile: ExportFile = getPlugin('exportFile');
-const filters: Filters = getPlugin('filters');
-const formulas: Formulas = getPlugin('formulas');
-const hiddenColumns: HiddenColumns = getPlugin('hiddenColumns');
-const hiddenRows: HiddenRows = getPlugin('hiddenRows');
-const manualColumnFreeze: ManualColumnFreeze = getPlugin('manualColumnFreeze');
-const manualColumnMove: ManualColumnMove = getPlugin('manualColumnMove');
-const manualColumnResize: ManualColumnResize = getPlugin('manualColumnResize');
-const manualRowMove: ManualRowMove = getPlugin('manualRowMove');
-const manualRowResize: ManualRowResize = getPlugin('manualRowResize');
-const mergeCells: MergeCells = getPlugin('mergeCells');
-const multiColumnSorting: MultiColumnSorting = getPlugin('multiColumnSorting');
-const multipleSelectionHandles: MultipleSelectionHandles = getPlugin('multipleSelectionHandles');
-const nestedHeaders: NestedHeaders = getPlugin('nestedHeaders');
-const nestedRows: NestedRows = getPlugin('nestedRows');
-const persistentState: PersistentState = getPlugin('persistentState');
-const search: Search = getPlugin('search');
-const touchScroll: TouchScroll = getPlugin('touchScroll');
-const trimRows: TrimRows = getPlugin('trimRows');
-const undoRedo: UndoRedo = getPlugin('undoRedo');
-const custom: BasePlugin = getPlugin('custom');
+// getPlugin() infers the specific constructor type for each registered plugin name.
+const asyncValues: typeof AsyncValues | undefined = getPlugin('asyncValues');
+const autoColumnSize: typeof AutoColumnSize | undefined = getPlugin('autoColumnSize');
+const autofill: typeof Autofill | undefined = getPlugin('autofill');
+const autoRowSize: typeof AutoRowSize | undefined = getPlugin('autoRowSize');
+const bindRowsWithHeaders: typeof BindRowsWithHeaders | undefined = getPlugin('bindRowsWithHeaders');
+const collapsibleColumns: typeof CollapsibleColumns | undefined = getPlugin('collapsibleColumns');
+const columnSorting: typeof ColumnSorting | undefined = getPlugin('columnSorting');
+const columnSummary: typeof ColumnSummary | undefined = getPlugin('columnSummary');
+const comments: typeof Comments | undefined = getPlugin('comments');
+const contextMenu: typeof ContextMenu | undefined = getPlugin('contextMenu');
+const copyPaste: typeof CopyPaste | undefined = getPlugin('copyPaste');
+const customBorders: typeof CustomBorders | undefined = getPlugin('customBorders');
+const dragToScroll: typeof DragToScroll | undefined = getPlugin('dragToScroll');
+const dropdownMenu: typeof DropdownMenu | undefined = getPlugin('dropdownMenu');
+const exportFile: typeof ExportFile | undefined = getPlugin('exportFile');
+const filters: typeof Filters | undefined = getPlugin('filters');
+const formulaBuilder: typeof FormulaBuilder | undefined = getPlugin('formulaBuilder');
+const formulas: typeof Formulas | undefined = getPlugin('formulas');
+const freezeBar: typeof FreezeBar | undefined = getPlugin('freezeBar');
+const hiddenColumns: typeof HiddenColumns | undefined = getPlugin('hiddenColumns');
+const hiddenRows: typeof HiddenRows | undefined = getPlugin('hiddenRows');
+const manualColumnFreeze: typeof ManualColumnFreeze | undefined = getPlugin('manualColumnFreeze');
+const manualColumnMove: typeof ManualColumnMove | undefined = getPlugin('manualColumnMove');
+const manualColumnResize: typeof ManualColumnResize | undefined = getPlugin('manualColumnResize');
+const manualRowMove: typeof ManualRowMove | undefined = getPlugin('manualRowMove');
+const manualRowResize: typeof ManualRowResize | undefined = getPlugin('manualRowResize');
+const mergeCells: typeof MergeCells | undefined = getPlugin('mergeCells');
+const moveCells: typeof MoveCells | undefined = getPlugin('moveCells');
+const multiColumnSorting: typeof MultiColumnSorting | undefined = getPlugin('multiColumnSorting');
+const multipleSelectionHandles: typeof MultipleSelectionHandles | undefined = getPlugin('multipleSelectionHandles');
+const nestedHeaders: typeof NestedHeaders | undefined = getPlugin('nestedHeaders');
+const nestedRows: typeof NestedRows | undefined = getPlugin('nestedRows');
+const search: typeof Search | undefined = getPlugin('search');
+const selectionHandles: typeof SelectionHandles | undefined = getPlugin('selectionHandles');
+const touchScroll: typeof TouchScroll | undefined = getPlugin('touchScroll');
+const trimRows: typeof TrimRows | undefined = getPlugin('trimRows');
+const dialog: typeof Dialog | undefined = getPlugin('dialog');
+const loading: typeof Loading | undefined = getPlugin('loading');
+const emptyDataState: typeof EmptyDataState | undefined = getPlugin('emptyDataState');
+const undoRedo: typeof UndoRedo | undefined = getPlugin('undoRedo');
+const custom: typeof BasePlugin | undefined = getPlugin('custom');

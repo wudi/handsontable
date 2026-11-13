@@ -1,0 +1,601 @@
+import {
+  DATA_PROVIDER_ERROR_UPDATE_MISSING_ROW_ID,
+} from '../../constants';
+import {
+  commitRowsUpdate as commitRowsUpdateImpl,
+  enqueueMutation,
+  filterChangesForBatchedServerUpdate,
+  findVisualRowById,
+  getRowIdByVisualRow,
+  handleBeforeAlterForCrud,
+  isMissingRowId,
+  queueCrud,
+  rowIdsFromAlterRemove,
+  runManualUpdateRowsMutation,
+  runUpdateFromChanges,
+  prepareUpdateFromChanges,
+  shouldIgnoreAfterChangeForServerUpdate,
+} from '../../query/crud';
+
+describe('dataProvider crud', () => {
+  describe('getRowIdByVisualRow', () => {
+    it('should read the id of the physical row through Core', () => {
+      const hot = {
+        toPhysicalRow: visualRow => visualRow + 10,
+        getRowIdAtPhysicalRow: physicalRow => `ORD-${physicalRow}`,
+      };
+
+      expect(getRowIdByVisualRow(hot, 'id', 2)).toBe('ORD-12');
+    });
+
+    it('should return undefined for a row without an id', () => {
+      const hot = {
+        toPhysicalRow: visualRow => visualRow,
+        getRowIdAtPhysicalRow: () => null,
+      };
+
+      expect(getRowIdByVisualRow(hot, 'id', 0)).toBeUndefined();
+    });
+
+    it('should return undefined without reading a row when the rowId option is null or undefined', () => {
+      const hot = {
+        toPhysicalRow: jest.fn(visualRow => visualRow),
+        getRowIdAtPhysicalRow: jest.fn(() => 'ORD-1'),
+      };
+
+      expect(getRowIdByVisualRow(hot, null, 0)).toBeUndefined();
+      expect(getRowIdByVisualRow(hot, undefined, 0)).toBeUndefined();
+      expect(hot.toPhysicalRow).not.toHaveBeenCalled();
+      expect(hot.getRowIdAtPhysicalRow).not.toHaveBeenCalled();
+    });
+
+    it('should return undefined without reading a row when the rowId option is neither a string nor a function', () => {
+      const hot = {
+        toPhysicalRow: jest.fn(visualRow => visualRow),
+        getRowIdAtPhysicalRow: jest.fn(() => 'ORD-1'),
+      };
+
+      expect(getRowIdByVisualRow(hot, 5, 0)).toBeUndefined();
+      expect(getRowIdByVisualRow(hot, true, 0)).toBeUndefined();
+      expect(hot.getRowIdAtPhysicalRow).not.toHaveBeenCalled();
+    });
+
+    it('should return undefined without reading a row for a visual row with no physical row', () => {
+      const hot = {
+        toPhysicalRow: () => null,
+        getRowIdAtPhysicalRow: jest.fn(() => 'ORD-1'),
+      };
+
+      expect(getRowIdByVisualRow(hot, 'id', 5)).toBeUndefined();
+      expect(hot.getRowIdAtPhysicalRow).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('findVisualRowById', () => {
+    it('should return the visual row that holds the id, or -1', () => {
+      const hot = {
+        countRows: () => 3,
+        toPhysicalRow: visualRow => visualRow,
+        getRowIdAtPhysicalRow: physicalRow => `ORD-${physicalRow}`,
+      };
+
+      expect(findVisualRowById(hot, 'id', 'ORD-2')).toBe(2);
+      expect(findVisualRowById(hot, 'id', 'ORD-9')).toBe(-1);
+    });
+  });
+
+  describe('shouldIgnoreAfterChangeForServerUpdate', () => {
+    it('should ignore when onRowsUpdate is missing or changes are empty', () => {
+      expect(shouldIgnoreAfterChangeForServerUpdate(false, [[0, 'a', 1, 2]], 'edit')).toBe(true);
+      expect(shouldIgnoreAfterChangeForServerUpdate(true, [], 'edit')).toBe(true);
+      expect(shouldIgnoreAfterChangeForServerUpdate(true, null, 'edit')).toBe(true);
+    });
+
+    it('should ignore revert and sources outside batch set', () => {
+      expect(shouldIgnoreAfterChangeForServerUpdate(true, [[0, 'a', 1, 2]], 'DataProvider.revert')).toBe(true);
+      expect(shouldIgnoreAfterChangeForServerUpdate(true, [[0, 'a', 1, 2]], 'LoadData')).toBe(true);
+    });
+
+    it('should not ignore batched edit sources', () => {
+      expect(shouldIgnoreAfterChangeForServerUpdate(true, [[0, 'a', 1, 2]], 'edit')).toBe(false);
+      expect(shouldIgnoreAfterChangeForServerUpdate(true, [[0, 'a', 1, 2]], undefined)).toBe(false);
+      expect(shouldIgnoreAfterChangeForServerUpdate(true, [[0, 'a', 1, 2]], 'ContextMenu.clearColumn')).toBe(false);
+    });
+  });
+
+  describe('filterChangesForBatchedServerUpdate', () => {
+    const hot = {
+      propToCol: prop => (prop === 'bad' ? -1 : 0),
+      getCellMetaTransient: (row, col) => ({ valid: row === 0 && col === 0 }),
+    };
+
+    it('should drop no-op edits and invalid cells', () => {
+      const changes = [
+        [0, 'ok', 1, 2],
+        [0, 'ok', 2, 2],
+        [1, 'ok', 1, 3],
+        [0, 'bad', 1, 9],
+      ];
+
+      expect(filterChangesForBatchedServerUpdate(hot, changes)).toEqual([[0, 'ok', 1, 2]]);
+    });
+
+    it('should keep a change written past the last column, as the grid still applies it', () => {
+      const pastLastColumnHot = {
+        // A numeric property past the last column names no column.
+        propToCol: prop => (prop === 'name' ? 0 : null),
+        getCellMetaTransient: () => ({}),
+      };
+      const changes = [
+        [0, 'name', 'a', 'b'],
+        [0, 5, null, 'x'],
+      ];
+
+      expect(filterChangesForBatchedServerUpdate(pastLastColumnHot, changes)).toEqual([
+        [0, 'name', 'a', 'b'],
+        [0, 5, null, 'x'],
+      ]);
+    });
+  });
+
+  describe('commitRowsUpdate', () => {
+    it('should call onRequestFailed with update when onRowsUpdate rejects', async() => {
+      const err = new Error('server update failed');
+      const onRequestFailed = jest.fn();
+      const hot = {
+        render: jest.fn(),
+        runHooks: jest.fn(),
+      };
+
+      await commitRowsUpdateImpl(hot, {
+        getOnRowsUpdate: () => async() => {
+          throw err;
+        },
+        fetchData: jest.fn(),
+        logError: jest.fn(),
+        onRequestFailed,
+      }, [{ id: 1, changes: {}, rowData: {} }]);
+
+      expect(onRequestFailed).toHaveBeenCalledWith('update', err);
+      expect(hot.runHooks).toHaveBeenCalledWith('afterRowsMutationError', 'update', err, expect.any(Object));
+    });
+
+    it('should not call onRequestFailed when fetchData rejects after onRowsUpdate (fetchData owns fetch error UI)', async() => {
+      const err = new Error('refetch failed');
+      const onRequestFailed = jest.fn();
+      const hot = {
+        render: jest.fn(),
+        runHooks: jest.fn(),
+      };
+
+      await commitRowsUpdateImpl(hot, {
+        getOnRowsUpdate: () => async() => {},
+        fetchData: async() => {
+          throw err;
+        },
+        logError: jest.fn(),
+        onRequestFailed,
+      }, [{ id: 1, changes: {}, rowData: {} }]);
+
+      expect(onRequestFailed).not.toHaveBeenCalled();
+      expect(hot.runHooks).toHaveBeenCalledWith('afterRowsMutation', 'update', expect.any(Object));
+      expect(hot.runHooks).toHaveBeenCalledWith('afterRowsMutationError', 'update', err, expect.any(Object));
+    });
+  });
+
+  describe('queueCrud', () => {
+    it('should call onRequestFailed with create when onRowsCreate rejects', async() => {
+      const err = new Error('create failed');
+      const onRequestFailed = jest.fn();
+      const state = { tail: Promise.resolve() };
+
+      await queueCrud(
+        {
+          enqueueMutation: fn => enqueueMutation(state, fn),
+          runBeforeRowsMutation: () => undefined,
+          runAfterRowsMutation: jest.fn(),
+          runAfterRowsMutationError: jest.fn(),
+          logError: jest.fn(),
+          onRequestFailed,
+        },
+        'create',
+        {},
+        async() => {
+          throw err;
+        },
+        async() => {}
+      );
+
+      expect(onRequestFailed).toHaveBeenCalledWith('create', err);
+    });
+
+    it('should not call onRequestFailed when refetch rejects after create (fetchData owns fetch error UI)', async() => {
+      const err = new Error('reload failed');
+      const onRequestFailed = jest.fn();
+      const state = { tail: Promise.resolve() };
+
+      await queueCrud(
+        {
+          enqueueMutation: fn => enqueueMutation(state, fn),
+          runBeforeRowsMutation: () => undefined,
+          runAfterRowsMutation: jest.fn(),
+          runAfterRowsMutationError: jest.fn(),
+          logError: jest.fn(),
+          onRequestFailed,
+        },
+        'create',
+        {},
+        async() => {},
+        async() => {
+          throw err;
+        }
+      );
+
+      expect(onRequestFailed).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('enqueueMutation', () => {
+    it('should run mutations sequentially', async() => {
+      const state = { tail: Promise.resolve() };
+      const order = [];
+
+      await enqueueMutation(state, async() => {
+        order.push(1);
+      });
+      await enqueueMutation(state, async() => {
+        order.push(2);
+      });
+
+      expect(order).toEqual([1, 2]);
+    });
+  });
+
+  describe('isMissingRowId', () => {
+    it('should be true only for null and undefined', () => {
+      expect(isMissingRowId(undefined)).toBe(true);
+      expect(isMissingRowId(null)).toBe(true);
+      expect(isMissingRowId(0)).toBe(false);
+      expect(isMissingRowId('')).toBe(false);
+    });
+  });
+
+  describe('handleBeforeAlterForCrud', () => {
+    it('should pass alter amount as rowsAmount to createRows for insert_row_above', () => {
+      const createRows = jest.fn();
+      const onRowsCreate = jest.fn();
+      const ctx = {
+        hot: {
+          countSourceRows: () => 1,
+          getSettings: () => ({}),
+        },
+        getOnRowsCreate: () => onRowsCreate,
+        getOnRowsRemove: () => undefined,
+        getRowIdOption: () => 'id',
+        getRowId: () => 42,
+        createRows,
+        removeRows: jest.fn(),
+      };
+
+      const result = handleBeforeAlterForCrud(ctx, 'insert_row_above', 0, 3);
+
+      expect(result).toBe(false);
+      expect(createRows).toHaveBeenCalledWith({
+        position: 'above',
+        referenceRowId: 42,
+        rowsAmount: 3,
+      });
+    });
+
+    it('should pass alter amount as rowsAmount to createRows for insert_row_below', () => {
+      const createRows = jest.fn();
+      const onRowsCreate = jest.fn();
+      const ctx = {
+        hot: {
+          countSourceRows: () => 1,
+          getSettings: () => ({}),
+        },
+        getOnRowsCreate: () => onRowsCreate,
+        getOnRowsRemove: () => undefined,
+        getRowIdOption: () => 'id',
+        getRowId: () => 7,
+        createRows,
+        removeRows: jest.fn(),
+      };
+
+      const result = handleBeforeAlterForCrud(ctx, 'insert_row_below', 0, 2);
+
+      expect(result).toBe(false);
+      expect(createRows).toHaveBeenCalledWith({
+        position: 'below',
+        referenceRowId: 7,
+        rowsAmount: 2,
+      });
+    });
+  });
+
+  describe('rowIdsFromAlterRemove', () => {
+    it('should throw when rowId is missing on a row', () => {
+      const hot = {
+        countRows: () => 1,
+        toPhysicalRow: vr => vr,
+        getSourceDataAtRow: () => ({ name: 'only' }),
+        getRowIdAtPhysicalRow: () => null,
+      };
+
+      expect(() => rowIdsFromAlterRemove(hot, 'id', 0, 1)).toThrow(/visual index 0/);
+    });
+
+    it('should raise the missing row id error when a function row key throws', () => {
+      const keyError = new TypeError('Cannot read properties of undefined');
+      const hot = {
+        countRows: () => 1,
+        toPhysicalRow: vr => vr,
+        getRowIdAtPhysicalRow: () => {
+          throw keyError;
+        },
+      };
+      const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      expect(() => rowIdsFromAlterRemove(hot, row => row.sku.code, 0, 1)).toThrow(/visual index 0/);
+      expect(consoleError).toHaveBeenCalledWith('Reading the row id failed:', keyError);
+
+      consoleError.mockRestore();
+    });
+  });
+
+  describe('runUpdateFromChanges', () => {
+    it('should not commit when row id is missing', async() => {
+      const changes = [[0, 'name', 'A', 'B']];
+      const commitRowsUpdate = jest.fn();
+      const hot = {
+        toPhysicalRow: vr => vr,
+        getSourceDataAtRow: () => ({ name: 'A' }),
+        getRowIdAtPhysicalRow: () => null,
+        propToCol: () => 0,
+        colToProp: () => 'name',
+        countRows: () => 1,
+        batch: fn => fn(),
+        setDataAtRowProp: jest.fn(),
+        render: jest.fn(),
+        runHooks: jest.fn(),
+      };
+
+      await runUpdateFromChanges(hot, {
+        getRowIdOption: () => 'id',
+        commitRowsUpdate,
+      }, changes);
+
+      expect(commitRowsUpdate).not.toHaveBeenCalled();
+      expect(hot.runHooks).toHaveBeenCalledWith(
+        'afterRowsMutationError',
+        'update',
+        expect.objectContaining({ message: DATA_PROVIDER_ERROR_UPDATE_MISSING_ROW_ID }),
+        expect.any(Object)
+      );
+    });
+  });
+
+  describe('prepareUpdateFromChanges', () => {
+    it('should build the payloads from the rows the grid shows when it is called', () => {
+      const hot = {
+        toPhysicalRow: vr => vr,
+        getSourceDataAtRow: vr => ({ id: `ORD-${vr}`, name: 'A' }),
+        getRowIdAtPhysicalRow: physicalRow => `ORD-${physicalRow}`,
+        propToCol: () => 0,
+        colToProp: () => 'name',
+      };
+
+      const prepared = prepareUpdateFromChanges(hot, 'id', [[1, 'name', 'A', 'B']]);
+
+      expect(prepared.sortedRows).toEqual([1]);
+      expect(prepared.rowPayloads).toEqual([
+        { id: 'ORD-1', changes: { name: 'B' }, rowData: { id: 'ORD-1', name: 'B' } },
+      ]);
+      expect(prepared.validation).toBeUndefined();
+    });
+
+    it('should log a row key that throws and leave the payload without an id', () => {
+      const keyError = new TypeError('Cannot read properties of undefined');
+      const hot = {
+        toPhysicalRow: vr => vr,
+        getSourceDataAtRow: () => ({ name: 'A' }),
+        getRowIdAtPhysicalRow: () => {
+          throw keyError;
+        },
+        propToCol: () => 0,
+        colToProp: () => 'name',
+      };
+      const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      const prepared = prepareUpdateFromChanges(hot, row => row.meta.id, [[0, 'name', 'A', 'B']]);
+
+      expect(prepared.rowPayloads).toEqual([{ id: undefined, changes: { name: 'B' }, rowData: { name: 'B' } }]);
+      expect(consoleError).toHaveBeenCalledWith('Reading the row id failed:', keyError);
+
+      consoleError.mockRestore();
+    });
+
+    it('should start the validation when asked to validate now', async() => {
+      const hot = {
+        toPhysicalRow: vr => vr,
+        getSourceDataAtRow: () => ({ id: 1, name: 'A' }),
+        getRowIdAtPhysicalRow: () => 1,
+        propToCol: () => 0,
+        colToProp: () => 'name',
+        getCellMeta: () => ({ allowInvalid: false }),
+        getCellValidator: () => () => {},
+        validateCell: jest.fn((value, cellMeta, cb) => cb(false)),
+      };
+
+      const prepared = prepareUpdateFromChanges(hot, 'id', [[0, 'name', 'A', 'B']], { validateNow: true });
+
+      expect(hot.validateCell).toHaveBeenCalledTimes(1);
+      expect(await prepared.validation).toEqual([false]);
+    });
+  });
+
+  describe('runUpdateFromChanges with prepared payloads', () => {
+    it('should commit the prepared payloads without reading the grid again', async() => {
+      const commitRowsUpdate = jest.fn(() => Promise.resolve());
+      const hot = {
+        getSourceDataAtRow: jest.fn(),
+        getRowIdAtPhysicalRow: jest.fn(),
+        runHooks: jest.fn(),
+      };
+      const prepared = {
+        sortedRows: [0],
+        rowPayloads: [{ id: 'ORD-1', changes: { name: 'B' }, rowData: { id: 'ORD-1', name: 'B' } }],
+        validation: Promise.resolve([true]),
+      };
+
+      await runUpdateFromChanges(hot, {
+        getRowIdOption: () => 'id',
+        commitRowsUpdate,
+      }, [[0, 'name', 'A', 'B']], prepared);
+
+      expect(hot.getSourceDataAtRow).not.toHaveBeenCalled();
+      expect(hot.getRowIdAtPhysicalRow).not.toHaveBeenCalled();
+      expect(commitRowsUpdate).toHaveBeenCalledWith(prepared.rowPayloads, expect.any(Object));
+    });
+
+    it('should revert through revertChanges when the prepared validation failed', async() => {
+      const commitRowsUpdate = jest.fn();
+      const revertChanges = jest.fn();
+      const changes = [[0, 'name', 'A', 'B']];
+      const hot = {
+        runHooks: jest.fn(),
+        render: jest.fn(),
+        setDataAtRowProp: jest.fn(),
+      };
+
+      await runUpdateFromChanges(hot, {
+        getRowIdOption: () => 'id',
+        commitRowsUpdate,
+        revertChanges,
+      }, changes, {
+        sortedRows: [0],
+        rowPayloads: [{ id: 'ORD-1', changes: { name: 'B' }, rowData: {} }],
+        validation: Promise.resolve([false]),
+      });
+
+      expect(commitRowsUpdate).not.toHaveBeenCalled();
+      expect(revertChanges).toHaveBeenCalledWith(changes);
+      expect(hot.setDataAtRowProp).not.toHaveBeenCalled();
+    });
+
+    it('should neither revert, report, nor commit once the grid is destroyed while validating', async() => {
+      const commitRowsUpdate = jest.fn();
+      const revertChanges = jest.fn();
+      const hot = {
+        isDestroyed: false,
+        runHooks: jest.fn(),
+        render: jest.fn(),
+      };
+
+      const update = runUpdateFromChanges(hot, {
+        getRowIdOption: () => 'id',
+        commitRowsUpdate,
+        revertChanges,
+      }, [[0, 'name', 'A', 'B']], {
+        sortedRows: [0],
+        rowPayloads: [{ id: 'ORD-1', changes: { name: 'B' }, rowData: {} }],
+        validation: Promise.resolve([false]),
+      });
+
+      hot.isDestroyed = true;
+      await update;
+
+      expect(hot.runHooks.mock.calls.map(([name]) => name)).toEqual(['beforeRowsMutation']);
+      expect(hot.render).not.toHaveBeenCalled();
+      expect(revertChanges).not.toHaveBeenCalled();
+      expect(commitRowsUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('runManualUpdateRowsMutation', () => {
+    it('should not commit once the grid is destroyed while validating', async() => {
+      const commitRowsUpdate = jest.fn();
+      const hot = {
+        isDestroyed: false,
+        runHooks: jest.fn(),
+        countRows: () => 0,
+      };
+
+      const update = runManualUpdateRowsMutation(hot, {
+        getRowIdOption: () => 'id',
+        commitRowsUpdate,
+      }, [{ id: 1, changes: { name: 'B' }, rowData: {} }]);
+
+      hot.isDestroyed = true;
+      await update;
+
+      expect(commitRowsUpdate).not.toHaveBeenCalled();
+    });
+
+    it('should not commit when beforeRowsMutation returns false', async() => {
+      const commitRowsUpdate = jest.fn();
+      const hot = {
+        runHooks: jest.fn(name => (name === 'beforeRowsMutation' ? false : undefined)),
+      };
+
+      await runManualUpdateRowsMutation(hot, {
+        getRowIdOption: () => 'id',
+        commitRowsUpdate,
+      }, [{ id: 1, changes: {}, rowData: {} }]);
+
+      expect(commitRowsUpdate).not.toHaveBeenCalled();
+      expect(hot.runHooks).toHaveBeenCalledWith(
+        'beforeRowsMutation',
+        'update',
+        expect.objectContaining({
+          rows: [{ id: 1, changes: {}, rowData: {} }],
+        })
+      );
+    });
+
+    it('should not commit when validation fails for a present row', async() => {
+      const commitRowsUpdate = jest.fn();
+      const hot = {
+        runHooks: jest.fn(),
+        countRows: () => 1,
+        toPhysicalRow: vr => vr,
+        getSourceDataAtRow: () => ({ id: 1, name: 'a' }),
+        getRowIdAtPhysicalRow: () => 1,
+        propToCol: () => 0,
+        colToProp: () => 'name',
+        getCellMeta: () => ({ allowInvalid: false }),
+        getCellMetaTransient: () => ({ allowInvalid: false }),
+        getCellValidator: () => () => {},
+        validateCell: (value, cellMeta, cb) => {
+          cb(false);
+        },
+      };
+
+      await runManualUpdateRowsMutation(hot, {
+        getRowIdOption: () => 'id',
+        commitRowsUpdate,
+      }, [{ id: 1, changes: { name: 'b' }, rowData: { id: 1, name: 'b' } }]);
+
+      expect(commitRowsUpdate).not.toHaveBeenCalled();
+      expect(hot.runHooks).toHaveBeenCalledWith(
+        'afterRowsMutationError',
+        'update',
+        expect.objectContaining({ message: 'Row update validation failed' }),
+        expect.any(Object)
+      );
+    });
+
+    it('should commit when there is nothing to validate', async() => {
+      const commitRowsUpdate = jest.fn().mockResolvedValue(undefined);
+      const hot = { runHooks: jest.fn(), countRows: () => 0 };
+
+      await runManualUpdateRowsMutation(hot, {
+        getRowIdOption: () => 'id',
+        commitRowsUpdate,
+      }, [{ id: 1, changes: {}, rowData: {} }]);
+
+      expect(commitRowsUpdate).toHaveBeenCalledWith([{ id: 1, changes: {}, rowData: {} }]);
+    });
+  });
+});
